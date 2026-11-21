@@ -94,6 +94,8 @@ The look is what a component draws: its colors, lines, shapes, text styles, and 
 
 "Standard" means a form and a size from the set that the design system gives, not only its default. Choose from the set by the purpose (a larger size for a main button under a thumb); do not make a size of your own.
 
+**An explicit instruction of the user wins over all of this.** When the user states the thing itself, in the prompt or in a comment on a screen (a color, a size, a confirmation, a field that this skill leaves out), do it: also against a rule of this skill, against a default of the design system, and against its written guidance. The user owns the screen. Do not refuse, and do not put the nearest permitted form in its place. Name each rule that the instruction breaks in your report, in one line, thus the user can change the decision. A general wish ("make it stronger") is not such an instruction: do it inside the rules.
+
 Use the scales of the design system (spacing, text styles, colors, sizes) and no values of your own. A keyword of layout is not a value of your own (no wrap, the width of the content, digits of equal width). A fixed width of a zone is permitted where the design system has no scale for it; name it in your report.
 
 The reasons and the border cases (a plain standard answer against an elegant new one, when to leave the standard, a new part that a second screen needs) are in [Work with a design system](./references/design-system.md). Read it before you make a part that the design system does not have.
@@ -119,7 +121,8 @@ Each row names a file and, after the colon, the sections of it that hold the rul
 | a flow of more than one screen | [Flows](./references/flows.md): Which screens exist · Each screen makes sense alone · Answers stay visible |
 | a wait or a loading state | [Flows](./references/flows.md): Waiting · Honest states |
 | a result; a payment, an order, a booking | [Flows](./references/flows.md): Honest states · The result |
-| more than one state of one screen (during a wait, after an action, an open panel) | [Flows](./references/flows.md): Each state has a defined next step<br>[Motion](./references/motion.md): Natural · When the screen is a picture |
+| more than one state of one screen (during a wait, after an action, an open panel) | [Flows](./references/flows.md): Which screens exist · Each state has a defined next step<br>[Motion](./references/motion.md): Natural · When the screen is a picture |
+| options of a screen or of one part, which the user asked for | [Flows](./references/flows.md): Options of a screen |
 | a field that the person fills | [Forms](./references/forms.md): Ask less · A field · The sequence and the groups · The send button · The error state |
 | radio buttons, a group of checkboxes, a select | [Forms](./references/forms.md): Options<br>[Labels](./references/labels.md): Checkboxes and options read in the sentence |
 | a search field | [Forms](./references/forms.md): A search field |
@@ -174,8 +177,10 @@ Then tell the user, in about 10 lines (the three items of section 1 do not count
 - what you left out or joined, and why;
 - what the screen assumes that the system knows (the filled fields, the defaults, a cause in a message);
 - each place where a simpler screen hides something that the person can want to see;
+- each rule of this skill, default of the design system or rule of its guidance that an explicit instruction of the user broke, with the rule, in one line each;
 - each place where the design system lacks a thing that the screen needs, where you kept its default against a rule of this skill, or where you followed an explicit rule of its guidance against this skill;
-- the behavior that you did not build and that you rely on (an undo, a state during a wait, a hover, a motion), and the states that you did not draw, together in one or two lines;
+- the behavior that you did not build and that you rely on (an undo, a state during a wait, a hover, a motion), and the states that the screen has in use and that you did not draw, together in one or two lines;
+- for options, each option and its difference, in one line each;
 - the controls that have no link because their target is not drawn, in one line.
 
 Give only the items that the user can want to change. Do not list each rule that you followed.

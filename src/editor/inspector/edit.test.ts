@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { commentLimit, type Change, type Target } from '../../requests/format.ts'
+import { commentLimit, optionCounts, type Change, type Target } from '../../requests/format.ts'
 import type { TextStyle, Token } from '../../tokens/format.ts'
 import type { Item } from '../edits/model.ts'
 import type { Site } from '../locate/fiber.ts'
@@ -9,10 +9,13 @@ import {
   commentEdit,
   commentText,
   controlOf,
+  keepEdit,
   layoutEdit,
   layoutKeywords,
   movePlan,
   newEditId,
+  optionCount,
+  optionsEdit,
   orderEdit,
   rowAction,
   removeEdit,
@@ -489,6 +492,89 @@ describe('commentEdit', () => {
 
   test('a new comment gets a new id', () => {
     expect(commentEdit(target, 390, 'A').id).not.toBe(commentEdit(target, 390, 'A').id)
+  })
+})
+
+describe('optionCount', () => {
+  test('a whole number in the range stays', () => {
+    expect(optionCount('2')).toBe(2)
+    expect(optionCount(' 4 ')).toBe(4)
+    expect(optionCount(String(optionCounts.max))).toBe(optionCounts.max)
+  })
+
+  test('a number outside the range goes to the nearest end', () => {
+    expect(optionCount('1')).toBe(optionCounts.min)
+    expect(optionCount('-3')).toBe(optionCounts.min)
+    expect(optionCount('7')).toBe(optionCounts.max)
+    expect(optionCount('100')).toBe(optionCounts.max)
+  })
+
+  test('a fraction goes to the nearest whole number', () => {
+    expect(optionCount('3.4')).toBe(3)
+    expect(optionCount('4.6')).toBe(5)
+  })
+
+  test('a text that is not a number gives the count at first', () => {
+    expect(optionCount('')).toBe(optionCounts.initial)
+    expect(optionCount('  ')).toBe(optionCounts.initial)
+    expect(optionCount('three')).toBe(optionCounts.initial)
+    expect(optionCount('3x')).toBe(optionCounts.initial)
+    expect(optionCount('Infinity')).toBe(optionCounts.initial)
+  })
+})
+
+describe('optionsEdit', () => {
+  test('gives a request for options of the target with the trimmed note', () => {
+    expect(optionsEdit(target, 1440, 3, '  Fewer fields  ', 'e1')).toEqual({
+      id: 'e1',
+      target,
+      width: 1440,
+      change: { kind: 'options', count: 3, note: 'Fewer fields' },
+    })
+  })
+
+  test('the target null gives a request for options of the screen; the note can be empty', () => {
+    expect(optionsEdit(null, 390, optionCounts.min, '   ', 'e2')).toEqual({
+      id: 'e2',
+      target: null,
+      width: 390,
+      change: { kind: 'options', count: optionCounts.min, note: '' },
+    })
+  })
+
+  test('null for a count outside the range or not whole', () => {
+    expect(optionsEdit(target, 1440, optionCounts.min - 1, '')).toBeNull()
+    expect(optionsEdit(target, 1440, optionCounts.max + 1, '')).toBeNull()
+    expect(optionsEdit(target, 1440, 2.5, '')).toBeNull()
+    expect(optionsEdit(target, 1440, Number.NaN, '')).toBeNull()
+  })
+
+  test('the note can have commentLimit characters after the trim, not more', () => {
+    expect(optionsEdit(target, 1440, 3, ` ${'a'.repeat(commentLimit)} `)?.change).toEqual({
+      kind: 'options',
+      count: 3,
+      note: 'a'.repeat(commentLimit),
+    })
+    expect(optionsEdit(target, 1440, 3, 'a'.repeat(commentLimit + 1))).toBeNull()
+  })
+
+  test('a new request gets a new id', () => {
+    expect(optionsEdit(null, 390, 3, '')?.id).not.toBe(optionsEdit(null, 390, 3, '')?.id)
+  })
+})
+
+describe('keepEdit', () => {
+  test('a keep with the target null and the width of the base', () => {
+    expect(keepEdit(1440, 'onboarding/welcome-option-2', 'k1')).toEqual({
+      id: 'k1',
+      target: null,
+      width: 1440,
+      change: { kind: 'keep', option: 'onboarding/welcome-option-2' },
+    })
+  })
+
+  test('a new id for each edit', () => {
+    expect(keepEdit(1440, 'a').id).not.toBe(keepEdit(1440, 'a').id)
   })
 })
 

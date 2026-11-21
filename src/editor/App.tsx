@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { library, screens } from 'virtual:canvas-screens'
 import { linkAt, type LinkTarget } from '../frame/screen-link.ts'
+import { optionTotals } from '../related/groups.ts'
 import { Canvas } from './canvas/Canvas.tsx'
-import { Frame } from './canvas/Frame.tsx'
+import { Frame, type KeepBase } from './canvas/Frame.tsx'
 import { keepKeys, layoutFrames } from './canvas/layout.ts'
 import { readMarkersShown, writeMarkersShown } from './canvas/markers.ts'
 import { Markers } from './canvas/Markers.tsx'
@@ -29,7 +30,9 @@ import { PanelSurface } from './ui'
 // its screen in place of a selection. The list of screens comes from the
 // virtual module; a new screen file updates it with no reload of the editor.
 // With no library pack, the canvas shows a message with the sentence for the
-// agent. The editor imports nothing from a pack.
+// agent. The editor imports nothing from a pack. The title of an option frame
+// has the button "Keep this option": it adds a `keep` item to the edits of
+// the base, and the kept frame has a mark while the item is open.
 
 // The edits store on the window for a check from the console, in the dev
 // server only.
@@ -113,6 +116,10 @@ export default function App() {
   // The ids of the list, for the links. One array for each list, thus the
   // Issues list of a frame is read again only when the list changes.
   const screenIds = useMemo(() => screens.map((screen) => screen.id), [])
+  // The count of the options of each frame, and each screen by its id: read
+  // once for the list, not once for each frame.
+  const totals = useMemo(() => optionTotals(screens), [])
+  const byId = useMemo(() => new Map(screens.map((screen) => [screen.id, screen])), [])
   const bounds = layout.bounds
   // The frames that have a document: the screens with no error. The maps by
   // screen id drop the entries of removed screens at their next change, and
@@ -168,6 +175,23 @@ export default function App() {
     } else if (action?.kind === 'notice') {
       showNotice(action.text)
     }
+  }
+
+  // Moves the view to the frame of the screen and marks it: a click on a
+  // `keep` item in the Changes list shows its option.
+  const showScreen = (id: string) => {
+    const box = layout.frames.find((frame) => frame.screen.id === id)
+    if (!box || !size.current) return
+    setView(centerOn(box, size.current))
+    mark(id)
+  }
+
+  // The base of an option, for the button "Keep this option" of its frame;
+  // null for a screen that is not an option. The frame reads the edits of
+  // the base itself.
+  const keepBaseOf = (screen: (typeof screens)[number]): KeepBase | null => {
+    const base = screen.optionOf === undefined ? undefined : byId.get(screen.optionOf)
+    return base ? { id: base.id, width: base.width } : null
   }
 
   const onPick = (id: string, point: Point) => {
@@ -269,11 +293,18 @@ export default function App() {
               onTitle={onTitle}
               overLink={operating && linkFrame === box.screen.id}
               marked={marked === box.screen.id}
+              optionCount={totals.get(box.screen.id) ?? 0}
+              keepBase={keepBaseOf(box.screen)}
+              operating={operating}
             />
           ))}
         </Canvas>
       </div>
-      <Inspector screenId={listed !== null && ids.has(listed) ? listed : null} documents={frameDocuments} />
+      <Inspector
+        screenId={listed !== null && ids.has(listed) ? listed : null}
+        documents={frameDocuments}
+        onShowScreen={showScreen}
+      />
       {narrow && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--background)] p-6 text-center text-sm">
           The editor needs a window that is {minEditorWidth}px wide or more.

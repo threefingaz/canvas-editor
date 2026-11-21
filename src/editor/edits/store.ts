@@ -145,8 +145,10 @@ export function useEditScreens(): Screens {
   return useSyncExternalStore(edits.subscribe, edits.screens, edits.screens)
 }
 
-export function useScreenEdits(screenId: string): Item[] {
-  const get = () => edits.get(screenId)
+// The edits of the screen with the id; null (no screen) gives the empty list,
+// which never changes.
+export function useScreenEdits(screenId: string | null): Item[] {
+  const get = () => (screenId === null ? none : edits.get(screenId))
   return useSyncExternalStore(edits.subscribe, get, get)
 }
 

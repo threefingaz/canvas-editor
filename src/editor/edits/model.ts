@@ -1,4 +1,4 @@
-import type { Change, CommentChange, Edit, EditValue, Target } from '../../requests/format.ts'
+import { isTask, type Change, type Edit, type EditValue, type TaskChange, type Target } from '../../requests/format.ts'
 
 // The list of edits of one screen, in the sequence the user made them.
 //
@@ -12,8 +12,9 @@ export type PlacedEdit = Edit & { target: Target }
 
 export type PlacedItem = Item & { edit: PlacedEdit }
 
-// An edit that can have a preview: on an element, and not a comment.
-export type PreviewEdit = PlacedEdit & { change: Exclude<Change, CommentChange> }
+// An edit that can have a preview: on an element, and not a task (a comment,
+// an `options` or a `keep` edit).
+export type PreviewEdit = PlacedEdit & { change: Exclude<Change, TaskChange> }
 
 export type PreviewItem = Item & { edit: PreviewEdit }
 
@@ -37,12 +38,11 @@ export function locOf(place: Place): string {
 }
 
 // The items that have a preview: no reply of the agent, not stale, and not a
-// comment. Each part of the preview reads the items through this filter, thus
-// it never sees a comment or the target null.
+// task (a comment, an `options` or a `keep` edit). Each part of the preview
+// reads the items through this filter, thus it never sees a task or the
+// target null.
 export function liveItems(items: readonly Item[]): PreviewItem[] {
-  return items.filter(
-    (item): item is PreviewItem => !item.stale && !item.edit.reply && item.edit.change.kind !== 'comment',
-  )
+  return items.filter((item): item is PreviewItem => !item.stale && !item.edit.reply && !isTask(item.edit.change))
 }
 
 // The same value and the same token id. A value that gets a token is a change.
@@ -72,6 +72,9 @@ function unchanged(edit: Edit): boolean {
       return false
     case 'comment':
       return change.text.trim() === ''
+    case 'options':
+    case 'keep':
+      return false
   }
 }
 
@@ -92,12 +95,17 @@ function unchanged(edit: Edit): boolean {
 //   changes nothing, unless the earlier one has a reply.
 // - A comment is always a new item: comments do not merge. A comment with an
 //   empty text goes out.
+// - An `options` edit is always a new item, as a comment.
+// - A `keep` edit takes each earlier `keep` edit out (a screen has at most
+//   one), and is then a new item. It keeps no `before`: it has none.
 // - An edit whose `after` is equal to its `before` goes out.
 // - A stale item is not an earlier edit of the target: the element at its
 //   place in the code is a different element. It stays as it is.
 export function addEdit(list: Item[], edit: Edit): Item[] {
   const change = edit.change
   if (change.kind === 'comment') return unchanged(edit) ? list : [...list, { edit }]
+  if (change.kind === 'options') return [...list, { edit }]
+  if (change.kind === 'keep') return [...list.filter((item) => item.edit.change.kind !== 'keep'), { edit }]
   let next = list
   let added = edit
 

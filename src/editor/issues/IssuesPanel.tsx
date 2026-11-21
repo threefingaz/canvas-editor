@@ -6,9 +6,10 @@ import { cn } from '../ui/lib/utils.ts'
 import { issueGroups, issueSummary } from './model.ts'
 import { useScreenIssues } from './store.ts'
 
-// The Issues list of a screen, in groups by kind: render errors, links to a
-// screen that does not exist, elements that are not from the library, values
-// with no token link, and local overrides.
+// The Issues list of a screen, in groups by kind: render errors, a broken
+// relation to a different screen, links to a screen that does not exist,
+// elements that are not from the library, values with no token link, and local
+// overrides.
 // The list is read with the open previews applied. A click on an issue selects
 // its element in the frame. The editor writes the same list to the issues file
 // of the screen.
@@ -22,6 +23,7 @@ type IssuesPanelProps = {
 
 const groupTitle: Record<Issue['kind'], string> = {
   'render-error': 'Render errors',
+  relation: 'Relation to a different screen',
   'broken-link': 'Broken links',
   'not-library': 'Not from the library',
   'no-token': 'No token link',
@@ -65,6 +67,13 @@ function IssueItem({ issue, screenId, document }: { issue: Issue; screenId: stri
   if (issue.kind === 'render-error') {
     return (
       <p className="m-0 px-1.5 py-1 font-mono text-[11px] whitespace-pre-wrap text-[color:var(--destructive)]">{summary}</p>
+    )
+  }
+  if (issue.kind === 'relation') {
+    return (
+      <p className="m-0 px-1.5 py-1 text-xs text-[color:var(--attention)]" data-issue-summary="">
+        {summary}
+      </p>
     )
   }
   const { target } = issue

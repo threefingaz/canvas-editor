@@ -1,9 +1,13 @@
-import { ArrowSquareOutIcon, CheckCircleIcon, WarningCircleIcon } from '@phosphor-icons/react'
-import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { ArrowSquareOutIcon, CheckCircleIcon, CheckIcon, LinkBreakIcon, WarningCircleIcon } from '@phosphor-icons/react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { screenHash } from '../../frame/screen-link.ts'
+import { relationOf } from '../../related/groups.ts'
 import { siteEntry } from '../../site/entry.ts'
 import { frameWindowOf } from '../frame-window.ts'
+import { keepView, type KeepState } from '../edits/keep.ts'
+import { edits, useScreenEdits } from '../edits/store.ts'
+import { keepEdit } from '../inspector/edit.ts'
 import { useIssues } from '../issues/collect.ts'
 import { useScreenIssues } from '../issues/store.ts'
 import { usePreview } from '../preview/use-preview.ts'
@@ -27,6 +31,22 @@ import type { Point } from './viewport.ts'
 // the Changes list of the screen in the inspector. A button in the title opens
 // the screen as a full page of the prototype site, in a new tab. A link of a
 // different frame that goes to this screen marks the frame for a short time.
+// The title of a state has the mark "State" before it, and the title of an
+// option the mark "Option"; a frame with options says how many it has. A
+// relation that breaks a rule of the list (`relationError`) has a mark with
+// its cause. The title of an option has the button "Keep this option"
+// (`keepBase`), off with the reason of `keepState`; while the base has an
+// open `keep` of the option, the button says so and the frame has a dashed
+// mark. Only the frame of an option reads the edits of its base, thus an edit
+// renders only the frames of the options of that screen again.
+
+// The button "Keep this option": its state (`keepState`) and the action that
+// adds the `keep` item to the edits of the base.
+type KeepControl = { state: KeepState; onKeep: () => void }
+
+// The base of an option: its id and the width of its frame, for the `keep`
+// item.
+export type KeepBase = { id: string; width: number }
 
 type FrameProps = {
   box: FrameBox<ScreenEntry>
@@ -49,10 +69,40 @@ type FrameProps = {
   overLink: boolean
   // The frame is the target of the last link: a mark around it.
   marked: boolean
+  // The count of the options of this screen (`optionsOf`).
+  optionCount: number
+  // The base of this screen when it is an option, for the button "Keep this
+  // option" and the mark of a kept option; null for a screen that is not an
+  // option.
+  keepBase: KeepBase | null
+  // The Preview switch is on: no button "Keep this option".
+  operating: boolean
 }
 
-export function Frame({ box, screenIds, scale, onHeight, onLoad, onHover, onPick, onTitle, overLink, marked }: FrameProps) {
+export function Frame({
+  box,
+  screenIds,
+  scale,
+  onHeight,
+  onLoad,
+  onHover,
+  onPick,
+  onTitle,
+  overLink,
+  marked,
+  optionCount,
+  keepBase,
+  operating,
+}: FrameProps) {
   const { screen } = box
+  // The edits of the base of an option; a screen that is not an option reads
+  // no list.
+  const baseEdits = useScreenEdits(keepBase?.id ?? null)
+  const { state: keepNow, kept } = keepView(screen.id, keepBase ? baseEdits : null, operating)
+  const keep: KeepControl | null =
+    keepBase && keepNow
+      ? { state: keepNow, onKeep: () => edits.apply(keepBase.id, keepEdit(keepBase.width, screen.id)) }
+      : null
   // Stops the watch of the current frame document.
   const stop = useRef<(() => void) | null>(null)
   // The current frame document; a reload gives a new one.
@@ -123,6 +173,9 @@ export function Frame({ box, screenIds, scale, onHeight, onLoad, onHover, onPick
       width={screen.width}
       scale={scale}
       marked={marked}
+      optionCount={optionCount}
+      keep={keep}
+      kept={kept}
       onTitle={() => onTitle(screen.id)}
     >
       {screen.error ? (
@@ -160,14 +213,20 @@ export function Frame({ box, screenIds, scale, onHeight, onLoad, onHover, onPick
 }
 
 type PlacedProps = {
-  box: FrameBox
+  box: FrameBox<ScreenEntry>
   title: string
   width: number
   scale: number
   marked: boolean
+  optionCount: number
+  keep: KeepControl | null
+  kept: boolean
   onTitle: () => void
   children: ReactNode
 }
+
+// The mark of a state or an option before the title.
+const relationMark = { state: 'State', option: 'Option' } as const
 
 // The width of the mark around a frame, and its distance from the frame, in
 // px on the screen.
@@ -175,27 +234,46 @@ const markWidth = 3
 const markOffset = 4
 
 // The box of a frame in world coordinates, with the title above it.
-function Placed({ box, title, width, scale, marked, onTitle, children }: PlacedProps) {
+function Placed({ box, title, width, scale, marked, optionCount, keep, kept, onTitle, children }: PlacedProps) {
+  const relation = relationOf(box.screen)
+  const { relationError } = box.screen
   return (
     <div
       className="absolute shadow-sm"
       data-frame={box.screen.id}
       data-frame-marked={marked ? '' : undefined}
+      data-frame-kept={kept ? '' : undefined}
       style={{
         left: box.x,
         top: box.y,
         width: box.width,
         height: box.height,
-        // The mark keeps its size on the screen at each zoom.
-        outline: marked ? `${markWidth / scale}px solid var(--link)` : undefined,
-        outlineOffset: marked ? markOffset / scale : undefined,
+        // The mark keeps its size on the screen at each zoom. The mark of a
+        // link target wins over the mark of a kept option.
+        outline: marked
+          ? `${markWidth / scale}px solid var(--link)`
+          : kept
+            ? `${markWidth / scale}px dashed var(--accent)`
+            : undefined,
+        outlineOffset: marked || kept ? markOffset / scale : undefined,
       }}
     >
-      {/* The title is scaled back, thus its text keeps one size at each zoom. */}
+      {/* The title is scaled back, thus its text keeps one size at each zoom.
+          The row is as wide as the frame on the screen and clips what does
+          not fit, thus at a low zoom it does not cover the title of the next
+          frame; the title gets shorter first. */}
       <div
-        className="absolute bottom-full left-0 flex origin-bottom-left gap-2 pb-1.5 text-xs whitespace-nowrap text-[color:var(--muted-foreground)]"
+        className="absolute bottom-full left-0 flex origin-bottom-left gap-2 overflow-hidden pb-1.5 text-xs whitespace-nowrap text-[color:var(--muted-foreground)]"
         style={{ width: box.width * scale, transform: `scale(${1 / scale})` }}
       >
+        {relation !== 'base' && (
+          <span
+            className="shrink-0 rounded-sm bg-[color:var(--muted)] px-1 font-medium text-[color:var(--foreground)]"
+            data-frame-relation={relation}
+          >
+            {relationMark[relation]}
+          </span>
+        )}
         <button
           type="button"
           className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-[color:var(--foreground)] hover:underline"
@@ -205,8 +283,24 @@ function Placed({ box, title, width, scale, marked, onTitle, children }: PlacedP
         >
           {title}
         </button>
+        {optionCount > 0 && (
+          <span className="shrink-0" data-frame-options={optionCount}>
+            {optionCount === 1 ? '1 option' : `${optionCount} options`}
+          </span>
+        )}
         <span className="shrink-0 tabular-nums">{width}</span>
+        {relationError !== undefined && (
+          <span
+            className="flex min-w-0 shrink items-center gap-1 text-[color:var(--attention)]"
+            title={relationError}
+            data-frame-relation-error=""
+          >
+            <LinkBreakIcon className="size-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{relationError}</span>
+          </span>
+        )}
         <IssueCount screenId={box.screen.id} onClick={onTitle} />
+        {keep && <KeepButton {...keep} />}
         <a
           className="flex shrink-0 items-center text-inherit hover:text-[color:var(--foreground)]"
           href={`/${siteEntry}${screenHash(box.screen.id)}`}
@@ -221,6 +315,45 @@ function Placed({ box, title, width, scale, marked, onTitle, children }: PlacedP
       </div>
       {children}
     </div>
+  )
+}
+
+// The button "Keep this option" in the title of an option. Off with the
+// reason in its title when the option cannot be kept; with the open `keep` of
+// this option it shows "Kept" and is off too: undo or discard takes it away.
+function KeepButton({ state, onKeep }: KeepControl) {
+  const kept = state.kind === 'kept'
+  const reasonId = useId()
+  const title =
+    state.kind === 'blocked'
+      ? state.reason
+      : kept
+        ? 'The request to keep this option is open. The agent writes it into its base screen.'
+        : 'Ask the agent to write this option into its base screen and remove the other options'
+  return (
+    <button
+      type="button"
+      className={cn(
+        'flex shrink-0 items-center gap-1 rounded-sm border-0 px-1 font-medium',
+        kept
+          ? 'bg-[color:var(--accent)] text-[color:var(--accent-foreground)]'
+          : 'bg-[color:var(--muted)] text-[color:var(--foreground)]',
+        state.kind === 'free' ? 'cursor-pointer hover:underline' : 'cursor-default',
+        state.kind === 'blocked' && 'opacity-60',
+      )}
+      title={title}
+      aria-disabled={state.kind !== 'free'}
+      aria-describedby={reasonId}
+      onClick={() => state.kind === 'free' && onKeep()}
+      data-frame-keep={state.kind}
+    >
+      {kept && <CheckIcon className="size-3.5" aria-hidden />}
+      {kept ? 'Kept' : 'Keep this option'}
+      {/* The reason of the title for a screen reader too. */}
+      <span id={reasonId} className="sr-only">
+        {title}
+      </span>
+    </button>
   )
 }
 

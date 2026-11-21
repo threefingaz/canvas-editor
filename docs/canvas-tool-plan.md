@@ -56,12 +56,23 @@ The user made these decisions on 2026-11-21. The plan of the work is `docs/plans
 - **A screen page of the site has the width of the browser window.** A phone screen is opened on a phone or in a narrow window.
 - **The clean repository is the export.** The working branch, with the sample pack and the screens, stays in the private repository `origin`. The clean tool (`npm run export`) becomes a repository of its own, which the user clones at work.
 
+### Options and the state map
+
+The user made these decisions on 2026-11-21. An agent seldom gives the best screen at the first try, and a person chooses better between things that are side by side; the states of a screen were only neighbors in a row, and an option had no place at all. The plan of the work is `docs/plans/completed/20261121-options-and-state-map.md`.
+
+- **The relation is a field in `meta`.** A state file has `stateOf`, an option file has `optionOf`: the id of its base screen, as a text literal. A file has at most one of them; a screen with neither is a base screen. The base of a state is a base screen in the same flow; the base of an option is a base screen or a state in the same flow. No file name carries a meaning: the name `<base>-option-<n>.tsx` is a convention for the agent, not a rule of the parser. A field with a wrong form is an error of the file (an error frame); a relation that breaks a rule of the list (an unknown id, a different flow, the screen itself, a chain) keeps the screen as a base with its frame, a mark in its title and an issue of the kind `relation`.
+- **A state and an option are full screen files,** as each screen is. The agent writes each file; the editor only asks and shows. Code stays the source of truth.
+- **States in the row, options below.** A base and its states are one group, left to right in the row of the flow, with `groupGap` between two groups (wider than `frameGap`). The options of a frame are a column below it. The title of a state has the mark "State", of an option the mark "Option", and a frame with options says how many.
+- **Two controls in the editor, as request items.** The inspector has "Ask for options" (a count from 2 to 6 and a note), on an element or on the screen; each option frame has "Keep this option". They are the change kinds `options` and `keep`, tasks with no preview, which the agent applies with the fixed sentence. A `keep` writes the markup of the option into its base and deletes each option of that base.
+- **The site shows the states, not the options.** The index has a base with its states indented below it. An option is a choice that is still open, not a part of the prototype that a reviewer follows; it still opens at its address.
+- **Late load of frames only after a measure.** Thirty frames had no problem (see "Results of many frames"), thus each frame loads its iframe at once, as before.
+
 ### Screens and canvas
 
-- **One file is one screen and one frame.** A different state of a screen, for example empty or error, is a different file.
+- **One file is one screen and one frame.** A different state of a screen, for example empty or error, is a different file. Since 2026-11-21 a state file names its base with `stateOf`, and an option file with `optionOf` (see "Options and the state map").
 - **Each screen file declares its title and its width.** The width is one of a small number of presets (for example 1440, 1024, 390).
 - **Each frame is an iframe.** This keeps the styles of the editor and of the screen apart, and it gives the screen a true viewport width, thus responsive rules operate correctly.
-- **The canvas places the frames automatically.** One folder is one flow and one row. The user does not move frames in version 1.
+- **The canvas places the frames automatically.** One folder is one flow and one row. The user does not move frames in version 1. In a row, a base screen and its states are one group, and the options of a frame are a column below it (since 2026-11-21).
 - **Elements that are not from the library are permitted, and they must be visible.** Each one has a marker on the canvas (an outline and a small badge) and an entry in the Issues list. A switch in the toolbar hides the markers.
 - **All data is sample data** in the project. There is no connection to a real backend.
 
@@ -94,6 +105,7 @@ The user made these decisions on 2026-11-21. The plan of the work is `docs/plans
 - **Skills are in `.github/skills/<name>/SKILL.md`.** The name in the file must be the same as the folder name, or the skill does not load. The skills of a library are in its pack, `packs/<name>/skills/`, in the same form; the agent reads them through the link in `packs/<name>/AGENTS.md` (see "Library packs").
 - **The setup of a library is a skill** (`canvas-library-setup`). Its main step is to find the tokens: where the values are, how a token shows on the page, and how it is written in code. It also looks for guidance that the library already has, and ends with a proof on a sample screen. (Decided by the user on 2026-11-20.)
 - **A library can come with a skill of its own.** That skill is the authority on the library. It is not copied into this repository unless the user permits a copy; the library skill of ours takes from it what a screen needs, records its source and version, and adds what the tool needs (the token mapping, how an edit is applied). For MUI the user decided on 2026-11-20 not to copy the skills that MUI publishes. An explicit rule in the library's own guidance wins over the design skills, also on behavior and content; where it is silent, the design skills apply, and the agent reports each conflict. (Decided by the user on 2026-11-20.)
+- **An explicit instruction of the user wins** (since 2026-11-21). An instruction that states the thing itself, in the prompt or in a comment, wins over the design skills, over a default of the library and over the guidance of the library. The agent does it and names each broken rule in its report; the Issues list shows a value with no token or a local override. Three things stay fixed: the rules of a screen file, no change of the library, its pack or `tokens.json`, and no change outside `screens/` for a request. A fresh agent applied five comments with it (2026-11-21): it wrote a color and a text size with no token and a confirmation against the design skill, named each broken rule and the lost contrast and hover color, did a general wish inside the rules, and replied `needs-library-change` to a new token.
 - **`AGENTS.md` at the root is the instruction file.** It lists each skill and says when to read it, thus the skills also operate where automatic loading is off. `CLAUDE.md` only points to `AGENTS.md`.
 - **`tokens.json` is the one token format that the tool reads.** `npm run tokens` writes it from the token entry of the pack; for MUI the entry reads the theme. For a library with no theme object, the setup skill directs an agent to write the entry.
 
@@ -158,7 +170,7 @@ From documentation, dated November 2026, not tested at work:
 
 ## Design details (proposed)
 
-The decisions above are fixed. The details in this section are proposals, apart from the parts that steps 1 to 8 built: the editor shell with the Preview switch, the selection, the inspector with its edits and comments, element to code, the token file, the preview, the request and issues files, the markers, links, and the prototype site. The sections "Results of …" below have what the work found.
+The decisions above are fixed. The details in this section are proposals, apart from the parts that steps 1 to 9 built: the editor shell with the Preview switch, the selection, the inspector with its edits and comments, element to code, the token file, the preview, the request and issues files, the markers, links, the prototype site, and the related screens with options. The sections "Results of …" below have what the work found.
 
 ### The loop
 
@@ -274,8 +286,10 @@ type Change =
   | { kind: 'order'; before: number; after: number; of: number; previewed: boolean }
   | { kind: 'remove' }
   | { kind: 'comment'; text: string } // 2000 characters or less (`commentLimit`)
+  | { kind: 'options'; count: number; note: string } // count from 2 to 6 (`optionCounts`), note up to `commentLimit`
+  | { kind: 'keep'; option: string } // the id of an option screen; always with target: null
 type Reply = { status: 'conflict' | 'needs-library-change' | 'unclear'; text: string }
-type Edit = { id: string; target: Target | null; width: number; change: Change; reply?: Reply } // null: a comment on the screen
+type Edit = { id: string; target: Target | null; width: number; change: Change; reply?: Reply } // null: a comment or options on the screen, and each keep
 type RequestFile = { version: 1; screen: string; file: string; edits: Edit[] }
 ```
 
@@ -300,12 +314,23 @@ An outside change of a request file replaces the edits of that screen in each ve
 
 Built in step 6. A comment is an edit of the kind `comment` (see "Comments, preview and the site").
 
-- `parseRequest` refuses an empty text (after trim), a text over `commentLimit`, and `target: null` with a kind that is not `comment`. `version` stays 1: the change adds a kind and takes nothing away.
+- `parseRequest` refuses an empty text (after trim), a text over `commentLimit`, and `target: null` with a kind that is not `comment` (since step 9: not `comment` or `options`; a `keep` needs it). `version` stays 1: the change adds a kind and takes nothing away.
 - A comment never merges: a new comment is a new item, and an element can have more than one. A change of the text replaces the item by its `id` (`replaceComment`) and drops the reply of the agent, because the user asks again. Undo and redo work for each add, change and discard.
 - The preview never sees a comment: each part of the preview reads the list through `liveItems` (`src/editor/edits/model.ts`), which leaves out each comment and gives the type `PreviewItem`. A filter in `use-preview.ts` alone was not sufficient: other parts call `hiddenIn` with the whole list, and the kind must stay out of the types of `css.ts`.
 - The anchor pass takes only the edits with a target. A comment on an element moves and goes stale as the other items of that element; a comment on the screen has no anchor and never goes stale.
 - The inspector has the box "Comment for the agent" in the view of an element (only when the element has a place in the code) and in the screen view; Ctrl or Cmd with Enter adds. The Changes list shows the text of a comment (an item with no target is named "Screen"); a click opens the text for a change and does not select the element, because a new selection renders the view again and the open text would go. The count of changes includes the comments.
 - For the agent, the text of a comment is a task from the user, not data. It does the comment as a change of the screen, in the sequence of "How to create a screen" in `AGENTS.md`, after the other items of the screen. A comment that asks for a different state gives a new screen file in the same flow. A part that the library does not have is built from its simplest parts; only a change of the library, its pack or `tokens.json` gets `needs-library-change`. A comment on an element that the same pass removes is done if it still makes sense, else it gets `unclear`.
+
+### Related screens and options
+
+Built in step 9 (see "Options and the state map").
+
+- **The list.** `readScreenMeta` (`tools/screens.ts`) reads `stateOf` and `optionOf`; a field that is not a text literal, an empty text, or the two fields in one file fail the file. `relationProblems(entries)` checks the rules that need the whole list (an unknown base, a base in a different flow, the screen itself, a state of a state, an option of an option, a state of an option), and `screenList` gives each such entry `relationError` and no relation fields, thus it is a base. A base whose own file has an error is still a valid base. The plugin builds the whole list after each change of the folder, thus the delete of a base changes the entries of its options with no new mechanism.
+- **The groups.** `screenGroups` (`src/related/groups.ts`, a module of plain functions with tests) gives the groups of a list (`{ base, states }`, each with its `options`) in the order of the list; `relationOf` and `optionsOf` are its helpers. The canvas and the site share it. A screen that breaks a rule (only possible in a list of a test) is a group of its own.
+- **The layout.** `layoutFrames` keeps its signature and calls `screenGroups` for each row: `frameGap` in a group, `groupGap` (240 px) between groups, the options of a frame in a column below it with `optionGap` (as large as `rowGap`, because a title keeps its size on the screen). A column is as wide as its widest frame; a row is as high as its highest column.
+- **The requests.** `options` and `keep` are tasks, as a comment: `liveItems` and `PreviewEdit` leave them out (the type `TaskChange` names the three kinds). An `options` item never merges; a new `keep` replaces the older one. The `keep` item is in the request file of the base. "Keep this option" is off, with the reason, while the base has an open item with a target or an open `options` item (`keepBlock`, `keepState`), because the markup of the option replaces those places; while a `keep` is open the base takes no edit with a target and no "Ask for options" (`editBlock`). A `keep` whose option is gone from the list is stale and can only be discarded (`staleKeep`). A click on a `keep` in the Changes list moves the canvas to the option, by the path of a link in Preview.
+- **The editor sync.** A screen that leaves the list also leaves the edits store (`createSync` in `src/editor/requests/sync.ts`). Without this, a new option with the id of a deleted option got the old edits back, and the editor wrote them into its request file. Its request file stays on the disk, thus a screen file that comes back loads its edits from the file again. Only saved edits leave the store: edits in the save delay, or made during a save, stay, and the next load of a screen with that id merges and saves them, thus a screen file that goes away for a moment (a rename and back, a branch switch) loses no edit.
+- **The agent.** The section "Requests" of `AGENTS.md`, part "Options", has what the agent does: `options` items with the comments, each option a full copy with one difference that is worth a choice; a `keep` first in the pass of its base, after the pass of the option itself, then the delete of each option of the base and its files in `.canvas/` (the one exception to "Delete nothing else in `.canvas/`"), and the report of the states of the base that may be out of date.
 
 ### Preview and links
 
@@ -336,6 +361,7 @@ type Issue =
   | { kind: 'not-library'; target: Target }
   | { kind: 'broken-link'; target: Target; href: string }
   | { kind: 'render-error'; text: string }
+  | { kind: 'relation'; text: string }
 type IssuesFile = { version: 1; screen: string; file: string; issues: Issue[] }
 ```
 
@@ -343,6 +369,7 @@ type IssuesFile = { version: 1; screen: string; file: string; issues: Issue[] }
 - `override`: a value whose winning declaration is in the inline `style` of the element itself. A value from `sx` cannot be told apart from the rules of the component (see "Results of edits and requests").
 - `not-library`: an element with the origin `host` or `local`. Each copy of it has a marker on the canvas: an outline and a badge with the tag. A switch in the toolbar hides the markers; the choice is kept in `localStorage`.
 - `broken-link`: an `a[href^="#/"]` of the frame document, also inside a library part, whose id is not in the list of screens (`brokenLinks` in `src/editor/issues/collect.ts`; `Frame.tsx` gives the ids). Its target is the inner screen element of the link node or of its nearest parent that is the first node of a screen element. Each address comes once for a place, also with copies; a link that a preview hides gives no issue. In a place it comes after `not-library` and before the values; in the panel its group "Broken links" comes after the render errors.
+- `relation`: the cause of a relation (`stateOf`, `optionOf`) that breaks a rule of the list, from `relationError` of the entry. It has no target, as `render-error`. The screen keeps its frame as a base screen.
 - `render-error`: the message of the error (not the stack). The frame writes it to `data-canvas-error` on its root element; a screen file that cannot be read gives the text of the list of screens.
 - One issue for each place in the code, not for each copy (the first visible copy is read). The sequence is the place in the code (file, line, column); in a place, `not-library` first, then the rows in the sequence of the inspector, each `no-token` before `override`. Of the elements that share one first DOM node, only the inner one gives the style rows.
 - The list is read with the open previews applied, 500 ms after the last change of the frame document: a value that a preview links is not an issue, and a place that a remove edit hides is left out. Thus the file is current only while the editor is open in a browser, and it is equal to the code only when the screen has no open edits.
@@ -522,6 +549,33 @@ A fresh agent created a flow of three screens ("invite people to a team workspac
 - The text style edit kept the level of the document (`component="h1"`). "Make this a select" became a select in each member row, with a visible label. The screen comment became a new screen file in the flow. The brand color comment kept its item with a `needs-library-change` reply. The remaining request file passed `parseRequest`, and the kept item pointed at the current line of its button.
 - The gaps are in "Open issues".
 
+## Results of many frames
+
+Measured on 2026-11-21 (task 8 of `docs/plans/completed/20261121-options-and-state-map.md`), in the browser pane of the desktop app, visible, with the viewport at 1440 × 900 and the dev server with the sample pack. A temporary flow had thirty copies of `welcome` (1440 px wide): one base, nine states and twenty options, thus 33 frames with the three sample screens. The time is from the start of the navigation to the first frame and to the last frame with its screen rendered, its height measured and its count of issues; a pan is 120 wheel steps at the zoom that fits all frames, and 280 steps of 60 px across the row at 100 %, one step for each animation frame.
+
+| | 3 frames | 33 frames |
+|---|---|---|
+| first frame with its height | 1.4 s | 1.7 s |
+| last frame with its height | 1.4 s | 2.6 to 2.7 s |
+| pan, time between two paints: median, 95th percentile, longest | 16.7, 18.5, 18.8 ms | 16.7, 33.3, 34.4 ms |
+| paints of more than 50 ms in a pan | 0 | 0 |
+
+- **No problem.** The last height comes well before the limit of 5 seconds, and a pan keeps 60 paints a second with a single dropped paint now and then, which is not a visible stutter. Thus each frame loads its iframe at once, as before; the editor has no late load.
+- **A hidden pane gives wrong numbers.** With the pane hidden, the page runs as a background page: the animation frames came 30 or fewer each second, timers slowed down, the last height came at 3.1 to 3.5 s, and a pan did not end. A measure needs a visible pane, and a viewport of 1024 px or more (the editor shows a message in a narrower one).
+- Measure again when a flow has many more frames, or frames with heavy screens (a long table, a chart), or on the computers at work.
+
+## Results of options and the state map
+
+Found on 2026-11-21, while step 9 was built (task 11 of `docs/plans/completed/20261121-options-and-state-map.md`). Fresh agents worked with only the instruction files as their guide and got the fixed sentence for each request. The screens of the checks were deleted after each check; the sample keeps the one state `workspace-email-error`.
+
+- **States.** Asked to draw the states of `workspace` that are not drawn, the agent wrote the result (`invites sent`) and a second error (`too many emails`), each with `stateOf`, and linked "Send the invites" to the result. The canvas showed `workspace` with three frames marked "State" in its group, with no `relation` and no `broken-link` issue. The report named the states that it did not draw (the wait, an empty send, a person who is already a member, the result of "Withdraw") and the controls with no link.
+- **Options on an element and on the screen.** An `options` item on the invite part (count 3) and one on the screen (count 2) gave three option files with `optionOf` and titles that name the difference: one field for each person, a link to share, and the invite next to what the workspace offers. They differ in structure, not in a color. On the canvas the base said "3 options" and the options were a column below it. Both items went out of the file. The agent wrote fewer options than the count (2 of 3, and 1 of 2), because each note named the form that the base already has as one of the options; the guide now says that the screen itself is not one of the options.
+- **Keep an edited option.** A text edit on option 1, then "Keep this option". The agent applied the request of the option first, wrote its markup into the base with the `meta` of the base, deleted each option file and its files in `.canvas/`, and named the state that may now be out of date.
+- **A second round.** With options 1 and 3 on the disk, a new `options` item gave options 4 and 5. An edit on option 4, a comment on option 3, and a keep of option 4: the base got the markup of option 4 with the edit, and no option file and no work file of an option was left. The comment on option 3 went away with its option; the guide now tells the agent to name each such item in its report, and "Open issues" has the warning in the editor.
+- **An editor bug, fixed.** After a keep, a new option with the id of a deleted option got the old edits back from the edits store, and the editor wrote them into the new request file. A screen that leaves the list now leaves the store too (see "Related screens and options").
+- **Edge cases.** A screen with a `stateOf` to an unknown id kept its frame, showed the cause in its title, and had a `relation` issue. Request files with no new kind loaded as before. The dev server with no pack still started and showed the message.
+- **Delete in an automatic mode.** In both keeps the agent could not delete files that Git does not track, and moved them out of the project; see "Open issues".
+
 ## Open issues
 
 Each item is for a later step. The step is in brackets.
@@ -553,26 +607,34 @@ Each item is for a later step. The step is in brackets.
 - **The position of a sequence edit in the inspector** is the position in the code, or the `after` of the element's own order edit. With an order edit on a sibling, the shown position can differ from the preview, because a new edit replaces that edit. (When it matters)
 - **No animations in popups,** because the package `tw-animate-css` is not installed. (When it matters)
 - **Colors in other color spaces have no row.** The editor reads hex, `rgb()`, `rgba()` and `color(srgb …)`. A color written as `oklch()`, `lab()`, `color(display-p3 …)` or a mix in such a space stays in that space when computed; the inspector cannot compare it and leaves its row out. Fix when a library needs it: convert these spaces to sRGB. (When a library needs it)
+- **A `keep` drops the open items of the other options with no warning in the editor.** The agent deletes the request files of each option of the base, thus a comment or an edit on an option that is not kept is not done; the guide tells the agent to name each one in the report. Possible fix: "Keep this option" says how many open items the other options have. (When it gets in the way)
+- **Frame titles run into each other at a low zoom.** A title keeps its size on the screen, thus at 11 % the long title of a narrow frame (`Welcome, mobile`) covers the start of the title of the next frame. Possible fix: cut a title at the width of its frame. (When it gets in the way)
+- **The editor with no pack writes empty issues files.** With `CANVAS_NO_PACK=1` and the same `.canvas/`, each frame shows the "no library" message, and the editor writes an empty Issues list over the list of the editor with the pack. It matters only for the checks of this repository. Possible fix: with no pack, the editor writes no issues file. (When it gets in the way)
+- **Options and states with a real design system.** The checks used the sample library. Whether the options of a real screen differ in a way that helps a choice, and whether a group and a column of options are easy to read at the zoom that shows a whole flow, is not known. (The test at work)
+- **A kept option leaves the states of its base behind.** The agent names the states of the base that may be out of date, as the guide says, and changes none of them (in the checks, `workspace-email-error` kept the old markup). This is the open issue "A change of one state stays in that file" again. (The next change of the guide)
+- **An agent in an automatic mode may not be permitted to delete files that Git does not track.** In the checks of 2026-11-21 the agents moved the option files and their files in `.canvas/` to a folder outside the project in place of a delete. The result in the project is the same. (Watch it at work)
+- **A style of a part inside a component has no form.** A comment asked for a text size of the label of a field; the agent wrote it through the slot props of the component. The guide of a pack names no form for an inner part, and "a pill" names no value for the corners. (The next change of the setup skill)
+- **A confirmation that the user asks for has no rule for its link.** The agent drew the confirmation below the main button and left the link on the main button. Whether the link moves to the confirm control, or the confirmation is a state file, is not written. (The next change of the guide)
 
 ## Current state
 
-- The work branch is `canvas-tool`. `main` has all work up to the library packs and the gaps of the agent checks of 2026-11-20 (a fast-forward on 2026-11-20). The work of 2026-11-21 (comments, preview with links, the site) is on `canvas-tool` only and is not pushed.
-- Steps 1 to 8 are done: steps 1 to 4, the library packs and the agent checks (2026-11-20), and comments, preview with links and the prototype site (2026-11-21). Each of the six goals has code. The sample library is MUI 9 in the pack `packs/mui/`, with three sample screens in `screens/onboarding/`; the main button of `welcome` links to `workspace`. The core names no library; with no pack the tool builds and says that no library is connected. `npm run tokens` writes `tokens.json` from the token entry of the pack, and the dev server writes it again after a change in `packs/mui/library/`; the file is not committed. `npm run export -- <folder>` writes the clean tool.
-- The editor shows the canvas with pan and zoom, each screen as a frame with its count of issues, the selection of an element, and the inspector with the place in the code and the three states of each value.
-- The user can edit tokens, spacing, layout, the sequence in the parent and the text, and remove an element. Each edit is a preview; undo and redo work. The user can write a comment on an element or on the screen. The editor saves the edits and the comments in `.canvas/requests/` and the Issues list in `.canvas/issues/`. Elements that are not from the library have a marker, and a link to a screen that does not exist is an issue. `AGENTS.md` has the guide for the agent that applies a request, comments too, and `packs/mui/AGENTS.md` its forms for MUI.
+- The work branch is `canvas-tool`. `main` has all work up to the options and the state map (step 9) and the rule that an explicit instruction of the user wins (a fast-forward on 2026-11-21), and `origin` has it.
+- Steps 1 to 9 are done: steps 1 to 4, the library packs and the agent checks (2026-11-20), comments, preview with links and the prototype site, and the options and the state map (2026-11-21). Each of the six goals has code. The sample library is MUI 9 in the pack `packs/mui/`, with four sample screens in `screens/onboarding/`: `welcome`, `welcome-mobile`, `workspace`, and `workspace-email-error`, a state of `workspace` (`stateOf`); the main button of `welcome` links to `workspace`. The core names no library; with no pack the tool builds and says that no library is connected. `npm run tokens` writes `tokens.json` from the token entry of the pack, and the dev server writes it again after a change in `packs/mui/library/`; the file is not committed. `npm run export -- <folder>` writes the clean tool.
+- The editor shows the canvas with pan and zoom, each screen as a frame with its count of issues, the selection of an element, and the inspector with the place in the code and the three states of each value. A base screen and its states are one group in the row of the flow, and the options of a frame are a column below it.
+- The user can edit tokens, spacing, layout, the sequence in the parent and the text, and remove an element. Each edit is a preview; undo and redo work. The user can write a comment on an element or on the screen. The editor saves the edits and the comments in `.canvas/requests/` and the Issues list in `.canvas/issues/`. Elements that are not from the library have a marker, and a link to a screen that does not exist is an issue. The user can ask for options of an element or of the screen, and keep one option. `AGENTS.md` has the guide for the agent that applies a request, comments, options and keeps too, and `packs/mui/AGENTS.md` its forms for MUI.
 - A screen links to a different screen with `href="#/<screen id>"`. With the Preview switch on, a click on a link moves the canvas to the frame of its screen; each frame title opens its screen as a full page.
-- `npm run build` writes the prototype site into `dist/`: the index of the screens by flow, and each screen as a full page. `npm run preview` serves it. The editor and the frame are for the dev server only.
+- `npm run build` writes the prototype site into `dist/`: the index of the screens by flow, with the states of a screen below it and no options, and each screen as a full page. `npm run preview` serves it. The editor and the frame are for the dev server only.
 - The skills: `canvas-screen-design`, `canvas-information-display` and `canvas-library-setup` in `.github/skills/`, and the library skill `canvas-library-mui` in `packs/mui/skills/`. They say how a screen links to the next state.
-- Vitest tests the pure logic (1062 tests). The interface was checked in the browser pane.
+- Vitest tests the pure logic (1184 tests). The interface was checked in the browser pane.
 - `.claude/launch.json` starts the dev server (with the pack and with no pack) and the server of the built site for the browser pane of the Claude desktop app.
-- Fresh agents ran the loop with only the instruction files: screens, links, edits, comments, and the setup of a library. Copilot at work has not run it yet.
+- Fresh agents ran the loop with only the instruction files: screens, links, edits, comments, the setup of a library, states, options and keeps. Copilot at work has not run it yet.
 - `tokens.json` is not committed.
-- The clean repository is `../canvas-editor`, next to this repository: a local Git repository with the branch `main` and one commit, the export of `canvas-tool` at `ca1502e`. It has no remote yet; the user decides its name and visibility on GitHub. `AGENTS.md`, section "Current state", says how a new export goes into it.
-- Not done yet: the remote of the clean repository and the test in the work environment.
+- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and three commits, exports of `canvas-tool`. Its remote is the private repository `canvas-editor` on GitHub (since 2026-11-21). It has step 9. `AGENTS.md`, section "Current state", says how a new export goes into it.
+- Not done yet: the test in the work environment.
 
 ## Next steps
 
-The implementation plans of the done steps are in `docs/plans/completed/`: `20261116-canvas-read-only-path.md` (steps 1 and 2), `20261118-canvas-edits-and-requests.md` (steps 3 and 4), `20261120-library-packs.md` (the library packs, a part of step 5) and `20261121-comments-preview-site.md` (steps 6, 7 and 8). Each later step gets its own plan. Read "Open issues" before you write the plan of a step.
+The implementation plans of the done steps are in `docs/plans/completed/`: `20261116-canvas-read-only-path.md` (steps 1 and 2), `20261118-canvas-edits-and-requests.md` (steps 3 and 4), `20261120-library-packs.md` (the library packs, a part of step 5), `20261121-comments-preview-site.md` (steps 6, 7 and 8) and `20261121-options-and-state-map.md` (step 9). Each later step gets its own plan. Read "Open issues" before you write the plan of a step.
 
 1. **Preparation.** Done on 2026-11-16.
 2. **Read-only path.** Done on 2026-11-16.
@@ -582,4 +644,5 @@ The implementation plans of the done steps are in `docs/plans/completed/`: `2026
 6. **Comments.** Done on 2026-11-21.
 7. **Preview and links between screens.** Done on 2026-11-21.
 8. **The deployable build:** the index of screens and each screen as a full page. Done on 2026-11-21.
-9. **The clean repository and the test at work.** The export as a repository of its own, which the user clones at work; then the loop with Copilot, a library of the work environment, and the site on a static host of the company.
+9. **Options and the state map.** Done on 2026-11-21: the states of a screen as a group on the canvas and in the index of the site, and options side by side, which the user asks for and keeps (see "Options and the state map").
+10. **The clean repository and the test at work.** The export as a repository of its own, which the user clones at work (done on 2026-11-21 for steps 1 to 9); then the loop with Copilot, a library of the work environment, and the site on a static host of the company.

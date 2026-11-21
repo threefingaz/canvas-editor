@@ -108,12 +108,14 @@ export function brokenLinks<N extends LinkNode>(
 
 // The issues of a screen from its frame document, with the edits of the
 // screen applied as a preview. `ids` are the ids of the list of screens, for
-// the links. Null while the screen is not rendered yet and shows no error.
+// the links; `relation` is the cause of a broken relation of the screen, or
+// null. Null while the screen is not rendered yet and shows no error.
 export function collectIssues(
   document: Document,
   items: readonly Item[],
   tokens: readonly Token[],
   ids: readonly string[],
+  relation: string | null,
 ): Issue[] | null {
   const error = document.documentElement.getAttribute(renderErrorAttribute)
   if (error === null && !screenRendered(document)) return null
@@ -126,7 +128,7 @@ export function collectIssues(
     rows: place.inner ? inspectorModel(readStyles(place.node), tokens).sections.flatMap((section) => section.rows) : [],
     links: links.get(place.site.loc) ?? [],
   }))
-  return screenIssues(elements, error)
+  return screenIssues(elements, error, relation)
 }
 
 // The time after the last change of a frame document before its issues are
@@ -135,15 +137,17 @@ const collectDelay = 500
 
 // Keeps the Issues list of a screen in the issues store. A screen whose file
 // cannot be read (an `error` in the list of screens) has no frame document:
-// its list is the render error. `ids` are the ids of the list of screens: a
-// new list reads the links again.
+// its list is the render error. The cause of a broken relation
+// (`relationError` of the entry) is an issue of the list too. `ids` are the
+// ids of the list of screens: a new list reads the links again.
 export function useIssues(screen: ScreenEntry, document: Document | null, ids: readonly string[]) {
   const { id, error } = screen
+  const relation = screen.relationError ?? null
   // New tokens can link a value or take a link away: the list is read again.
   const tokenFile = useTokenFile()
   useEffect(() => {
     if (error !== undefined) {
-      issues.set(id, screenIssues([], error))
+      issues.set(id, screenIssues([], error, relation))
       return
     }
     const frameWindow = frameWindowOf(document)
@@ -156,7 +160,7 @@ export function useIssues(screen: ScreenEntry, document: Document | null, ids: r
     const run = () => {
       timer = undefined
       try {
-        const list = collectIssues(document, edits.get(id), frameTokens(tokenFile.tokens ?? [], document), ids)
+        const list = collectIssues(document, edits.get(id), frameTokens(tokenFile.tokens ?? [], document), ids, relation)
         if (list) issues.set(id, list)
         fileErrors.report(errorKey, null)
       } catch (error) {
@@ -177,5 +181,5 @@ export function useIssues(screen: ScreenEntry, document: Document | null, ids: r
       clearTimeout(timer)
       fileErrors.report(errorKey, null)
     }
-  }, [id, error, document, tokenFile, ids])
+  }, [id, error, relation, document, tokenFile, ids])
 }

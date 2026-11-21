@@ -1,11 +1,14 @@
 // The place of each frame on the canvas, in world coordinates. One flow is one
-// row; the frames of a row go left to right in the order of the list. The user
+// row. A row is a sequence of groups (`screenGroups`): a base screen and its
+// states, left to right. The options of a frame are a column below it. The
+// groups, the states and the options keep the order of the list. The user
 // does not move frames.
 
 import type { ScreenEntry } from 'virtual:canvas-screens'
+import { screenGroups, type Related } from '../../related/groups.ts'
 import type { Rect } from './viewport.ts'
 
-export type LayoutScreen = Pick<ScreenEntry, 'id' | 'flow' | 'width' | 'error'>
+export type LayoutScreen = Pick<ScreenEntry, 'id' | 'flow' | 'width' | 'error' | 'stateOf' | 'optionOf'>
 
 // The box of a frame keeps the entry of its screen.
 export type FrameBox<S extends LayoutScreen = LayoutScreen> = {
@@ -18,10 +21,17 @@ export type FrameBox<S extends LayoutScreen = LayoutScreen> = {
 
 export type FrameLayout<S extends LayoutScreen = LayoutScreen> = { frames: FrameBox<S>[]; bounds: Rect }
 
-// The space between two frames of a row.
+// The space between two frames of a group: a base and its states.
 export const frameGap = 80
+// The space between two groups of a row, wider than `frameGap`, thus a group
+// reads as one thing.
+export const groupGap = 240
 // The space between two rows; the titles of the lower row are in it.
 export const rowGap = 200
+// The space between a frame and its first option, and between two options of
+// a column. A title keeps its size on the screen, thus it needs as much space
+// of the canvas as the title of a row.
+export const optionGap = rowGap
 // The height of the viewport of a frame: the height before the frame document
 // tells its height, and the least height of a frame. A screen that fills the
 // viewport (`100vh`) thus has one height, and the height does not depend on
@@ -43,6 +53,8 @@ export function layoutFrames<S extends LayoutScreen>(screens: readonly S[], heig
     else rows.set(screen.flow, [screen])
   }
 
+  const heightOf = (screen: S) => heights.get(screen.id) ?? (screen.error ? errorFrameHeight : defaultFrameHeight)
+
   const frames: FrameBox<S>[] = []
   let y = 0
   let width = 0
@@ -50,13 +62,29 @@ export function layoutFrames<S extends LayoutScreen>(screens: readonly S[], heig
   for (const row of rows.values()) {
     let x = 0
     let rowHeight = 0
-    for (const screen of row) {
-      const frameHeight = heights.get(screen.id) ?? (screen.error ? errorFrameHeight : defaultFrameHeight)
-      frames.push({ screen, x, y, width: screen.width, height: frameHeight })
-      rowHeight = Math.max(rowHeight, frameHeight)
-      width = Math.max(width, x + screen.width)
-      x += screen.width + frameGap
+    // A column: a frame and its options below it, as wide as its widest
+    // frame. It gives the width of the column.
+    const column = ({ screen, options }: Related<S>): number => {
+      let columnY = y
+      let columnWidth = 0
+      for (const item of [screen, ...options]) {
+        const frameHeight = heightOf(item)
+        frames.push({ screen: item, x, y: columnY, width: item.width, height: frameHeight })
+        columnWidth = Math.max(columnWidth, item.width)
+        rowHeight = Math.max(rowHeight, columnY + frameHeight - y)
+        columnY += frameHeight + optionGap
+      }
+      width = Math.max(width, x + columnWidth)
+      return columnWidth
     }
+    screenGroups(row).forEach((group, index) => {
+      if (index > 0) x += groupGap
+      x += column(group.base)
+      for (const state of group.states) {
+        x += frameGap
+        x += column(state)
+      }
+    })
     height = y + rowHeight
     y = height + rowGap
   }

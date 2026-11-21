@@ -2,7 +2,12 @@ import { describe, expect, test } from 'vitest'
 import { flowGroups, flowTitle, noFlowTitle } from './index-model.ts'
 import { screenEntry } from './screen-fixtures.ts'
 
-const ids = (groups: ReturnType<typeof flowGroups>) => groups.map((group) => [group.flow, group.screens.map((screen) => screen.id)])
+import type { ScreenEntry } from 'virtual:canvas-screens'
+
+// The ids of the bases of each flow; the states of a base are not in it.
+const ids = (flows: ReturnType<typeof flowGroups>) => flows.map((flow) => [flow.flow, flow.groups.map((group) => group.base.id)])
+
+const related = (id: string, fields: Partial<ScreenEntry>): ScreenEntry => ({ ...screenEntry(id), ...fields })
 
 describe('flowGroups', () => {
   test('gives no group for an empty list', () => {
@@ -37,7 +42,50 @@ describe('flowGroups', () => {
 
   test('keeps the entries of the list', () => {
     const screens = [screenEntry('home')]
-    expect(flowGroups(screens)[0].screens[0]).toBe(screens[0])
+    expect(flowGroups(screens)[0].groups[0].base).toBe(screens[0])
+  })
+
+  test('a screen with no relation is a group with no state', () => {
+    expect(flowGroups([screenEntry('home')])[0].groups).toEqual([{ base: screenEntry('home'), states: [] }])
+  })
+
+  test('puts the states of a base below it, in the order of the list', () => {
+    const screens = [
+      screenEntry('onboarding/welcome'),
+      related('onboarding/welcome-done', { stateOf: 'onboarding/welcome' }),
+      related('onboarding/welcome-error', { stateOf: 'onboarding/welcome' }),
+      screenEntry('onboarding/workspace'),
+      related('onboarding/workspace-error', { stateOf: 'onboarding/workspace' }),
+    ]
+    const groups = flowGroups(screens)[0].groups
+    expect(groups.map((group) => [group.base.id, group.states.map((state) => state.id)])).toEqual([
+      ['onboarding/welcome', ['onboarding/welcome-done', 'onboarding/welcome-error']],
+      ['onboarding/workspace', ['onboarding/workspace-error']],
+    ])
+  })
+
+  test('leaves out the options of a base and of a state', () => {
+    const screens = [
+      screenEntry('onboarding/welcome'),
+      related('onboarding/welcome-error', { stateOf: 'onboarding/welcome' }),
+      related('onboarding/welcome-error-option-1', { optionOf: 'onboarding/welcome-error' }),
+      related('onboarding/welcome-option-1', { optionOf: 'onboarding/welcome' }),
+      related('onboarding/welcome-option-2', { optionOf: 'onboarding/welcome' }),
+    ]
+    const flows = flowGroups(screens)
+    expect(flows[0].groups.map((group) => [group.base.id, group.states.map((state) => state.id)])).toEqual([
+      ['onboarding/welcome', ['onboarding/welcome-error']],
+    ])
+  })
+
+  test('leaves out an option whose base is not in the list', () => {
+    const screens = [screenEntry('onboarding/welcome'), related('onboarding/gone-option-1', { optionOf: 'onboarding/gone' })]
+    expect(ids(flowGroups(screens))).toEqual([['onboarding', ['onboarding/welcome']]])
+  })
+
+  test('leaves out a flow with only options', () => {
+    const screens = [screenEntry('billing/plan'), related('onboarding/x-option-1', { optionOf: 'billing/plan' })]
+    expect(ids(flowGroups(screens))).toEqual([['billing', ['billing/plan']]])
   })
 })
 

@@ -17,6 +17,9 @@ import type { InspectorRow } from '../inspector/model.ts'
 // - `broken-link`: a link to a screen address whose id no screen has, on the
 //   screen element that the link belongs to (`brokenLinks` in `collect.ts`).
 // - `render-error`: the screen cannot be rendered or read.
+// - `relation`: the relation of the screen in its `meta` (`stateOf`,
+//   `optionOf`) breaks a rule of the list, with the cause (`relationError` of
+//   its entry). The screen then shows as a base screen.
 
 // A screen element: the target of its place in the code, the rows that the
 // inspector shows for its first copy, and the addresses of the broken links
@@ -83,10 +86,16 @@ const noErrorText = 'The screen failed to render.'
 // sequence of the nodes does not change the list. A place with more than one
 // copy gives the issues of its first element. In a place: `not-library`,
 // then the broken links, then the values. `error` is the text of a render
-// error, or null.
-export function screenIssues(elements: readonly IssueElement[], error: string | null): Issue[] {
+// error, or null; `relation` is the cause of a broken relation, or null. The
+// relation issue comes after a render error and before the places.
+export function screenIssues(
+  elements: readonly IssueElement[],
+  error: string | null,
+  relation: string | null,
+): Issue[] {
   const issues: Issue[] = []
   if (error !== null) issues.push({ kind: 'render-error', text: error.trim() || noErrorText })
+  if (relation !== null) issues.push({ kind: 'relation', text: relation })
 
   const places = new Map<string, IssueElement>()
   for (const element of elements) {
@@ -102,9 +111,9 @@ export function screenIssues(elements: readonly IssueElement[], error: string | 
   return issues
 }
 
-// The sequence of the groups of the Issues list: an error first, then the
-// broken links, then the elements, then the values.
-const groupOrder: readonly Issue['kind'][] = ['render-error', 'broken-link', 'not-library', 'no-token', 'override']
+// The sequence of the groups of the Issues list: an error first, then a broken
+// relation, then the broken links, then the elements, then the values.
+const groupOrder: readonly Issue['kind'][] = ['render-error', 'relation', 'broken-link', 'not-library', 'no-token', 'override']
 
 export type IssueGroup = { kind: Issue['kind']; issues: Issue[] }
 
@@ -120,6 +129,7 @@ export function issueGroups(issues: readonly Issue[]): IssueGroup[] {
 export function issueSummary(issue: Issue): string {
   switch (issue.kind) {
     case 'render-error':
+    case 'relation':
       return issue.text
     case 'not-library':
       return issue.target.origin === 'host' ? 'HTML element, not from the library' : 'local component, not from the library'

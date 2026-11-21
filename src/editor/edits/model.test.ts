@@ -294,6 +294,59 @@ describe('comments', () => {
   })
 })
 
+const options = (id: string, count = 3, note = '', at: Target | null = target): Edit => ({
+  id,
+  target: at,
+  width: 390,
+  change: { kind: 'options', count, note },
+})
+
+const keep = (id: string, option: string): Edit => ({ id, target: null, width: 1440, change: { kind: 'keep', option } })
+
+describe('options and keep', () => {
+  test('have no preview', () => {
+    const list: Item[] = [
+      { edit: options('o1') },
+      { edit: options('o2', 2, 'Fewer fields', null) },
+      { edit: keep('k1', 'onboarding/welcome-option-1') },
+      { edit: edit('e1', { kind: 'remove' }) },
+    ]
+    expect(ids(liveItems(list))).toEqual(['e1'])
+  })
+
+  test('two options items on one element stay two, also with the same count and note', () => {
+    let list = addEdit([], options('o1', 3, 'Shorter'))
+    list = addEdit(list, options('o2', 3, 'Shorter'))
+    expect(ids(list)).toEqual(['o1', 'o2'])
+  })
+
+  test('two options items on the screen stay two', () => {
+    let list = addEdit([], options('o1', 3, '', null))
+    list = addEdit(list, options('o2', 4, '', null))
+    expect(ids(list)).toEqual(['o1', 'o2'])
+  })
+
+  test('an options item with an empty note is added', () => {
+    expect(ids(addEdit([], options('o1', 2, '')))).toEqual(['o1'])
+  })
+
+  test('a second keep leaves one item, the new one, with no before', () => {
+    let list = addEdit([], comment('c1', 'Add a title.', null))
+    list = addEdit(list, keep('k1', 'onboarding/welcome-option-1'))
+    list = addEdit(list, keep('k2', 'onboarding/welcome-option-2'))
+    expect(ids(list)).toEqual(['c1', 'k2'])
+    expect(list[1]).toEqual({ edit: keep('k2', 'onboarding/welcome-option-2') })
+    expect(list[1].edit.change).not.toHaveProperty('before')
+  })
+
+  test('a keep does not touch a comment on the screen or an options item', () => {
+    let list = addEdit([], options('o1', 3, '', null))
+    list = addEdit(list, comment('c1', 'Add a title.', null))
+    list = addEdit(list, keep('k1', 'onboarding/welcome-option-1'))
+    expect(ids(list)).toEqual(['o1', 'c1', 'k1'])
+  })
+})
+
 describe('replaceComment', () => {
   const list: Item[] = [
     { edit: comment('c1', 'Make this a table.') },

@@ -4,10 +4,12 @@ import {
   errorFrameHeight,
   frameGap,
   frameHeight,
+  groupGap,
   keepKeys,
   layoutFrames,
   maxFrameHeight,
   measureHeight,
+  optionGap,
   rowGap,
   type LayoutScreen,
   type MeasuredFrame,
@@ -18,10 +20,23 @@ function screen(id: string, width: number, error?: string): LayoutScreen {
   return { id, flow: slash === -1 ? '' : id.slice(0, slash), width, error }
 }
 
+function state(id: string, width: number, stateOf: string): LayoutScreen {
+  return { ...screen(id, width), stateOf }
+}
+
+function option(id: string, width: number, optionOf: string): LayoutScreen {
+  return { ...screen(id, width), optionOf }
+}
+
+// The id and the place of each frame, in the order of the layout.
+function places(screens: readonly LayoutScreen[], heights: ReadonlyMap<string, number> = new Map()) {
+  return layoutFrames(screens, heights).frames.map((frame) => [frame.screen.id, frame.x, frame.y])
+}
+
 const none = new Map<string, number>()
 
 describe('layoutFrames', () => {
-  test('puts the frames of one flow in one row, left to right with a gap', () => {
+  test('puts the frames of one flow in one row, left to right with the gap of two groups', () => {
     const screens = [screen('onboarding/welcome', 1440), screen('onboarding/welcome-mobile', 390)]
     const heights = new Map([
       ['onboarding/welcome', 1000],
@@ -29,7 +44,7 @@ describe('layoutFrames', () => {
     ])
     expect(layoutFrames(screens, heights).frames).toEqual([
       { screen: screens[0], x: 0, y: 0, width: 1440, height: 1000 },
-      { screen: screens[1], x: 1440 + frameGap, y: 0, width: 390, height: 800 },
+      { screen: screens[1], x: 1440 + groupGap, y: 0, width: 390, height: 800 },
     ])
   })
 
@@ -38,7 +53,7 @@ describe('layoutFrames', () => {
     const frames = layoutFrames(screens, none).frames
     expect(frames.map((frame) => [frame.screen.id, frame.x, frame.y])).toEqual([
       ['a/one', 0, 0],
-      ['a/two', 1440 + frameGap, 0],
+      ['a/two', 1440 + groupGap, 0],
       ['b/one', 0, defaultFrameHeight + rowGap],
     ])
   })
@@ -87,9 +102,110 @@ describe('layoutFrames', () => {
     expect(layoutFrames(screens, heights).bounds).toEqual({
       x: 0,
       y: 0,
-      width: 1440 + frameGap + 390,
+      width: 1440 + groupGap + 390,
       height: 1200 + rowGap + 700,
     })
+  })
+
+  test('puts a base and its states next to each other, and the next group after the gap of two groups', () => {
+    const screens = [
+      screen('a/one', 1440),
+      state('a/one-error', 1440, 'a/one'),
+      screen('a/two', 390),
+      state('a/one-done', 1024, 'a/one'),
+    ]
+    expect(places(screens)).toEqual([
+      ['a/one', 0, 0],
+      ['a/one-error', 1440 + frameGap, 0],
+      ['a/one-done', 2 * 1440 + 2 * frameGap, 0],
+      ['a/two', 2 * 1440 + 2 * frameGap + 1024 + groupGap, 0],
+    ])
+  })
+
+  test('puts the options of a frame in a column below it, in the order of the list', () => {
+    const screens = [
+      screen('a/one', 1440),
+      option('a/one-option-1', 1440, 'a/one'),
+      option('a/one-option-2', 1440, 'a/one'),
+    ]
+    const heights = new Map([
+      ['a/one', 1000],
+      ['a/one-option-1', 1200],
+    ])
+    expect(places(screens, heights)).toEqual([
+      ['a/one', 0, 0],
+      ['a/one-option-1', 0, 1000 + optionGap],
+      ['a/one-option-2', 0, 1000 + optionGap + 1200 + optionGap],
+    ])
+  })
+
+  test('puts the options of a state below the state', () => {
+    const screens = [
+      screen('a/one', 1440),
+      state('a/one-error', 1440, 'a/one'),
+      option('a/one-error-option-1', 1440, 'a/one-error'),
+    ]
+    expect(places(screens)).toEqual([
+      ['a/one', 0, 0],
+      ['a/one-error', 1440 + frameGap, 0],
+      ['a/one-error-option-1', 1440 + frameGap, defaultFrameHeight + optionGap],
+    ])
+  })
+
+  test('makes a column as wide as its widest frame: an option that is wider than its base', () => {
+    const screens = [
+      screen('a/one', 390),
+      option('a/one-option-1', 1440, 'a/one'),
+      state('a/one-error', 390, 'a/one'),
+      screen('a/two', 390),
+    ]
+    expect(places(screens)).toEqual([
+      ['a/one', 0, 0],
+      ['a/one-option-1', 0, defaultFrameHeight + optionGap],
+      ['a/one-error', 1440 + frameGap, 0],
+      ['a/two', 1440 + frameGap + 390 + groupGap, 0],
+    ])
+  })
+
+  test('makes a row as high as its highest column', () => {
+    const screens = [
+      screen('a/one', 1440),
+      option('a/one-option-1', 1440, 'a/one'),
+      screen('a/tall', 390),
+      screen('b/next', 390),
+    ]
+    const heights = new Map([
+      ['a/one', 1000],
+      ['a/one-option-1', 1100],
+      ['a/tall', 2000],
+    ])
+    const next = layoutFrames(screens, heights).frames.find((frame) => frame.screen.id === 'b/next')
+    expect(next?.y).toBe(1000 + optionGap + 1100 + rowGap)
+  })
+
+  test('gives the bounds with the states and the options', () => {
+    const screens = [
+      screen('a/one', 390),
+      option('a/one-option-1', 1440, 'a/one'),
+      state('a/one-error', 390, 'a/one'),
+      screen('b/one', 1024),
+    ]
+    const heights = new Map([
+      ['a/one', 1000],
+      ['a/one-option-1', 900],
+      ['b/one', 700],
+    ])
+    expect(layoutFrames(screens, heights).bounds).toEqual({
+      x: 0,
+      y: 0,
+      width: 1440 + frameGap + 390,
+      height: 1000 + optionGap + 900 + rowGap + 700,
+    })
+  })
+
+  test('the space between two groups is wider than the space in a group, and an option has the space of a row', () => {
+    expect(groupGap).toBeGreaterThan(frameGap)
+    expect(optionGap).toBe(rowGap)
   })
 
   test('gives empty bounds for no screens', () => {

@@ -10,6 +10,7 @@ A flow is the chain of screens and states that takes a person from the start of 
 - **No step that only confirms.** A review step is permitted only when it shows something new that the person must check; see "Undo and the check of the target" in [Actions](./actions.md).
 - **A flow that the person repeats is linear**: the same steps in the same sequence, with no branch that changes the meaning of a press.
 - **Make the states that the walk finds** (on a picture, each as its own screen file; see section 5 of `SKILL.md`): after an error, after a change of an earlier choice, the result. Draw the state during a wait when the wait is longer than about two seconds, and for each payment, order and booking; else name it in the report. Draw the empty state when the person of the task can meet it; else name it.
+- **List the states that the screen can have** before you draw: the first view, the wait, each error that the system can know, the result, the empty list, a change of an earlier choice. Draw the states that the rules above ask for. A drawn state is a screen file of its own that says which screen it is a state of, as `AGENTS.md` says. The report names each state that the screen has in use and that you did not draw.
 
 ## Each screen makes sense alone
 
@@ -61,6 +62,16 @@ The answer to a press comes at once, also when the work takes time. First respon
 - **The result shows in the place of the form**: what is now set, and how to change or remove it. Entered data does not vanish after "Done".
 - **The next action is at the result**: the receipt, the calendar, the next bill. On a narrow screen it sits in the action block at the bottom, where the main action was.
 - A result is plain content of the page. A wide strip with a strong color and a picture is read as an advertisement and not seen.
+
+## Options of a screen
+
+The user can ask for options of a screen or of one part of it, to choose between them side by side. Each option is a full screen with one clear difference in the asked part.
+
+- **An option differs in a way that is worth a choice**: the structure (one step or two, one column or two), the sequence (what comes first), the form of the data (a list, a table, key numbers), what is shown and what is left out. A different color, size or word alone is not an option: the person who chooses learns nothing from it.
+- **Each option does the same task with the same real content**, thus the comparison shows only the difference.
+- **Each option keeps the floor of section 3 of `SKILL.md` and the rules of its part.** An option is not a place to try out a screen that breaks a rule.
+- **The title of an option names its difference** in the words of the screen ("fields in two columns"), not a letter or a number alone.
+- **Fewer good options are better than the asked count with weak ones.** Write fewer, and say why in the report.
 
 ## Each state has a defined next step
 

@@ -8,10 +8,17 @@
 
 import { parseSync } from 'vite'
 import { config } from '../canvas.config.ts'
+import { relationOf } from '../src/related/groups.ts'
 import { messageOf } from '../src/tokens/format.ts'
 import type { Pack } from './pack.ts'
 
-export type ScreenMeta = { title: string; width: number }
+// `stateOf` and `optionOf` are the id of the base screen of a state or of an
+// option. A file has at most one of them; a screen with neither is a base.
+export type ScreenMeta = { title: string; width: number; stateOf?: string; optionOf?: string }
+
+// The two fields of `meta` that relate a screen to its base.
+const relationFields = ['stateOf', 'optionOf'] as const
+type RelationField = (typeof relationFields)[number]
 
 export type ScreenEntry = {
   // The path in the screens folder with no extension: 'onboarding/welcome'.
@@ -24,6 +31,14 @@ export type ScreenEntry = {
   width: number
   // The path relative to the project root: 'screens/onboarding/welcome.tsx'.
   file: string
+  // The id of the base screen when this screen is a state of it.
+  stateOf?: string
+  // The id of the base screen when this screen is an option of it.
+  optionOf?: string
+  // The cause when the relation breaks a rule of the list (an unknown base, a
+  // chain). The screen is valid: the entry then has no relation fields and is a
+  // base screen.
+  relationError?: string
   // The error text when the file cannot be read; then `title` is the name and
   // `width` is the first width of the config.
   error?: string
@@ -92,10 +107,12 @@ export function readScreenMeta(
   if (object.type !== 'ObjectExpression') fail(file, '`meta` must be an object literal')
 
   const values = new Map<string, unknown>()
+  const names = new Set<string>()
   for (const property of object.properties as Node[]) {
     if (property.type !== 'Property') fail(file, '`meta` must be an object literal')
     const name = propertyName(property)
     const value = property.value as Node
+    if (name !== undefined) names.add(name)
     if (name !== undefined && value.type === 'Literal') values.set(name, value.value)
   }
 
@@ -107,7 +124,17 @@ export function readScreenMeta(
     fail(file, `\`meta.width\` must be one of ${widths.join(', ')}`)
   }
 
-  return { title, width }
+  const meta: ScreenMeta = { title, width }
+  for (const field of relationFields) {
+    if (!names.has(field)) continue
+    const value = values.get(field)
+    if (typeof value !== 'string' || value === '') fail(file, `\`meta.${field}\` must be a screen id`)
+    meta[field] = value
+  }
+  if (meta.stateOf !== undefined && meta.optionOf !== undefined) {
+    fail(file, '`meta` can have `stateOf` or `optionOf`, not the two')
+  }
+  return meta
 }
 
 // `file` is the path relative to the project root.
@@ -125,6 +152,8 @@ export function screenEntry(file: string, meta: ScreenMeta, screensFolder: strin
     title: meta.title,
     width: meta.width,
     file: path,
+    ...(meta.stateOf === undefined ? {} : { stateOf: meta.stateOf }),
+    ...(meta.optionOf === undefined ? {} : { optionOf: meta.optionOf }),
   }
 }
 
@@ -138,8 +167,60 @@ export function sortScreens(screens: readonly ScreenEntry[]): ScreenEntry[] {
   return [...screens].sort((a, b) => compare(a.flow, b.flow) || compare(a.name, b.name))
 }
 
+// The relations that break a rule of the list: a map from the id of a screen
+// to the cause. The base of a state is a base screen in the same flow; the
+// base of an option is a base screen or a state in the same flow. The rules
+// read the fields as the files write them, in one pass: a base whose own
+// relation is broken still counts as what its file says, and the cause then
+// names that broken relation too, because the canvas shows that base as a
+// base screen. A base whose file has an error has no relation fields, thus it
+// is a valid base.
+export function relationProblems(entries: readonly ScreenEntry[]): Map<string, string> {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
+  const problems = new Map<string, string>()
+  // The screens whose cause is the relation of their base: id to base id.
+  const byBase = new Map<string, string>()
+  for (const entry of entries) {
+    const relation = relationOf(entry)
+    if (relation === 'base') continue
+    const field: RelationField = relation === 'state' ? 'stateOf' : 'optionOf'
+    const baseId = entry[field]!
+    const name = `\`${field}\``
+    const base = byId.get(baseId)
+    let problem: string | null = null
+    if (baseId === entry.id) problem = `${name} names the screen itself`
+    else if (base === undefined) problem = `${name}: no screen has the id '${baseId}'`
+    else if (base.flow !== entry.flow) problem = `${name}: the screen '${baseId}' is in a different flow`
+    else if (field === 'stateOf' && base.stateOf !== undefined) {
+      problem = `${name}: the screen '${baseId}' is a state; a state has no states`
+    } else if (base.optionOf !== undefined) {
+      problem = field === 'stateOf'
+        ? `${name}: the screen '${baseId}' is an option; an option has no states`
+        : `${name}: the screen '${baseId}' is an option; an option has no options`
+    }
+    if (problem === null) continue
+    problems.set(entry.id, problem)
+    if (base !== undefined && baseId !== entry.id && base.flow === entry.flow) byBase.set(entry.id, baseId)
+  }
+  for (const [id, baseId] of byBase) {
+    if (problems.has(baseId)) {
+      problems.set(id, `${problems.get(id)} (its own relation is broken, thus it shows as a base screen)`)
+    }
+  }
+  return problems
+}
+
+// The entry with the cause of its broken relation and with no relation
+// fields, thus a base screen.
+function withRelationError(entry: ScreenEntry, problem: string): ScreenEntry {
+  const { stateOf: _stateOf, optionOf: _optionOf, ...rest } = entry
+  return { ...rest, relationError: problem }
+}
+
 // The list of the virtual module. A file with an error gives an entry with
-// the error text, thus one broken screen does not break the editor.
+// the error text, thus one broken screen does not break the editor. A broken
+// relation gives an entry with `relationError`, not an error: the screen
+// stays visible.
 export function screenList(
   files: readonly ScreenFile[],
   widths: readonly number[] = config.widths,
@@ -153,7 +234,13 @@ export function screenList(
       return { ...fallback, title: fallback.name, error: messageOf(error) }
     }
   })
-  return sortScreens(entries)
+  const problems = relationProblems(entries)
+  return sortScreens(
+    entries.map((entry) => {
+      const problem = problems.get(entry.id)
+      return problem === undefined ? entry : withRelationError(entry, problem)
+    }),
+  )
 }
 
 // The library that the editor gets with the list: the name of the pack, or

@@ -1,4 +1,4 @@
-import { commentLimit, labelOf, tokenRef, type Edit, type EditValue, type Target } from '../../requests/format.ts'
+import { commentLimit, labelOf, optionCounts, tokenRef, type Edit, type EditValue, type Target } from '../../requests/format.ts'
 import type { TextStyle, Token } from '../../tokens/format.ts'
 import { isPlaced, liveItems, locOf, type Item, type PlacedItem } from '../edits/model.ts'
 import type { Site } from '../locate/fiber.ts'
@@ -305,6 +305,42 @@ export function commentText(input: string): string | null {
 // the input before it sends it.
 export function commentEdit(target: Target | null, width: number, text: string, id: string = newEditId()): Edit {
   return { id, target, width, change: { kind: 'comment', text } }
+}
+
+// The count of an `options` edit from the text of its input: a whole number
+// in the range of `optionCounts` (a number outside it goes to the nearest end,
+// a fraction to the nearest whole number), and `optionCounts.initial` for a
+// text that is not a number.
+export function optionCount(input: string): number {
+  const text = input.trim()
+  const value = text === '' ? Number.NaN : Number(text)
+  if (!Number.isFinite(value)) return optionCounts.initial
+  return Math.min(optionCounts.max, Math.max(optionCounts.min, Math.round(value)))
+}
+
+// A request for `count` options for the agent: of the element of the target,
+// or with the target null of the whole screen. `note` is what the user wants
+// from the options, trimmed at the ends; it can be empty. Null for a count
+// that is not a whole number in the range of `optionCounts`, and for a note of
+// more than `commentLimit` characters after the trim.
+export function optionsEdit(
+  target: Target | null,
+  width: number,
+  count: number,
+  note: string,
+  id: string = newEditId(),
+): Edit | null {
+  const text = note.trim()
+  if (!Number.isInteger(count) || count < optionCounts.min || count > optionCounts.max) return null
+  if (text.length > commentLimit) return null
+  return { id, target, width, change: { kind: 'options', count, note: text } }
+}
+
+// A request to write the option with the id into its base. The item goes into
+// the edits of the base, with the target null; `width` is the width of the
+// frame of the base.
+export function keepEdit(width: number, option: string, id: string = newEditId()): Edit {
+  return { id, target: null, width, change: { kind: 'keep', option } }
 }
 
 // True when the text of a place can change: each copy has exactly one text

@@ -7,6 +7,7 @@ import {
   inFolder,
   libraryInfo,
   readScreenMeta,
+  relationProblems,
   screenEntry,
   screenIdOf,
   screenList,
@@ -95,6 +96,48 @@ export const meta = { title: 'Welcome', ...base }`)
     expect(() => readScreenMeta(code, file, widths)).toThrow(`${file}: \`meta.title\` must be a text`)
   })
 
+  test('reads `stateOf` and `optionOf`', () => {
+    const state = screen(`export const meta = { title: 'Welcome, error', width: 1440, stateOf: 'onboarding/welcome' }`)
+    expect(readScreenMeta(state, file, widths)).toEqual({
+      title: 'Welcome, error',
+      width: 1440,
+      stateOf: 'onboarding/welcome',
+    })
+    const option = screen(`export const meta = { title: 'Welcome, option 1', width: 1440, optionOf: 'onboarding/welcome' }`)
+    expect(readScreenMeta(option, file, widths)).toEqual({
+      title: 'Welcome, option 1',
+      width: 1440,
+      optionOf: 'onboarding/welcome',
+    })
+  })
+
+  test('gives no relation fields for a meta with neither', () => {
+    const code = screen(`export const meta = { title: 'Welcome', width: 1440 }`)
+    expect(Object.keys(readScreenMeta(code, file, widths))).toEqual(['title', 'width'])
+  })
+
+  test('gives an error for a file with the two relation fields', () => {
+    const code = screen(`export const meta = { title: 'W', width: 1440, stateOf: 'a/b', optionOf: 'a/c' }`)
+    expect(() => readScreenMeta(code, file, widths)).toThrow(
+      `${file}: \`meta\` can have \`stateOf\` or \`optionOf\`, not the two`,
+    )
+  })
+
+  test.each([
+    ['an empty text', `''`],
+    ['a number', '1'],
+    ['a template literal', '`onboarding/welcome`'],
+    ['a variable', 'base'],
+    ['null', 'null'],
+    ['a text with `as const`', `'onboarding/welcome' as const`],
+  ])('gives an error for a relation field that is %s', (_name, value) => {
+    for (const field of ['stateOf', 'optionOf']) {
+      const code = screen(`const base = 'onboarding/welcome'
+export const meta = { title: 'W', width: 1440, ${field}: ${value} }`)
+      expect(() => readScreenMeta(code, file, widths)).toThrow(`${file}: \`meta.${field}\` must be a screen id`)
+    }
+  })
+
   test('gives an error with the file name for a syntax error', () => {
     const code = screen(`export const meta = { title: 'Welcome', width: 1440`)
     expect(() => readScreenMeta(code, file, widths)).toThrow(`${file}: `)
@@ -113,6 +156,15 @@ describe('screenEntry', () => {
       width: 1440,
       file,
     })
+  })
+
+  test('copies the relation fields', () => {
+    expect(screenEntry(file, { ...meta, stateOf: 'onboarding/start' })).toMatchObject({
+      stateOf: 'onboarding/start',
+    })
+    const option = screenEntry(file, { ...meta, optionOf: 'onboarding/start' })
+    expect(option).toMatchObject({ optionOf: 'onboarding/start' })
+    expect('stateOf' in option).toBe(false)
   })
 
   test('gives the flow "" for a file directly in the screens folder', () => {
@@ -193,6 +245,74 @@ describe('screenList', () => {
     ])
   })
 
+  test('keeps a valid relation in the entry', () => {
+    const list = screenList(
+      [
+        { file: 'screens/a/base.tsx', code: screen(`export const meta = { title: 'Base', width: 1440 }`) },
+        { file: 'screens/a/error.tsx', code: screen(`export const meta = { title: 'Error', width: 1440, stateOf: 'a/base' }`) },
+      ],
+      widths,
+    )
+    expect(list[1]).toMatchObject({ id: 'a/error', stateOf: 'a/base' })
+    expect(list.some((entry) => 'relationError' in entry)).toBe(false)
+  })
+
+  test('gives an entry with a broken relation its cause and no relation fields, not an error', () => {
+    const list = screenList(
+      [{ file: 'screens/a/option-1.tsx', code: screen(`export const meta = { title: 'Option', width: 390, optionOf: 'a/gone' }`) }],
+      widths,
+    )
+    expect(list).toEqual([
+      {
+        id: 'a/option-1',
+        flow: 'a',
+        name: 'option-1',
+        title: 'Option',
+        width: 390,
+        file: 'screens/a/option-1.tsx',
+        relationError: "`optionOf`: no screen has the id 'a/gone'",
+      },
+    ])
+  })
+
+  test('accepts a base whose file has an error', () => {
+    const list = screenList(
+      [
+        { file: 'screens/a/base.tsx', code: screen('') },
+        { file: 'screens/a/error.tsx', code: screen(`export const meta = { title: 'Error', width: 1440, stateOf: 'a/base' }`) },
+      ],
+      widths,
+    )
+    expect(list[0].error).toBeDefined()
+    expect(list[1]).toMatchObject({ id: 'a/error', stateOf: 'a/base' })
+    expect('relationError' in list[1]).toBe(false)
+  })
+
+  test('judges a base by its file in one pass, also when its own relation is broken', () => {
+    const list = screenList(
+      [
+        { file: 'screens/a/error.tsx', code: screen(`export const meta = { title: 'Error', width: 1440, stateOf: 'a/gone' }`) },
+        { file: 'screens/a/x.tsx', code: screen(`export const meta = { title: 'X', width: 1440, stateOf: 'a/error' }`) },
+        { file: 'screens/a/y.tsx', code: screen(`export const meta = { title: 'Y', width: 1440, optionOf: 'a/error' }`) },
+      ],
+      widths,
+    )
+    const [error, x, y] = list
+    // The broken state shows as a base screen with its cause.
+    expect(error).toMatchObject({ id: 'a/error', relationError: "`stateOf`: no screen has the id 'a/gone'" })
+    expect('stateOf' in error).toBe(false)
+    // A state of it is refused, because its file says that it is a state; the
+    // cause names the broken relation of the base.
+    expect(x.id).toBe('a/x')
+    expect('stateOf' in x).toBe(false)
+    expect(x.relationError).toBe(
+      "`stateOf`: the screen 'a/error' is a state; a state has no states (its own relation is broken, thus it shows as a base screen)",
+    )
+    // An option of it stays a valid option: the base of an option can be a state.
+    expect(y).toMatchObject({ id: 'a/y', optionOf: 'a/error' })
+    expect('relationError' in y).toBe(false)
+  })
+
   test('gives a file with an error an entry with the error text, not a failure', () => {
     const list = screenList([{ file: 'screens/onboarding/broken.tsx', code: screen('') }], widths)
     expect(list).toEqual([
@@ -206,6 +326,75 @@ describe('screenList', () => {
         error: 'screens/onboarding/broken.tsx: the file does not export `meta`',
       },
     ])
+  })
+})
+
+describe('relationProblems', () => {
+  function entry(id: string, relation: Partial<ScreenEntry> = {}): ScreenEntry {
+    const slash = id.lastIndexOf('/')
+    const flow = slash === -1 ? '' : id.slice(0, slash)
+    return { id, flow, name: id.slice(slash + 1), title: id, width: 1440, file: `screens/${id}.tsx`, ...relation }
+  }
+
+  test('gives no problem for valid relations', () => {
+    const problems = relationProblems([
+      entry('a/base'),
+      entry('a/error', { stateOf: 'a/base' }),
+      entry('a/option-1', { optionOf: 'a/base' }),
+      entry('a/error-option-1', { optionOf: 'a/error' }),
+    ])
+    expect(problems.size).toBe(0)
+  })
+
+  test('gives a problem for an unknown base', () => {
+    const problems = relationProblems([entry('a/error', { stateOf: 'a/gone' })])
+    expect(problems).toEqual(new Map([['a/error', "`stateOf`: no screen has the id 'a/gone'"]]))
+  })
+
+  test('gives a problem for a base in a different flow', () => {
+    const problems = relationProblems([entry('a/base'), entry('b/option-1', { optionOf: 'a/base' })])
+    expect(problems.get('b/option-1')).toBe("`optionOf`: the screen 'a/base' is in a different flow")
+  })
+
+  test('gives a problem for a base that is the screen itself', () => {
+    const problems = relationProblems([entry('a/base', { stateOf: 'a/base' })])
+    expect(problems.get('a/base')).toBe('`stateOf` names the screen itself')
+  })
+
+  test('gives a problem for a state of a state', () => {
+    const problems = relationProblems([
+      entry('a/base'),
+      entry('a/error', { stateOf: 'a/base' }),
+      entry('a/error-2', { stateOf: 'a/error' }),
+    ])
+    expect([...problems]).toEqual([['a/error-2', "`stateOf`: the screen 'a/error' is a state; a state has no states"]])
+  })
+
+  test('gives a problem for an option of an option', () => {
+    const problems = relationProblems([
+      entry('a/base'),
+      entry('a/option-1', { optionOf: 'a/base' }),
+      entry('a/option-2', { optionOf: 'a/option-1' }),
+    ])
+    expect([...problems]).toEqual([
+      ['a/option-2', "`optionOf`: the screen 'a/option-1' is an option; an option has no options"],
+    ])
+  })
+
+  test('gives a problem for a state of an option', () => {
+    const problems = relationProblems([
+      entry('a/base'),
+      entry('a/option-1', { optionOf: 'a/base' }),
+      entry('a/error', { stateOf: 'a/option-1' }),
+    ])
+    expect([...problems]).toEqual([
+      ['a/error', "`stateOf`: the screen 'a/option-1' is an option; an option has no states"],
+    ])
+  })
+
+  test('accepts a base whose file has an error', () => {
+    const problems = relationProblems([entry('a/base', { error: 'broken' }), entry('a/error', { stateOf: 'a/base' })])
+    expect(problems.size).toBe(0)
   })
 })
 

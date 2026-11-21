@@ -228,6 +228,14 @@ export function createSync({ store, client, listen, report }: SyncDeps): Sync {
         if (state.timer !== null) clearTimeout(state.timer)
         states.delete(id)
         setError(id, null)
+        // The saved edits of a removed screen go out of the store; its request
+        // file stays on the disk. A screen with the same id later (a new option
+        // after a `keep` deleted the old one, a file that comes back) loads
+        // its file, and old edits do not go into it. Edits that are not saved
+        // yet (in the save delay, or made during a save) stay: when the screen
+        // comes back, the load merges them as new items and saves them.
+        const mine = local(id)
+        if (mine.length > 0 && state.hash !== null && sameEdits(mine, state.base)) store.replace(id, [])
       }
       for (const screen of list) {
         const known = states.get(screen.id)

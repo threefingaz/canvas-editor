@@ -88,7 +88,30 @@ export type CommentChange = { kind: 'comment'; text: string }
 // The most characters of the text of a comment.
 export const commentLimit = 2000
 
-export type Change = StyleChange | TextStyleChange | TextChange | OrderChange | RemoveChange | CommentChange
+// A task for the agent: write `count` options of the screen, each as a screen
+// file with `optionOf`. On an element, each option changes that element and
+// the parts that it needs; on the whole screen, the edit has the target
+// `null`. `note` is what the user wants from the options, `commentLimit`
+// characters or less; it can be empty. It has no preview and never merges.
+export type OptionsChange = { kind: 'options'; count: number; note: string }
+
+// The range of the count of an `options` edit, and the count at first.
+export const optionCounts = { min: 2, max: 6, initial: 3 } as const
+
+// A task for the agent: write the option with the id `option` into its base.
+// The edit is in the request file of the base, with the target `null`. A
+// screen has at most one. It has no preview.
+export type KeepChange = { kind: 'keep'; option: string }
+
+export type Change =
+  | StyleChange
+  | TextStyleChange
+  | TextChange
+  | OrderChange
+  | RemoveChange
+  | CommentChange
+  | OptionsChange
+  | KeepChange
 
 // The kinds of `Change`. A test checks that the list has each kind of the
 // union.
@@ -99,14 +122,27 @@ export const changeKinds = [
   'order',
   'remove',
   'comment',
+  'options',
+  'keep',
 ] as const satisfies readonly Change['kind'][]
+
+// The kinds that are a task for the agent in words, with no preview. Only a
+// task can have the target null.
+export const taskKinds = ['comment', 'options', 'keep'] as const satisfies readonly Change['kind'][]
+
+export type TaskChange = Extract<Change, { kind: (typeof taskKinds)[number] }>
+
+export function isTask(change: Change): change is TaskChange {
+  return (taskKinds as readonly string[]).includes(change.kind)
+}
 
 export const replyStatuses = ['conflict', 'needs-library-change', 'unclear'] as const
 
 // The answer of an agent to an edit that it did not apply.
 export type Reply = { status: (typeof replyStatuses)[number]; text: string }
 
-// `target` is null only for a comment on the whole screen.
+// `target` is null for a comment or an `options` edit on the whole screen,
+// and always for a `keep` edit.
 export type Edit = { id: string; target: Target | null; width: number; change: Change; reply?: Reply }
 
 export type RequestFile = { version: typeof formatVersion; screen: string; file: string; edits: Edit[] }
@@ -127,6 +163,10 @@ export type Issue =
   // the page has it.
   | { kind: 'broken-link'; target: Target; href: string }
   | { kind: 'render-error'; text: string }
+  // The relation of the screen (`stateOf`, `optionOf` in its `meta`) breaks
+  // a rule of the list: `text` is the cause. The screen shows as a base
+  // screen. It has no target, as a render error.
+  | { kind: 'relation'; text: string }
 
 // The kinds of `Issue`. A test checks that the list has each kind of the
 // union.
@@ -136,6 +176,7 @@ export const issueKinds = [
   'not-library',
   'broken-link',
   'render-error',
+  'relation',
 ] as const satisfies readonly Issue['kind'][]
 
 export type IssuesFile = { version: typeof formatVersion; screen: string; file: string; issues: Issue[] }
@@ -259,6 +300,22 @@ function parseChange(raw: unknown, outer: Fail): Change {
       if (comment.length > commentLimit) fail(`has a text of more than ${commentLimit} characters`)
       return { kind, text: comment }
     }
+    case 'options': {
+      const { count } = value
+      if (
+        typeof count !== 'number' ||
+        !Number.isInteger(count) ||
+        count < optionCounts.min ||
+        count > optionCounts.max
+      ) {
+        fail(`has no whole number "count" from ${optionCounts.min} to ${optionCounts.max}`)
+      }
+      const note = text(value.note, 'note', fail, true)
+      if (note.length > commentLimit) fail(`has a note of more than ${commentLimit} characters`)
+      return { kind, count: count as number, note }
+    }
+    case 'keep':
+      return { kind, option: text(value.option, 'option', fail) }
   }
 }
 
@@ -294,9 +351,10 @@ function parseEdit(raw: unknown, index: number, seen: Set<string>): Edit {
     width: width as number,
     change: parseChange(value.change, fail),
   }
-  if (edit.target === null && edit.change.kind !== 'comment') {
-    fail('has the target null; only a comment on the screen has no target')
+  if (edit.target === null && !isTask(edit.change)) {
+    fail('has the target null; only a comment, an options edit or a keep edit has no target')
   }
+  if (edit.target !== null && edit.change.kind === 'keep') fail('has a target; a keep edit has the target null')
   if (value.reply !== undefined) edit.reply = parseReply(value.reply, fail)
   seen.add(id)
   return edit
@@ -373,6 +431,7 @@ function parseIssue(raw: unknown, index: number): Issue {
     case 'broken-link':
       return { kind, target: parseTarget(value.target, fail), href: text(value.href, 'href', fail) }
     case 'render-error':
+    case 'relation':
       return { kind, text: text(value.text, 'text', fail) }
   }
 }

@@ -15,6 +15,7 @@ import type { Edit, Target } from '../../requests/format.ts'
 import { messageOf } from '../../tokens/format.ts'
 import { useOperate } from '../canvas/operate.ts'
 import { useCopy, type CopyState } from '../copy.ts'
+import { editBlock } from '../edits/keep.ts'
 import type { Item } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
 import { typingInActive } from '../focus.ts'
@@ -58,6 +59,7 @@ import {
   isLayoutProperty,
   layoutEdit,
   movePlan,
+  optionsEdit,
   orderEdit,
   removeEdit,
   rowAction,
@@ -68,6 +70,7 @@ import {
 } from './edit.ts'
 import { LayoutControl, MoveControls, type Axes } from './LayoutControls.tsx'
 import { inspectorModel, type InspectorRow, type InspectorSection, type SectionTitle, type SidesKey } from './model.ts'
+import { OptionsBox } from './OptionsBox.tsx'
 import { TokenControl } from './TokenControl.tsx'
 import { ValueRow } from './ValueRow.tsx'
 
@@ -82,7 +85,13 @@ import { ValueRow } from './ValueRow.tsx'
 // Content section changes the text of an element whose place gives one text.
 // The comment box below the sections adds a comment for the agent on the
 // element; with nothing selected, the box of the screen view adds a comment on
-// the whole screen. A comment has no preview.
+// the whole screen. A comment has no preview. The options box below the
+// comment box asks the agent for options of the element or of the screen; it
+// is not in the view of an option (an option has no options), and it is off
+// while the screen has an open request to keep an option. While a screen has
+// an open request to keep an option, its elements take no edit and no comment
+// (the option replaces their markup), and the view of an element says why; a
+// comment on the whole screen is still possible.
 // The bin in the header (and the Delete and Backspace keys) removes the
 // element and clears the selection. An edit goes to the edits store, and the
 // preview shows it in the frame. The Changes list of the screen is at the
@@ -122,6 +131,11 @@ function applyFor(selected: Selected, site: Site): Apply {
   }
 }
 
+// True for an option screen: an option has no options.
+function isOption(screenId: string): boolean {
+  return screens.find((screen) => screen.id === screenId)?.optionOf !== undefined
+}
+
 // The move of the element among the sibling elements of its parent, for the
 // Layout section.
 type Move = { position: number; count: number; previewed: boolean; onMove: (next: number) => void }
@@ -154,9 +168,12 @@ type InspectorProps = {
   screenId: string | null
   // The current document of each frame, by screen id.
   documents: ReadonlyMap<string, Document>
+  // Moves the canvas to the frame of a screen: a click on a `keep` item in
+  // the Changes list shows its option.
+  onShowScreen: (id: string) => void
 }
 
-export function Inspector({ screenId, documents }: InspectorProps) {
+export function Inspector({ screenId, documents, onShowScreen }: InspectorProps) {
   const selected = useSelection()
   const operating = useOperate()
   const tokenFile = useTokenFile()
@@ -175,9 +192,13 @@ export function Inspector({ screenId, documents }: InspectorProps) {
         {operating ? (
           <PreviewOn />
         ) : selected ? (
-          <ElementView key={`${selected.screenId}|${selected.loc}|${selected.index}`} selected={selected} />
+          <ElementView
+            key={`${selected.screenId}|${selected.loc}|${selected.index}`}
+            selected={selected}
+            onShowScreen={onShowScreen}
+          />
         ) : screen ? (
-          <ScreenView screen={screen} document={documents.get(screen.id) ?? null} />
+          <ScreenView screen={screen} document={documents.get(screen.id) ?? null} onShowScreen={onShowScreen} />
         ) : (
           <NothingSelected />
         )}
@@ -218,8 +239,12 @@ function PreviewOn() {
 }
 
 // A screen with nothing selected: its title, its file, its Issues list, the
-// box for a comment on the screen, and its Changes list below it.
-function ScreenView({ screen, document }: { screen: ScreenEntry; document: Document | null }) {
+// box for a comment on the screen, the options box (not for an option), and
+// its Changes list below it.
+type ScreenViewProps = { screen: ScreenEntry; document: Document | null; onShowScreen: (id: string) => void }
+
+function ScreenView({ screen, document, onShowScreen }: ScreenViewProps) {
+  const items = useScreenEdits(screen.id)
   return (
     <>
       <header className="flex shrink-0 flex-col gap-1 p-3" data-inspector-screen={screen.id}>
@@ -237,7 +262,25 @@ function ScreenView({ screen, document }: { screen: ScreenEntry; document: Docum
         className="border-t border-[color:var(--border)] p-3"
         onSubmit={(text) => edits.apply(screen.id, commentEdit(null, screen.width, text))}
       />
-      <Changes screenId={screen.id} document={document} empty="No changes in this screen." className="max-h-[40%]" />
+      {screen.optionOf === undefined && (
+        <OptionsBox
+          key={screen.id}
+          name="screen"
+          blocked={editBlock(items)}
+          className="border-t border-[color:var(--border)] p-3"
+          onSubmit={(count, note) => {
+            const edit = optionsEdit(null, screen.width, count, note)
+            if (edit) edits.apply(screen.id, edit)
+          }}
+        />
+      )}
+      <Changes
+        screenId={screen.id}
+        document={document}
+        empty="No changes in this screen."
+        className="max-h-[40%]"
+        onShowScreen={onShowScreen}
+      />
     </>
   )
 }
@@ -323,7 +366,7 @@ function useRemoveKeys(remove: (() => void) | null) {
   }, [])
 }
 
-function ElementView({ selected }: { selected: Selected }) {
+function ElementView({ selected, onShowScreen }: { selected: Selected; onShowScreen: (id: string) => void }) {
   // The element is read from the location of the selection, not from the
   // node: an element that renders no node of its own shares its node with an
   // inner element.
@@ -357,7 +400,9 @@ function ElementView({ selected }: { selected: Selected }) {
       return next
     })
 
-  const onEdit = site ? applyFor(selected, site) : null
+  // An open `keep` of the screen: the element takes no edit.
+  const blocked = editBlock(items)
+  const onEdit = site && blocked === null ? applyFor(selected, site) : null
   const move = moveOf(selected, items, copies, onEdit)
   // The selection is cleared only when the remove edit went to the store: the
   // preview then hides the element.
@@ -419,6 +464,11 @@ function ElementView({ selected }: { selected: Selected }) {
           </Breadcrumb>
         )}
         {site && <CodePlace place={site.loc} />}
+        {blocked !== null && (
+          <p className="m-0 text-xs text-[color:var(--attention)]" data-edit-blocked="">
+            {blocked}
+          </p>
+        )}
         {copies > 1 && (
           <p
             className="m-0 text-xs text-[color:var(--attention)]"
@@ -450,7 +500,21 @@ function ElementView({ selected }: { selected: Selected }) {
           onSubmit={(comment) => onEdit((target, width) => commentEdit(target, width, comment))}
         />
       )}
-      <Changes screenId={selected.screenId} document={selected.node.ownerDocument} className="max-h-[40%]" />
+      {/* `onEdit` is null while the screen is blocked (`editBlock`). */}
+      {onEdit && !isOption(selected.screenId) && (
+        <OptionsBox
+          name="element"
+          blocked={null}
+          className="border-t border-[color:var(--border)] p-3"
+          onSubmit={(count, note) => onEdit((target, width) => optionsEdit(target, width, count, note))}
+        />
+      )}
+      <Changes
+        screenId={selected.screenId}
+        document={selected.node.ownerDocument}
+        className="max-h-[40%]"
+        onShowScreen={onShowScreen}
+      />
     </>
   )
 }

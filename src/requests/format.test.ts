@@ -4,6 +4,7 @@ import {
   formatIssues,
   formatRequest,
   formatVersion,
+  isTask,
   issueKinds,
   labelOf,
   parseIssues,
@@ -16,6 +17,7 @@ import {
   type RequestFile,
   type Target,
   commentLimit,
+  optionCounts,
 } from './format.ts'
 
 const target: Target = {
@@ -93,6 +95,10 @@ describe('the lists of kinds', () => {
     expectTypeOf<(typeof issueKinds)[number]>().toEqualTypeOf<Issue['kind']>()
     expect(new Set(changeKinds).size).toBe(changeKinds.length)
     expect(new Set(issueKinds).size).toBe(issueKinds.length)
+  })
+
+  test('a task is a comment, an options edit or a keep edit', () => {
+    expect(changeKinds.filter((kind) => isTask({ kind } as Change))).toEqual(['comment', 'options', 'keep'])
   })
 
   test('the version of the format is 1', () => {
@@ -283,6 +289,80 @@ describe('parseRequest', () => {
   })
 })
 
+describe('parseRequest of options and keep', () => {
+  const tasks: RequestFile = {
+    ...request,
+    edits: [
+      { id: 'o1', target, width: 390, change: { kind: 'options', count: 3, note: 'Fields in two columns' } },
+      { id: 'o2', target: null, width: 1440, change: { kind: 'options', count: 2, note: '' } },
+      { id: 'k1', target: null, width: 1440, change: { kind: 'keep', option: 'onboarding/welcome-option-2' } },
+    ],
+  }
+
+  function tasksWith(index: number, change: (edit: Record<string, unknown>) => void) {
+    const copy = JSON.parse(JSON.stringify(tasks)) as { edits: Record<string, unknown>[] }
+    change(copy.edits[index])
+    return copy
+  }
+
+  const changeOf = (edit: Record<string, unknown>) => edit.change as Record<string, unknown>
+
+  test('accepts options on an element and on the screen, and a keep', () => {
+    expect(parseRequest(structuredClone(tasks))).toEqual(tasks)
+  })
+
+  test('the range of the count holds the count at first', () => {
+    expect(optionCounts.min).toBeLessThanOrEqual(optionCounts.initial)
+    expect(optionCounts.initial).toBeLessThanOrEqual(optionCounts.max)
+  })
+
+  test('accepts the least and the most count, and a note of the most characters', () => {
+    for (const count of [optionCounts.min, optionCounts.max]) {
+      const file = tasksWith(0, (edit) => (changeOf(edit).count = count))
+      expect(parseRequest(file).edits[0].change).toMatchObject({ count })
+    }
+    const long = tasksWith(0, (edit) => (changeOf(edit).note = 'a'.repeat(commentLimit)))
+    expect(parseRequest(long).edits[0].change).toMatchObject({ note: 'a'.repeat(commentLimit) })
+  })
+
+  test('rejects a count out of the range, not whole, or not a number', () => {
+    for (const count of [optionCounts.min - 1, optionCounts.max + 1, 2.5, '3', undefined]) {
+      const file = tasksWith(0, (edit) => (changeOf(edit).count = count))
+      expect(() => parseRequest(file)).toThrow(/edit 1 "o1".*change.*count/)
+    }
+  })
+
+  test('rejects an options item with no note or a note of more than the most characters', () => {
+    const missing = tasksWith(0, (edit) => delete changeOf(edit).note)
+    expect(() => parseRequest(missing)).toThrow(/edit 1 "o1".*note/)
+    const number = tasksWith(0, (edit) => (changeOf(edit).note = 3))
+    expect(() => parseRequest(number)).toThrow(/edit 1 "o1".*note/)
+    const long = tasksWith(0, (edit) => (changeOf(edit).note = 'a'.repeat(commentLimit + 1)))
+    expect(() => parseRequest(long)).toThrow(new RegExp(`edit 1 "o1".*more than ${commentLimit}`))
+  })
+
+  test('rejects a keep with no option or an empty option', () => {
+    for (const option of ['', undefined, 2]) {
+      const file = tasksWith(2, (edit) => (changeOf(edit).option = option))
+      expect(() => parseRequest(file)).toThrow(/edit 3 "k1".*option/)
+    }
+  })
+
+  test('rejects a keep with a target', () => {
+    const file = tasksWith(2, (edit) => (edit.target = JSON.parse(JSON.stringify(target))))
+    expect(() => parseRequest(file)).toThrow(/edit 3 "k1".*has a target/)
+  })
+
+  test('drops fields that the format does not have', () => {
+    const file = tasksWith(2, (edit) => (changeOf(edit).before = 'x'))
+    expect(parseRequest(file).edits[2].change).toEqual({ kind: 'keep', option: 'onboarding/welcome-option-2' })
+  })
+
+  test('gives the same request after formatRequest and JSON.parse', () => {
+    expect(parseRequest(JSON.parse(formatRequest(tasks)))).toEqual(tasks)
+  })
+})
+
 describe('formatRequest', () => {
   test('writes one stable text with a final line break', () => {
     const text = formatRequest(request)
@@ -323,6 +403,7 @@ const issues: IssuesFile = {
     { kind: 'not-library', target: { ...target, tag: 'div', origin: 'host', element: 'div' } },
     { kind: 'broken-link', target: { ...target, tag: 'Button', element: 'a' }, href: '#/onboarding/nothing' },
     { kind: 'render-error', text: 'Cannot read properties of undefined' },
+    { kind: 'relation', text: 'stateOf: no screen has the id onboarding/nothing' },
   ],
 }
 
@@ -380,6 +461,18 @@ describe('parseIssues', () => {
     expect(() => parseIssues(issuesWith(4, (issue) => delete issue.href))).toThrow(/issue 5 .*href/)
     expect(() => parseIssues(issuesWith(4, (issue) => (issue.href = '')))).toThrow(/issue 5 .*href/)
     expect(() => parseIssues(issuesWith(4, (issue) => delete issue.target))).toThrow(/issue 5 .*target/)
+  })
+
+  test('gives a relation issue with its cause and no target', () => {
+    expect(parseIssues(structuredClone(issues)).issues[6]).toEqual({
+      kind: 'relation',
+      text: 'stateOf: no screen has the id onboarding/nothing',
+    })
+  })
+
+  test('rejects a relation issue with no text or an empty text', () => {
+    expect(() => parseIssues(issuesWith(6, (issue) => delete issue.text))).toThrow(/issue 7 .*text/)
+    expect(() => parseIssues(issuesWith(6, (issue) => (issue.text = '')))).toThrow(/issue 7 .*text/)
   })
 })
 

@@ -3,7 +3,8 @@ import { corners, sides } from '../tokens/declarations.ts'
 
 // One line of text for an edit, for the Changes list:
 // `Padding: 20px → spacing.2`, `Text: "Welcome" → "Hello"`, `Removed`,
-// `Moved from 3 to 2 of 4`, `Comment: Make this a table`.
+// `Moved from 3 to 2 of 4`, `Comment`, `3 options: Fields in two columns`,
+// `Keep option: onboarding/welcome-option-2`.
 
 // The name of the inspector row for a set of properties.
 const rowNames = new Map<string, string>()
@@ -84,5 +85,12 @@ export function summaryOf(edit: Edit): string {
     // below its summary.
     case 'comment':
       return 'Comment'
+    // The count, and the start of the note when it has one.
+    case 'options': {
+      const note = change.note.replace(/\s+/g, ' ').trim()
+      return note === '' ? `${change.count} options` : `${change.count} options: ${cut(note)}`
+    }
+    case 'keep':
+      return `Keep option: ${change.option}`
   }
 }

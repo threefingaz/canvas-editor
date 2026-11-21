@@ -437,7 +437,64 @@ describe('createSync', () => {
     server.release()
     await vi.advanceTimersByTimeAsync(saveDelay)
     expect(server.calls).toEqual(['load onboarding/welcome', 'save onboarding/welcome'])
+    // The file of the result does not come in; the edits that were not saved
+    // stay in the store.
     expect(local(welcome.id)).toEqual(['e1', 'e2'])
+  })
+
+  test('the unsaved edits of a removed screen stay, and are saved when it comes back', async () => {
+    const { server, sync, store, local } = setup()
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    store.apply(welcome.id, edit('e1'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    // An edit in the save delay, then the screen leaves the list.
+    store.apply(welcome.id, edit('e2', text('Hi'), 20))
+    sync.setScreens([])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(local(welcome.id)).toEqual(['e1', 'e2'])
+    expect(server.edits(welcome.id)).toEqual(['e1'])
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(local(welcome.id)).toEqual(['e1', 'e2'])
+    expect(server.edits(welcome.id)).toEqual(['e1', 'e2'])
+  })
+
+  test('a removed screen leaves the store; when it comes back, it has the edits of its file only', async () => {
+    const { server, sync, store, local } = setup()
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(0)
+    store.apply(profile.id, edit('old'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.edits(profile.id)).toEqual(['old'])
+    // An agent deletes the screen file and its request file.
+    server.write(profile.id, [])
+    sync.setScreens([welcome])
+    expect(local(profile.id)).toEqual([])
+    // Undo and redo do not bring the old edits back.
+    store.undo()
+    expect(local(profile.id)).toEqual([])
+    store.redo()
+    expect(local(profile.id)).toEqual([])
+    // A new screen gets the same id.
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(local(profile.id)).toEqual([])
+    expect(server.edits(profile.id)).toEqual([])
+  })
+
+  test('a screen file that comes back gets the edits of its request file again', async () => {
+    const { server, sync, store, local } = setup()
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    store.apply(welcome.id, edit('e1'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    sync.setScreens([])
+    expect(local(welcome.id)).toEqual([])
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(local(welcome.id)).toEqual(['e1'])
+    expect(server.edits(welcome.id)).toEqual(['e1'])
   })
 
   test('after a failed load, the next event loads again, clears the error and saves the edits made meanwhile', async () => {

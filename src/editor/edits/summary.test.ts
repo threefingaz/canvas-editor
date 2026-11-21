@@ -113,4 +113,24 @@ describe('summaryOf', () => {
     const screen: Edit = { id: 'c1', target: null, width: 390, change: { kind: 'comment', text: 'Add a title.' } }
     expect(summaryOf(screen)).toBe('Comment')
   })
+
+  test('an options item gives the count, and the start of the note when it has one', () => {
+    expect(summaryOf(edit({ kind: 'options', count: 3, note: '' }))).toBe('3 options')
+    expect(summaryOf(edit({ kind: 'options', count: 2, note: '  Fields in\ntwo columns ' }))).toBe(
+      '2 options: Fields in two columns',
+    )
+    expect(summaryOf(edit({ kind: 'options', count: 4, note: 'Put the plans in a table with the prices' }))).toBe(
+      '4 options: Put the plans in a table…',
+    )
+  })
+
+  test('a keep item gives the id of the option', () => {
+    const kept: Edit = {
+      id: 'k1',
+      target: null,
+      width: 1440,
+      change: { kind: 'keep', option: 'onboarding/welcome-option-2' },
+    }
+    expect(summaryOf(kept)).toBe('Keep option: onboarding/welcome-option-2')
+  })
 })

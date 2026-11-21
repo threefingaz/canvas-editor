@@ -76,6 +76,7 @@ describe('screenIssues', () => {
         },
       ],
       null,
+      null,
     )
     expect(issues).toEqual([
       {
@@ -102,6 +103,7 @@ describe('screenIssues', () => {
     const issues = screenIssues(
       [{ target: box, rows: [row('Padding', padding, { missing: true, state: { state: 'none', nearest: null } })], links: [] }],
       null,
+      null,
     )
     expect(issues).toEqual([{ kind: 'no-token', target: box, property: 'padding', value: '16px', state: 'none' }])
   })
@@ -124,6 +126,7 @@ describe('screenIssues', () => {
           ],
         },
       ],
+      null,
       null,
     )
     expect(issues).toEqual([])
@@ -148,6 +151,7 @@ describe('screenIssues', () => {
           ],
         },
       ],
+      null,
       null,
     )
     expect(issues).toEqual([
@@ -177,6 +181,7 @@ describe('screenIssues', () => {
         { target: button, rows: [], links: [] },
       ],
       null,
+      null,
     )
     expect(issues).toEqual([
       { kind: 'not-library', target: local },
@@ -194,6 +199,7 @@ describe('screenIssues', () => {
         { target: card, rows: [missing], links: ['#/a', '#/b'] },
       ],
       null,
+      null,
     )
     expect(issues.map((issue) => [issue.kind, 'href' in issue ? issue.href : null])).toEqual([
       ['not-library', null],
@@ -207,11 +213,28 @@ describe('screenIssues', () => {
 
   test('a render error gives render-error first', () => {
     const div = target(76, 7, { tag: 'div', origin: 'host' })
-    expect(screenIssues([{ target: div, rows: [], links: [] }], 'Cannot read x of undefined')).toEqual([
+    expect(screenIssues([{ target: div, rows: [], links: [] }], 'Cannot read x of undefined', null)).toEqual([
       { kind: 'render-error', text: 'Cannot read x of undefined' },
       { kind: 'not-library', target: div },
     ])
-    expect(screenIssues([], '  ')).toEqual([{ kind: 'render-error', text: 'The screen failed to render.' }])
+    expect(screenIssues([], '  ', null)).toEqual([{ kind: 'render-error', text: 'The screen failed to render.' }])
+  })
+
+  test('a broken relation gives relation after a render error and before the places', () => {
+    const div = target(76, 7, { tag: 'div', origin: 'host' })
+    const cause = 'stateOf: no screen has the id onboarding/nothing'
+    expect(screenIssues([{ target: div, rows: [], links: [] }], null, cause)).toEqual([
+      { kind: 'relation', text: cause },
+      { kind: 'not-library', target: div },
+    ])
+    expect(screenIssues([], 'Boom', cause)).toEqual([
+      { kind: 'render-error', text: 'Boom' },
+      { kind: 'relation', text: cause },
+    ])
+  })
+
+  test('no relation issue when the relation is null', () => {
+    expect(screenIssues([], null, null)).toEqual([])
   })
 
   test('one issue for each place in the code, not for each copy', () => {
@@ -223,6 +246,7 @@ describe('screenIssues', () => {
         { target: chip, rows: [missing], links: [] },
         { target: copy, rows: [missing], links: [] },
       ],
+      null,
       null,
     )
     expect(issues.map((issue) => issue.kind)).toEqual(['not-library', 'no-token'])
@@ -241,7 +265,7 @@ describe('screenIssues', () => {
       { target: d, rows: [], links: [] },
     ]
     const order = (list: IssueElement[]) =>
-      screenIssues(list, null).map((issue) => ('target' in issue ? issue.target.tag : ''))
+      screenIssues(list, null, null).map((issue) => ('target' in issue ? issue.target.tag : ''))
     expect(order(elements)).toEqual(['i', 'p', 'span', 'div'])
     expect(order([...elements].reverse())).toEqual(['i', 'p', 'span', 'div'])
   })
@@ -265,6 +289,7 @@ describe('screenIssues', () => {
         },
       ],
       'Boom',
+      null,
     )
     issues.push({ kind: 'broken-link', target: footer, href: '#/nothing' })
     const file = { version: 1 as const, screen: 'onboarding/welcome', file: footer.file, issues }
@@ -311,10 +336,12 @@ describe('issueGroups', () => {
   const colorIssue: Issue = { kind: 'no-token', target: footer, property: 'color', value: '#333', state: 'none' }
   const override: Issue = { kind: 'override', target: footer, property: 'margin-left', value: '5px' }
   const link: Issue = { kind: 'broken-link', target: footer, href: '#/nothing' }
+  const relation: Issue = { kind: 'relation', text: 'optionOf: the screen itself' }
 
   test('groups the issues by kind, in a fixed sequence of the groups, and keeps the sequence in a group', () => {
-    expect(issueGroups([gapIssue, local, link, override, colorIssue, error])).toEqual([
+    expect(issueGroups([gapIssue, local, link, relation, override, colorIssue, error])).toEqual([
       { kind: 'render-error', issues: [error] },
+      { kind: 'relation', issues: [relation] },
       { kind: 'broken-link', issues: [link] },
       { kind: 'not-library', issues: [local] },
       { kind: 'no-token', issues: [gapIssue, colorIssue] },
@@ -353,6 +380,12 @@ describe('issueSummary', () => {
       'local component, not from the library',
     )
     expect(issueSummary({ kind: 'render-error', text: 'Boom' })).toBe('Boom')
+  })
+
+  test('a broken relation gives its cause', () => {
+    expect(issueSummary({ kind: 'relation', text: 'stateOf: a base in a different flow' })).toBe(
+      'stateOf: a base in a different flow',
+    )
   })
 
   test('a broken link names its address', () => {

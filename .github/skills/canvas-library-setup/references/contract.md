@@ -84,6 +84,8 @@ How an edit of each kind (a token, a layout keyword, a text style, a text, a seq
 
 A comment needs nothing special in the pack: the agent does it as a change of a screen, and the rows of section 4 give the components for that change.
 
+The kinds `options` and `keep` need nothing special in the pack either, as a comment: the agent writes an option as a screen file, and a kept option as a change of its base screen.
+
 The section "Requests" of `packs/<name>/AGENTS.md` must answer these cases, each with one example of the code before and after. An agent that applies a request guesses at exactly these places:
 
 - **A value that the code already has**: the form for each token group, with a prop and with the override.
