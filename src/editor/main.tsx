@@ -1,0 +1,13 @@
+import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './editor.css'
+import App from './App.tsx'
+
+// The entry of the editor. It never imports a screen or the library: the
+// screens are shown in iframes from `frame.html`.
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+)

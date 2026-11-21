@@ -1,0 +1,24 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "canvas-editor",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 5173
+    },
+    {
+      "name": "canvas-editor-no-pack",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5174", "--strictPort"],
+      "env": { "CANVAS_NO_PACK": "1" },
+      "port": 5174
+    },
+    {
+      "name": "canvas-site",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "preview", "--", "--port", "4173", "--strictPort"],
+      "port": 4173
+    }
+  ]
+}
