@@ -31,6 +31,17 @@ describe('screenIdFromHash', () => {
     expect(screenIdFromHash('#/home//')).toBe('home')
   })
 
+  test('leaves out an encoded slash at the end, as a plain one', () => {
+    expect(screenIdFromHash('#/onboarding%2F')).toBe('onboarding')
+    expect(screenIdFromHash('#/onboarding/welcome%2F/')).toBe('onboarding/welcome')
+    expect(screenIdFromHash('#/%2F')).toBeNull()
+  })
+
+  test('keeps spaces: an id of spaces is an id, which no screen has', () => {
+    expect(screenIdFromHash('#/%20')).toBe(' ')
+    expect(linkTarget('#/%20', ids)).toEqual({ kind: 'unknown-screen', id: ' ' })
+  })
+
   test('gives null for the forms of the index', () => {
     expect(screenIdFromHash('')).toBeNull()
     expect(screenIdFromHash('#')).toBeNull()

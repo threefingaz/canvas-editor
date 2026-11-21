@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { renderErrorAttribute } from '../../frame/screen-id.ts'
-import { linkTarget } from '../../frame/screen-link.ts'
+import { linkTarget, screenPrefix, type LinkNode } from '../../frame/screen-link.ts'
 import type { Issue } from '../../requests/format.ts'
 import { messageOf, type Token } from '../../tokens/format.ts'
 import type { Item } from '../edits/model.ts'
@@ -34,17 +34,25 @@ import { issues } from './store.ts'
 // the rows of the styles, thus a value is not counted two times.
 export type ScreenPlace<N> = { node: N; site: Site; copies: number; inner: boolean }
 
+// The location of the inner screen element of each node: the first site of
+// the node, because `sites` are inner first for the elements of one node
+// (`sitesIn`).
+export function innerLocs<N>(sites: readonly { node: N; site: Site }[]): Map<N, string> {
+  const innerOf = new Map<N, string>()
+  for (const { node, site } of sites) if (!innerOf.has(node)) innerOf.set(node, site.loc)
+  return innerOf
+}
+
 // The places of the screen elements of a document, in the sequence of their
 // first visible copy. `sites` are in document order, inner first for the
-// elements of one node (`sitesIn`). A place whose copies the preview hides
-// all (a removed element) is left out: it goes away when the agent applies
-// the request.
+// elements of one node (`sitesIn`); `innerOf` is `innerLocs(sites)`. A place
+// whose copies the preview hides all (a removed element) is left out: it goes
+// away when the agent applies the request.
 export function placesOf<N>(
   sites: readonly { node: N; site: Site }[],
   hidden: (node: N) => boolean,
+  innerOf: ReadonlyMap<N, string> = innerLocs(sites),
 ): ScreenPlace<N>[] {
-  const innerOf = new Map<N, string>()
-  for (const { node, site } of sites) if (!innerOf.has(node)) innerOf.set(node, site.loc)
 
   const places = new Map<string, { node: N | null; site: Site; copies: number }>()
   for (const { node, site } of sites) {
@@ -64,36 +72,32 @@ export function placesOf<N>(
   return result
 }
 
-// The fields of a DOM element that `brokenLinks` reads.
-export type LinkElement = { getAttribute(name: string): string | null; parentElement: LinkElement | null }
-
 // The selector of the links to a screen address. It finds each link of the
 // document, also a link that a library part draws inside its own nodes.
-export const screenLinkSelector = 'a[href^="#/"]'
+export const screenLinkSelector = `a[href^="${screenPrefix}"]`
 
 // The addresses of the broken links of a document, by the location of the
 // screen element that each link belongs to: the inner screen element of the
 // link node or of its nearest parent node that is the first node of a screen
-// element. `sites` are as `sitesIn` gives them, `links` are the link nodes. A
-// link to a screen of the list, or to an address that is not a screen address,
-// is not broken. A link that the preview hides (a removed element), or that
-// belongs to no screen element, is left out. Each address comes once for a
-// place, also when its copies have the same link.
-export function brokenLinks<N extends LinkElement>(
+// element. `sites` are as `sitesIn` gives them, `links` are the link nodes,
+// `innerOf` is `innerLocs(sites)`. A link to a screen of the list, or to an
+// address that is not a screen address, is not broken. A link that the preview
+// hides (a removed element), or that belongs to no screen element, is left
+// out. Each address comes once for a place, also when its copies have the same
+// link.
+export function brokenLinks<N extends LinkNode>(
   sites: readonly { node: N; site: Site }[],
   links: readonly N[],
   ids: readonly string[],
   hidden: (node: N) => boolean,
+  innerOf: ReadonlyMap<LinkNode, string> = innerLocs<LinkNode>(sites),
 ): Map<string, string[]> {
-  const innerOf = new Map<LinkElement, string>()
-  for (const { node, site } of sites) if (!innerOf.has(node)) innerOf.set(node, site.loc)
-
   const result = new Map<string, string[]>()
   for (const link of links) {
     const href = link.getAttribute('href')
     if (href === null || hidden(link) || linkTarget(href, ids).kind !== 'unknown-screen') continue
     let loc: string | undefined
-    for (let node: LinkElement | null = link; node && loc === undefined; node = node.parentElement) loc = innerOf.get(node)
+    for (let node: LinkNode | null = link; node && loc === undefined; node = node.parentElement) loc = innerOf.get(node)
     if (loc === undefined) continue
     const list = result.get(loc)
     if (!list) result.set(loc, [href])
@@ -115,8 +119,9 @@ export function collectIssues(
   if (error === null && !screenRendered(document)) return null
   const hidden = hiddenIn(items)
   const sites = sitesIn(document)
-  const links = brokenLinks(sites, Array.from(document.querySelectorAll(screenLinkSelector)), ids, hidden)
-  const elements: IssueElement[] = placesOf(sites, hidden).map((place) => ({
+  const innerOf = innerLocs<Element>(sites)
+  const links = brokenLinks(sites, Array.from(document.querySelectorAll(screenLinkSelector)), ids, hidden, innerOf)
+  const elements: IssueElement[] = placesOf(sites, hidden, innerOf).map((place) => ({
     target: targetOf(place.site, place.node.tagName.toLowerCase(), place.copies, codeText(place.node)),
     rows: place.inner ? inspectorModel(readStyles(place.node), tokens).sections.flatMap((section) => section.rows) : [],
     links: links.get(place.site.loc) ?? [],

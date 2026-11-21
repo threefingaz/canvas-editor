@@ -7,8 +7,8 @@ import {
   liveItems,
   locOf,
   replaceComment,
+  sameComment,
   sameTarget,
-  screenComments,
   type Item,
 } from './model.ts'
 
@@ -274,7 +274,6 @@ describe('comments', () => {
     list = addEdit(list, comment('c2', 'Add an empty state.', null))
     list = addEdit(list, comment('c3', 'Make this bold.'))
     expect(ids(list)).toEqual(['c1', 'c2', 'c3'])
-    expect(ids(screenComments(list))).toEqual(['c1', 'c2'])
     expect(ids(editsOf(null, list))).toEqual(['c1', 'c2'])
     expect(ids(editsOf(target, list))).toEqual(['c3'])
   })
@@ -330,5 +329,32 @@ describe('replaceComment', () => {
     expect(replaceComment(replied, 'c1', 'Make this a table.')).toEqual([
       { edit: comment('c1', 'Make this a table.'), stale: true },
     ])
+  })
+})
+
+describe('sameComment', () => {
+  const reply = { status: 'unclear' as const, text: 'Which table?' }
+
+  test('the same text and no reply, or the same reply, is the same', () => {
+    expect(sameComment(comment('c1', 'Make this a table.'), comment('c1', 'Make this a table.'))).toBe(true)
+    expect(sameComment({ ...comment('c1', 'A'), reply }, { ...comment('c1', 'A'), reply: { ...reply } })).toBe(true)
+  })
+
+  test('a new text is not the same', () => {
+    expect(sameComment(comment('c1', 'Make this a table.'), comment('c1', 'Make this a list.'))).toBe(false)
+  })
+
+  test('a new reply, or a reply that goes out, is not the same', () => {
+    expect(sameComment(comment('c1', 'A'), { ...comment('c1', 'A'), reply })).toBe(false)
+    expect(sameComment({ ...comment('c1', 'A'), reply }, comment('c1', 'A'))).toBe(false)
+    expect(sameComment({ ...comment('c1', 'A'), reply }, { ...comment('c1', 'A'), reply: { ...reply, text: 'Other' } })).toBe(
+      false,
+    )
+  })
+
+  test('an edit that is not a comment is never the same', () => {
+    const text = edit('e1', { kind: 'text', before: 'a', after: 'b' })
+    expect(sameComment(text, text)).toBe(false)
+    expect(sameComment(comment('c1', 'A'), text)).toBe(false)
   })
 })

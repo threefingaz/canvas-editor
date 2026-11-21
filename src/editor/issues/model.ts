@@ -21,7 +21,7 @@ import type { InspectorRow } from '../inspector/model.ts'
 // A screen element: the target of its place in the code, the rows that the
 // inspector shows for its first copy, and the addresses of the broken links
 // that belong to it, in each of its copies.
-export type IssueElement = { target: Target; rows: readonly InspectorRow[]; links?: readonly string[] }
+export type IssueElement = { target: Target; rows: readonly InspectorRow[]; links: readonly string[] }
 
 // The shorthand of a list of longhands, for the property of an issue.
 const shorthands: Record<string, readonly string[]> = {
@@ -94,7 +94,7 @@ export function screenIssues(elements: readonly IssueElement[], error: string | 
     if (!places.has(loc)) places.set(loc, element)
   }
   const sorted = [...places.values()].sort((a, b) => compareTargets(a.target, b.target))
-  for (const { target, rows, links = [] } of sorted) {
+  for (const { target, rows, links } of sorted) {
     if (target.origin !== 'library') issues.push({ kind: 'not-library', target })
     for (const href of links) issues.push({ kind: 'broken-link', target, href })
     for (const row of rows) issues.push(...rowIssues(target, row))

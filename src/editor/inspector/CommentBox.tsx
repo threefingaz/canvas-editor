@@ -10,7 +10,9 @@ import { commentText } from './edit.ts'
 // button works only for a text that `commentText` accepts, and `onSubmit`
 // gets the trimmed text. With no `initial` text (a new comment) the box is
 // empty again after the text went out. With `onCancel` (a change of a
-// comment) the box has a Cancel button, and Escape cancels too. With
+// comment) the box has a Cancel button, and Escape cancels too. With no
+// `onCancel`, Escape in a box with a draft leaves the text area and keeps the
+// draft; in an empty box it clears the selection, as elsewhere. With
 // `autoFocus` the text area gets the focus when the box opens, with the caret
 // after the text.
 
@@ -65,6 +67,12 @@ export function CommentBox({ submit, onSubmit, initial = '', onCancel, autoFocus
             event.preventDefault()
             event.stopPropagation()
             onCancel()
+          } else if (event.key === 'Escape' && value !== '') {
+            // A new comment with a draft: Escape leaves the text area and keeps
+            // the draft; it does not clear the selection, which would close
+            // the box and lose the text.
+            event.preventDefault()
+            event.currentTarget.blur()
           }
         }}
       />

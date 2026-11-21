@@ -2,6 +2,7 @@ import { ArrowSquareOutIcon, CheckCircleIcon, WarningCircleIcon } from '@phospho
 import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { screenHash } from '../../frame/screen-link.ts'
+import { siteEntry } from '../../site/entry.ts'
 import { frameWindowOf } from '../frame-window.ts'
 import { useIssues } from '../issues/collect.ts'
 import { useScreenIssues } from '../issues/store.ts'
@@ -208,7 +209,7 @@ function Placed({ box, title, width, scale, marked, onTitle, children }: PlacedP
         <IssueCount screenId={box.screen.id} onClick={onTitle} />
         <a
           className="flex shrink-0 items-center text-inherit hover:text-[color:var(--foreground)]"
-          href={`/site.html${screenHash(box.screen.id)}`}
+          href={`/${siteEntry}${screenHash(box.screen.id)}`}
           target="_blank"
           rel="noreferrer"
           title="Open as a full page"

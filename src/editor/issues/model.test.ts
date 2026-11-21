@@ -61,9 +61,10 @@ describe('screenIssues', () => {
     const note = target(68, 15, { tag: 'Typography', element: 'span', label: 'No card needed.' })
     const issues = screenIssues(
       [
-        { target: chips, rows: [row('Gap', gap, { missing: true, state: { state: 'equal', token: spacing(2) } })] },
+        { target: chips, rows: [row('Gap', gap, { missing: true, state: { state: 'equal', token: spacing(2) } })], links: [] },
         {
           target: note,
+          links: [],
           rows: [
             row('Padding top', ['padding-top'], {
               value: '13px',
@@ -99,7 +100,7 @@ describe('screenIssues', () => {
   test('a row with no nearest token gives no-token with no token', () => {
     const box = target(10, 5)
     const issues = screenIssues(
-      [{ target: box, rows: [row('Padding', padding, { missing: true, state: { state: 'none', nearest: null } })] }],
+      [{ target: box, rows: [row('Padding', padding, { missing: true, state: { state: 'none', nearest: null } })], links: [] }],
       null,
     )
     expect(issues).toEqual([{ kind: 'no-token', target: box, property: 'padding', value: '16px', state: 'none' }])
@@ -111,6 +112,7 @@ describe('screenIssues', () => {
       [
         {
           target: box,
+          links: [],
           rows: [
             row('Padding', padding),
             row('Width', ['border-top-width'], {
@@ -133,6 +135,7 @@ describe('screenIssues', () => {
       [
         {
           target: footer,
+          links: [],
           rows: [
             row('Fill', ['background-color'], { group: 'color', value: '#1F4FD8', inline: true }),
             row('Padding', padding, {
@@ -169,9 +172,9 @@ describe('screenIssues', () => {
     const button = target(30, 7, { tag: 'Button', origin: 'library', element: 'button' })
     const issues = screenIssues(
       [
-        { target: div, rows: [] },
-        { target: local, rows: [] },
-        { target: button, rows: [] },
+        { target: div, rows: [], links: [] },
+        { target: local, rows: [], links: [] },
+        { target: button, rows: [], links: [] },
       ],
       null,
     )
@@ -204,7 +207,7 @@ describe('screenIssues', () => {
 
   test('a render error gives render-error first', () => {
     const div = target(76, 7, { tag: 'div', origin: 'host' })
-    expect(screenIssues([{ target: div, rows: [] }], 'Cannot read x of undefined')).toEqual([
+    expect(screenIssues([{ target: div, rows: [], links: [] }], 'Cannot read x of undefined')).toEqual([
       { kind: 'render-error', text: 'Cannot read x of undefined' },
       { kind: 'not-library', target: div },
     ])
@@ -217,8 +220,8 @@ describe('screenIssues', () => {
     const missing = row('Gap', gap, { missing: true, state: { state: 'equal', token: spacing(2) } })
     const issues = screenIssues(
       [
-        { target: chip, rows: [missing] },
-        { target: copy, rows: [missing] },
+        { target: chip, rows: [missing], links: [] },
+        { target: copy, rows: [missing], links: [] },
       ],
       null,
     )
@@ -232,10 +235,10 @@ describe('screenIssues', () => {
     const c = target(12, 20, { tag: 'p', origin: 'host' })
     const d = target(5, 1, { file: 'screens/a/other.tsx', tag: 'i', origin: 'host' })
     const elements: IssueElement[] = [
-      { target: a, rows: [] },
-      { target: b, rows: [] },
-      { target: c, rows: [] },
-      { target: d, rows: [] },
+      { target: a, rows: [], links: [] },
+      { target: b, rows: [], links: [] },
+      { target: c, rows: [], links: [] },
+      { target: d, rows: [], links: [] },
     ]
     const order = (list: IssueElement[]) =>
       screenIssues(list, null).map((issue) => ('target' in issue ? issue.target.tag : ''))
@@ -249,6 +252,7 @@ describe('screenIssues', () => {
       [
         {
           target: footer,
+          links: [],
           rows: [
             row('Text', ['color'], {
               group: 'color',

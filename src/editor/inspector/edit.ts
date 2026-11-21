@@ -1,6 +1,6 @@
 import { commentLimit, labelOf, tokenRef, type Edit, type EditValue, type Target } from '../../requests/format.ts'
 import type { TextStyle, Token } from '../../tokens/format.ts'
-import { liveItems, locOf, type Item } from '../edits/model.ts'
+import { isPlaced, liveItems, locOf, type Item, type PlacedItem } from '../edits/model.ts'
 import type { Site } from '../locate/fiber.ts'
 import type { Siblings } from '../selection/pick.ts'
 import { colorText, textStyleText, type InspectorRow } from './model.ts'
@@ -250,13 +250,15 @@ export function movePlan(
   inParent: (loc: string) => boolean,
 ): MovePlan | null {
   if (!siblings?.movable) return null
-  const orders = items.filter((item) => item.edit.change.kind === 'order')
+  // An order edit always has a target (`parseRequest` refuses the target null
+  // for each kind but a comment).
+  const orders = items.filter(
+    (item): item is PlacedItem => item.edit.change.kind === 'order' && isPlaced(item.edit),
+  )
   const own = liveItems(orders).find((item) => locOf(item.edit.target) === loc)?.edit.change
   const replaced = orders
     .filter((item) => {
-      const target = item.edit.target
-      if (target === null) return false
-      const place = locOf(target)
+      const place = locOf(item.edit.target)
       return place !== loc && inParent(place)
     })
     .map((item) => item.edit.id)
@@ -297,18 +299,12 @@ export function commentText(input: string): string | null {
   return text === '' || text.length > commentLimit ? null : text
 }
 
-// A comment on the element of the target. Null for a text that
-// `commentText` refuses.
-export function elementComment(target: Target, width: number, text: string, id: string = newEditId()): Edit | null {
-  const comment = commentText(text)
-  return comment === null ? null : { id, target, width, change: { kind: 'comment', text: comment } }
-}
-
-// A comment on the whole screen: the target is null. `width` is the width of
-// the frame of the screen. Null for a text that `commentText` refuses.
-export function screenComment(width: number, text: string, id: string = newEditId()): Edit | null {
-  const comment = commentText(text)
-  return comment === null ? null : { id, target: null, width, change: { kind: 'comment', text: comment } }
+// A comment for the agent: on the element of the target, or with the target
+// null on the whole screen (`width` is then the width of the frame of the
+// screen). `text` is a text that `commentText` gave: the comment box checks
+// the input before it sends it.
+export function commentEdit(target: Target | null, width: number, text: string, id: string = newEditId()): Edit {
+  return { id, target, width, change: { kind: 'comment', text } }
 }
 
 // True when the text of a place can change: each copy has exactly one text

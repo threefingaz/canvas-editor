@@ -11,7 +11,7 @@ import {
   undo,
   type History,
 } from './history.ts'
-import { addEdit, discard, replaceComment, type Item } from './model.ts'
+import { addEdit, discard, isPlaced, replaceComment, type Item } from './model.ts'
 
 // The edits of all screens, by screen id. A screen with no edits has no key.
 export type Screens = Readonly<Record<string, Item[]>>
@@ -127,9 +127,9 @@ export function createEditsStore(): EditsStore {
       }),
     retarget: (screenId, id, line, column) =>
       changeEverywhere(screenId, id, (item) => {
-        const target = item.edit.target
-        if (target === null || (target.line === line && target.column === column)) return item
-        return { ...item, edit: { ...item.edit, target: { ...target, line, column } } }
+        const { edit } = item
+        if (!isPlaced(edit) || (edit.target.line === line && edit.target.column === column)) return item
+        return { ...item, edit: { ...edit, target: { ...edit.target, line, column } } }
       }),
     subscribe: (listener) => {
       listeners.add(listener)

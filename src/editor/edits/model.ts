@@ -10,6 +10,8 @@ export type Item = { edit: Edit; stale?: true }
 // An edit on an element: each edit but a comment on the screen.
 export type PlacedEdit = Edit & { target: Target }
 
+export type PlacedItem = Item & { edit: PlacedEdit }
+
 // An edit that can have a preview: on an element, and not a comment.
 export type PreviewEdit = PlacedEdit & { change: Exclude<Change, CommentChange> }
 
@@ -144,9 +146,18 @@ export function editsOf(target: Target | null, list: Item[]): Item[] {
   return list.filter((item) => sameTarget(item.edit.target, target))
 }
 
-// The comments on the whole screen.
-export function screenComments(list: Item[]): Item[] {
-  return editsOf(null, list)
+// True when two versions of an edit have the same comment text and the same
+// reply of the agent. A box that changes the text of a comment stays open only
+// while the comment is as it was when the box opened: a new text or a new
+// reply from the file closes it, thus Save never writes over them.
+export function sameComment(a: Edit, b: Edit): boolean {
+  const text = (edit: Edit) => (edit.change.kind === 'comment' ? edit.change.text : null)
+  return (
+    text(a) !== null &&
+    text(a) === text(b) &&
+    a.reply?.status === b.reply?.status &&
+    a.reply?.text === b.reply?.text
+  )
 }
 
 // A new text for the comment with the id. The comment keeps its id and its
@@ -154,11 +165,12 @@ export function screenComments(list: Item[]): Item[] {
 // again. An empty text discards the comment. It gives the same list when the
 // list has no comment with the id or the text is the same.
 export function replaceComment(list: Item[], id: string, text: string): Item[] {
-  const index = list.findIndex((item) => item.edit.id === id && item.edit.change.kind === 'comment')
+  const index = list.findIndex((item) => item.edit.id === id)
   if (index === -1) return list
-  if (text.trim() === '') return discard(list, id)
   const item = list[index]
-  const change = item.edit.change as CommentChange
+  const change = item.edit.change
+  if (change.kind !== 'comment') return list
+  if (text.trim() === '') return discard(list, id)
   if (change.text === text && !item.edit.reply) return list
   const { id: own, target, width } = item.edit
   const next = [...list]

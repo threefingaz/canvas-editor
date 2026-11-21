@@ -1,13 +1,17 @@
 // The virtual module `virtual:canvas-screens`: the list of the screen files,
-// for the editor, and the library pack (its name, or null when no library is
-// connected). It reads each file with a parser and never imports it.
+// for the editor and the prototype site, and the library pack (its name, or
+// null when no library is connected). It reads each file with a parser and
+// never imports it.
 //
 // It also handles a change in the screens folder. A screen file exports `meta`
 // and a component, thus the dev server cannot replace it in place, and its
 // usual answer is a reload of each page, the editor too. In place of that, the
-// plugin tells the frames which screens changed, and only those frames reload
-// (`src/frame/main.tsx`). The editor gets a new list of screens from the
-// virtual module when a file is added or removed, or when its `meta` changes.
+// plugin tells the pages which screens changed, and only the frames of those
+// screens (`src/frame/main.tsx`) and a site page that shows one of them
+// (`src/site/ScreenPage.tsx`) reload. The editor and the index of the site
+// (`src/site/Site.tsx`, `src/site/Index.tsx`) get a new list of screens from
+// the virtual module when a file is added or removed, or when its `meta`
+// changes, with no reload.
 
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'

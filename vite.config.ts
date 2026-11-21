@@ -7,7 +7,7 @@ import { packOf, readPackState } from './tools/pack.ts'
 import { packPlugin } from './tools/pack-plugin.ts'
 import { requestsPlugin } from './tools/requests-plugin.ts'
 import { screensPlugin } from './tools/screens-plugin.ts'
-import { sitePlugin } from './tools/site-plugin.ts'
+import { siteEntry, sitePlugin } from './tools/site-plugin.ts'
 import { sourceLocationPlugin } from './tools/source-location-plugin.ts'
 import { tokensPlugin } from './tools/tokens-plugin.ts'
 
@@ -17,7 +17,7 @@ import { tokensPlugin } from './tools/tokens-plugin.ts'
 // the dev server (the element-to-code step and the file API). The site plugin
 // writes the built `site.html` as `index.html`.
 const input = {
-  site: fileURLToPath(new URL('./site.html', import.meta.url)),
+  site: fileURLToPath(new URL(`./${siteEntry}`, import.meta.url)),
 }
 
 // The library pack (`packs/<name>/`), read once and given to each plugin that
@@ -53,5 +53,12 @@ export default defineConfig({
   base: './',
   build: {
     rolldownOptions: { input },
+  },
+  // The dev server finds the packages to prepare in the three entries. With no
+  // list here it reads only the input of the build, the site, and finds the
+  // packages of the editor when the editor first loads: it then prepares them
+  // and reloads the page.
+  optimizeDeps: {
+    entries: ['index.html', 'frame.html', siteEntry],
   },
 })

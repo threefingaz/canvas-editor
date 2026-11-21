@@ -12,8 +12,8 @@ import {
 import { Fragment, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { library, screens, type ScreenEntry } from 'virtual:canvas-screens'
 import type { Edit, Target } from '../../requests/format.ts'
-import { useOperate } from '../canvas/operate.ts'
 import { messageOf } from '../../tokens/format.ts'
+import { useOperate } from '../canvas/operate.ts'
 import { useCopy, type CopyState } from '../copy.ts'
 import type { Item } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
@@ -53,8 +53,8 @@ import {
 import { Changes } from './Changes.tsx'
 import { CommentBox } from './CommentBox.tsx'
 import {
+  commentEdit,
   controlOf,
-  elementComment,
   isLayoutProperty,
   layoutEdit,
   movePlan,
@@ -62,7 +62,6 @@ import {
   removeEdit,
   rowAction,
   rowEdit,
-  screenComment,
   targetOf,
   textEdit,
   textEditable,
@@ -236,10 +235,7 @@ function ScreenView({ screen, document }: { screen: ScreenEntry; document: Docum
         name="screen"
         submit="Add"
         className="border-t border-[color:var(--border)] p-3"
-        onSubmit={(text) => {
-          const comment = screenComment(screen.width, text)
-          if (comment) edits.apply(screen.id, comment)
-        }}
+        onSubmit={(text) => edits.apply(screen.id, commentEdit(null, screen.width, text))}
       />
       <Changes screenId={screen.id} document={document} empty="No changes in this screen." className="max-h-[40%]" />
     </>
@@ -451,7 +447,7 @@ function ElementView({ selected }: { selected: Selected }) {
           name="element"
           submit="Add"
           className="border-t border-[color:var(--border)] p-3"
-          onSubmit={(comment) => onEdit((target, width) => elementComment(target, width, comment))}
+          onSubmit={(comment) => onEdit((target, width) => commentEdit(target, width, comment))}
         />
       )}
       <Changes screenId={selected.screenId} document={selected.node.ownerDocument} className="max-h-[40%]" />

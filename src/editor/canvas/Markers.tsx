@@ -29,13 +29,6 @@ type MarkersProps = {
   shown: boolean
 }
 
-// A function that calls `make` at its first call and then gives the same
-// value.
-function once<T>(make: () => T): () => T {
-  let made: { value: T } | null = null
-  return () => (made ??= { value: make() }).value
-}
-
 export function Markers({ view, frames, documents, shown }: MarkersProps) {
   const screens = useIssueScreens()
   const [, remeasure] = useReducer((count: number) => count + 1, 0)
@@ -73,10 +66,10 @@ export function Markers({ view, frames, documents, shown }: MarkersProps) {
     const corner = toScreen(view, box)
     // One walk of the document for all the places of the list, and none for
     // a list with no marker.
-    const nodes = once(() => nodesByLoc(document))
+    let nodes: Map<string, Element[]> | null = null
     const rects = markerRects(
       list,
-      (loc) => nodes().get(loc) ?? [],
+      (loc) => (nodes ??= nodesByLoc(document)).get(loc) ?? [],
       (node) => (node.isConnected ? toEditorRect(node.getBoundingClientRect(), corner, view.scale) : null),
       hiddenIn(edits.get(box.screen.id)),
     )

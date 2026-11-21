@@ -262,6 +262,47 @@ describe('walkRules', () => {
     expect(entries[3].rule.style.getPropertyValue('color')).toBe('red')
   })
 
+  test('goes into nested rules two levels deep, with the selector of each level', () => {
+    const inner = cssRule('CSSStyleRule', {
+      selectorText: '& .b',
+      style: declarations({ padding: 'var(--b)' }),
+      cssRules: [
+        styleRule('&:hover', { padding: 'var(--hover)' }),
+        cssRule('CSSNestedDeclarations', { style: declarations({ color: 'red' }) }),
+      ],
+    })
+    const outer = cssRule('CSSStyleRule', { selectorText: '.a', style: declarations({}), cssRules: [inner] })
+    expect(selectors(walkRules([outer], always))).toEqual([
+      '.a',
+      ':is(.a) .b',
+      ':is(:is(.a) .b):hover',
+      ':is(.a) .b',
+    ])
+  })
+
+  test('goes into a supports rule and a layer inside a style rule, with the selector of the style rule', () => {
+    const nested = cssRule('CSSStyleRule', {
+      selectorText: '.button',
+      style: declarations({}),
+      cssRules: [
+        cssRule('CSSSupportsRule', {
+          conditionText: '(display: grid)',
+          cssRules: [
+            styleRule('& svg'),
+            cssRule('CSSNestedDeclarations', { style: declarations({ display: 'grid' }) }),
+          ],
+        }),
+        cssRule('CSSLayerBlockRule', { cssRules: [mediaRule('(min-width: 900px)', [styleRule('&.L')])] }),
+      ],
+    })
+    expect(walkRules([nested], always).map((entry) => [entry.rule.selectorText, entry.media])).toEqual([
+      ['.button', undefined],
+      [':is(.button) svg', undefined],
+      ['.button', undefined],
+      [':is(.button).L', '(min-width: 900px)'],
+    ])
+  })
+
   test('declarations of a nested rule outside a style rule are skipped', () => {
     expect(walkRules([cssRule('CSSNestedDeclarations', { style: declarations({ color: 'red' }) })], always)).toEqual([])
   })

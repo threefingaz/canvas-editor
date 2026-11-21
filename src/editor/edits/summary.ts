@@ -80,11 +80,9 @@ export function summaryOf(edit: Edit): string {
       return `Moved from ${change.before + 1} to ${change.after + 1} of ${change.of}`
     case 'remove':
       return 'Removed'
-    // The first line that has text, cut; the Changes list shows the whole
-    // text in the title of the item.
-    case 'comment': {
-      const line = change.text.split('\n').find((part) => part.trim() !== '') ?? ''
-      return `Comment: ${cut(line.trim())}`
-    }
+    // The kind only: the Changes list shows the whole text of a comment
+    // below its summary.
+    case 'comment':
+      return 'Comment'
   }
 }

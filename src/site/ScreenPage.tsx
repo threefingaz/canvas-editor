@@ -8,10 +8,14 @@ import 'virtual:canvas-screens'
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { RenderError } from '../frame/RenderError.tsx'
 import { screenModuleKey, screensChangedEvent } from '../frame/screen-id.ts'
+import { UnknownScreen } from './UnknownScreen.tsx'
 
 // One screen of the prototype site as the full page: the screen in the wrapper
 // of the library, with the width of the browser window. It has no editor
-// styles and no styles of the site, as in a frame of the canvas.
+// styles and no styles of the site, as in a frame of the canvas. It is the only
+// module of the site that imports the library: `Site.tsx` loads it only for a
+// screen, thus the index and the page of an unknown screen get no styles of
+// the library.
 
 type ScreenModule = { default: ComponentType }
 
@@ -51,20 +55,5 @@ export function ScreenPage({ screen }: { screen: ScreenEntry }) {
         </LibraryProvider>
       </Suspense>
     </RenderError>
-  )
-}
-
-// The page for an id that no screen has, with a link to the index.
-export function UnknownScreen({ id }: { id: string }) {
-  return (
-    <main className="site-page">
-      <h1 className="site-heading">Unknown screen</h1>
-      <p className="site-note">No screen has the address “#/{id}”.</p>
-      <p>
-        <a className="site-back" href="#/">
-          All screens
-        </a>
-      </p>
-    </main>
   )
 }

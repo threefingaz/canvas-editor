@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import type { Change, Target } from '../../requests/format.ts'
+import type { Change, Edit, Target } from '../../requests/format.ts'
 import { anchor, anchorScreen, anchorWrites, baseOf, nextReading, type Reading, type ScreenElement } from './anchor.ts'
 import type { Item, PlacedEdit } from './model.ts'
 import { createEditsStore } from './store.ts'
@@ -586,6 +586,27 @@ describe('anchorScreen', () => {
     ])
     // The new list is in agreement with the elements.
     expect(anchorScreen(store, screen, store.get(screen), first.reading, document, elements).ready).toBe(true)
+  })
+
+  test('a comment on the screen next to a moved item stays as it is and is never stale', () => {
+    const store = createEditsStore()
+    const comment: Edit = { id: 'c1', target: null, width: 390, change: { kind: 'comment', text: 'Add an empty state.' } }
+    store.apply(screen, comment)
+    store.apply(screen, edit('e1'))
+    store.apply(screen, edit('e2', { line: 30, label: 'Gone' }))
+    const document = {}
+    const first = anchorScreen(store, screen, store.get(screen), undefined, document, elements)
+    expect(first.ready).toBe(false)
+    expect(lines(store)).toEqual([
+      ['c1', undefined, undefined],
+      ['e1', 13, undefined],
+      ['e2', 30, true],
+    ])
+    expect(store.get(screen)[0]).toEqual({ edit: comment })
+    // The check of the new list keeps it as it is too.
+    const again = anchorScreen(store, screen, store.get(screen), first.reading, document, elements)
+    expect(again.ready).toBe(true)
+    expect(store.get(screen)[0]).toEqual({ edit: comment })
   })
 
   test('a stale item that moves gets the new place and loses the stale mark', () => {

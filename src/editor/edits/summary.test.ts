@@ -105,18 +105,12 @@ describe('summaryOf', () => {
     )
   })
 
-  test('a comment gives its first line with text, cut', () => {
-    expect(summaryOf(edit({ kind: 'comment', text: 'Make this a table.' }))).toBe('Comment: Make this a table.')
-    expect(summaryOf(edit({ kind: 'comment', text: '\n  Add an empty state\nwith a retry.' }))).toBe(
-      'Comment: Add an empty state',
-    )
-    const long = 'Use a table with one row for each member'
-    expect(summaryOf(edit({ kind: 'comment', text: long }))).toBe(`Comment: ${long.slice(0, 24)}…`)
+  test('a comment gives its kind; the text shows below the summary', () => {
+    expect(summaryOf(edit({ kind: 'comment', text: 'Make this a table.' }))).toBe('Comment')
   })
 
   test('a comment on the screen has the same summary', () => {
     const screen: Edit = { id: 'c1', target: null, width: 390, change: { kind: 'comment', text: 'Add a title.' } }
-    expect(summaryOf(screen)).toBe('Comment: Add a title.')
+    expect(summaryOf(screen)).toBe('Comment')
   })
 })
-

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { library, screens } from 'virtual:canvas-screens'
-import { linkAt, screenHash, type LinkTarget } from '../frame/screen-link.ts'
+import { linkAt, type LinkTarget } from '../frame/screen-link.ts'
 import { Canvas } from './canvas/Canvas.tsx'
 import { Frame } from './canvas/Frame.tsx'
 import { keepKeys, layoutFrames } from './canvas/layout.ts'
 import { readMarkersShown, writeMarkersShown } from './canvas/markers.ts'
 import { Markers } from './canvas/Markers.tsx'
 import { NoLibrary } from './canvas/NoLibrary.tsx'
-import { navigateTarget, operate, useOperate } from './canvas/operate.ts'
+import { followLink, operate, useOperate } from './canvas/operate.ts'
 import { Toolbar } from './canvas/Toolbar.tsx'
 import { centerOn, zoomAt, zoomStep, type Point, type Size, type View } from './canvas/viewport.ts'
 import { edits } from './edits/store.ts'
@@ -159,17 +159,14 @@ export default function App() {
 
   // With the Preview switch on: a link to a screen moves the view to its frame
   // and marks the frame; a link to an unknown screen shows a message; a
-  // different place does nothing.
+  // different place does nothing (`followLink`).
   const follow = (id: string, point: Point) => {
-    const target = linkUnder(id, point)
-    if (target === null || target.kind === 'other') return
-    const screen = navigateTarget(target, screens)
-    const box = screen && layout.frames.find((frame) => frame.screen.id === screen.id)
-    if (box && size.current) {
-      setView(centerOn(box, size.current))
-      mark(box.screen.id)
-    } else if (target.kind === 'unknown-screen') {
-      showNotice(`The link goes to ${screenHash(target.id)}, and no screen has that address.`)
+    const action = followLink(linkUnder(id, point), layout.frames)
+    if (action?.kind === 'move' && size.current) {
+      setView(centerOn(action.box, size.current))
+      mark(action.box.screen.id)
+    } else if (action?.kind === 'notice') {
+      showNotice(action.text)
     }
   }
 
@@ -232,7 +229,7 @@ export default function App() {
                 view={view}
                 frames={layout.frames}
                 documents={frameDocuments}
-                hover={operating ? null : hover}
+                hover={hover}
                 shown={!operating}
               />
               {library === null && <NoLibrary />}

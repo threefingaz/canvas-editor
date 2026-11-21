@@ -86,7 +86,8 @@ A connection is proven, not assumed. Make one sample screen, `screens/sample/<na
 2. A click on each element selects it, and its tag and its place in the code are correct. No element of the library has the marker "not from the library".
 3. In the inspector, each color, spacing, radius, shadow and text style of the sample shows as **linked to a token**. A value that shows only as "equal to a token" or "no token" is a finding: go back to step 5, or note why the library cannot link it.
 4. Change one token of each group in the editor, and apply the request as the section "Requests" of `AGENTS.md` says. The frame reloads, and the value is linked to the new token.
-5. `npm run lint`, `npm run build` and `npm test` pass.
+5. The button of the sample has the address of its own screen, `href="#/sample/<name>"`. It renders an `a` element; if it does not, find the part of the library that does (section 4 of [the contract](./references/contract.md)). With the Preview switch on, a click on it moves the canvas to its frame, and the Issues list has no broken link. After `npm run build` and `npm run preview`, the screen opens on the site, and a click on the button keeps it there.
+6. `npm run lint`, `npm run build` and `npm test` pass.
 
 Tests in `src/` and `tools/` use names of a sample library as fixtures; they do not need a change. The tests of the pack are in `packs/<name>/library/*.test.ts`, and `npm test` runs them: write tests for the token entry.
 

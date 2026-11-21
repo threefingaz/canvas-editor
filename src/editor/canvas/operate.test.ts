@@ -1,27 +1,34 @@
 import { describe, expect, test, vi } from 'vitest'
-import { createOperateStore, navigateTarget } from './operate.ts'
+import { createOperateStore, followLink } from './operate.ts'
 
-const screens = [{ id: 'onboarding/welcome' }, { id: 'onboarding/workspace' }]
+const welcome = { screen: { id: 'onboarding/welcome' } }
+const workspace = { screen: { id: 'onboarding/workspace' } }
+const frames = [welcome, workspace]
 
-describe('navigateTarget', () => {
-  test('a link to a screen gives the entry of that screen', () => {
-    expect(navigateTarget({ kind: 'screen', id: 'onboarding/workspace' }, screens)).toBe(screens[1])
+describe('followLink', () => {
+  test('a link to a screen moves the view to the frame of that screen', () => {
+    expect(followLink({ kind: 'screen', id: 'onboarding/workspace' }, frames)).toEqual({ kind: 'move', box: workspace })
   })
 
-  test('a link to an unknown screen gives null', () => {
-    expect(navigateTarget({ kind: 'unknown-screen', id: 'onboarding/nothing' }, screens)).toBeNull()
+  test('a link to an unknown screen shows a message with its address', () => {
+    expect(followLink({ kind: 'unknown-screen', id: 'onboarding/nothing' }, frames)).toEqual({
+      kind: 'notice',
+      text: 'The link goes to #/onboarding/nothing, and no screen has that address.',
+    })
+    expect(followLink({ kind: 'unknown-screen', id: 'a b' }, frames)).toEqual({
+      kind: 'notice',
+      text: 'The link goes to #/a%20b, and no screen has that address.',
+    })
   })
 
-  test('an address that is not a screen address gives null', () => {
-    expect(navigateTarget({ kind: 'other' }, screens)).toBeNull()
+  test('an address that is not a screen address, and no link, do nothing', () => {
+    expect(followLink({ kind: 'other' }, frames)).toBeNull()
+    expect(followLink(null, frames)).toBeNull()
   })
 
-  test('a screen id that is no longer in the list gives null', () => {
-    expect(navigateTarget({ kind: 'screen', id: 'onboarding/removed' }, screens)).toBeNull()
-  })
-
-  test('an empty list gives null', () => {
-    expect(navigateTarget({ kind: 'screen', id: 'onboarding/welcome' }, [])).toBeNull()
+  test('a screen with no frame in the layout does nothing', () => {
+    expect(followLink({ kind: 'screen', id: 'onboarding/removed' }, frames)).toBeNull()
+    expect(followLink({ kind: 'screen', id: 'onboarding/welcome' }, [])).toBeNull()
   })
 })
 

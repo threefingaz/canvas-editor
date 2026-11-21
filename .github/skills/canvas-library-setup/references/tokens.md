@@ -13,6 +13,7 @@ The format is in `src/tokens/format.ts`. The groups are `color`, `spacing`, `rad
 | `cssVar`, `factor` | the CSS variable behind the value, and a factor when the library writes `factor * var(…)` | proves that an element is **linked** to the token |
 | `selector` | for a text style: the class of the elements that use it. It can be a selector list (`.text-button, .button`) when more than one component applies the style | the proof of a link where no one variable exists |
 | `code` | how a developer writes the token in code: `'primary.main'`, `2` | the agent writes it into the screen when it applies an edit |
+| `media` | optional: the values in ranges of widths, a list of `{ "query", "value" }` (see "Values that change with the width" below) | takes, in each frame, the value of the width of that frame |
 
 Thus "where are the tokens" is three questions. Answer each one for each group.
 

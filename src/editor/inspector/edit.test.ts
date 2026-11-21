@@ -6,9 +6,9 @@ import type { Site } from '../locate/fiber.ts'
 import type { Siblings } from '../selection/pick.ts'
 import {
   activeToken,
+  commentEdit,
   commentText,
   controlOf,
-  elementComment,
   layoutEdit,
   layoutKeywords,
   movePlan,
@@ -17,7 +17,6 @@ import {
   rowAction,
   removeEdit,
   rowEdit,
-  screenComment,
   styleEdit,
   targetOf,
   textEdit,
@@ -469,9 +468,9 @@ describe('commentText', () => {
   })
 })
 
-describe('elementComment', () => {
-  test('gives a comment on the target with the trimmed text', () => {
-    expect(elementComment(target, 1440, ' Make this a table ', 'e1')).toEqual({
+describe('commentEdit', () => {
+  test('gives a comment on the target with the text', () => {
+    expect(commentEdit(target, 1440, 'Make this a table', 'e1')).toEqual({
       id: 'e1',
       target,
       width: 1440,
@@ -479,19 +478,8 @@ describe('elementComment', () => {
     })
   })
 
-  test('null for an empty text and a text over the limit', () => {
-    expect(elementComment(target, 390, '  ')).toBeNull()
-    expect(elementComment(target, 390, 'a'.repeat(commentLimit + 1))).toBeNull()
-  })
-
-  test('a new comment gets a new id', () => {
-    expect(elementComment(target, 390, 'A')?.id).not.toBe(elementComment(target, 390, 'A')?.id)
-  })
-})
-
-describe('screenComment', () => {
-  test('gives a comment with the target null', () => {
-    expect(screenComment(1440, 'Add a state for an empty list\n', 'e2')).toEqual({
+  test('the target null gives a comment on the screen', () => {
+    expect(commentEdit(null, 1440, 'Add a state for an empty list', 'e2')).toEqual({
       id: 'e2',
       target: null,
       width: 1440,
@@ -499,9 +487,8 @@ describe('screenComment', () => {
     })
   })
 
-  test('null for an empty text and a text over the limit', () => {
-    expect(screenComment(390, '')).toBeNull()
-    expect(screenComment(390, 'a'.repeat(commentLimit + 1))).toBeNull()
+  test('a new comment gets a new id', () => {
+    expect(commentEdit(target, 390, 'A').id).not.toBe(commentEdit(target, 390, 'A').id)
   })
 })
 

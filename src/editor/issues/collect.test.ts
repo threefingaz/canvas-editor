@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { Site } from '../locate/fiber.ts'
-import { brokenLinks, placesOf, type LinkElement } from './collect.ts'
+import type { LinkNode } from '../../frame/screen-link.ts'
+import { brokenLinks, innerLocs, placesOf } from './collect.ts'
 
 function site(line: number, tag: string, origin: Site['origin'] = 'library'): Site {
   const file = 'screens/onboarding/welcome.tsx'
@@ -11,6 +12,20 @@ const stack = site(51, 'Stack')
 const chip = site(53, 'Chip')
 const feature = site(60, 'Feature', 'local')
 const box = site(20, 'Box')
+
+describe('innerLocs', () => {
+  test('gives each node the location of its first site, the inner element', () => {
+    const inner = innerLocs([
+      { node: 'box', site: box },
+      { node: 'box', site: feature },
+      { node: 'chip-1', site: chip },
+    ])
+    expect([...inner]).toEqual([
+      ['box', box.loc],
+      ['chip-1', chip.loc],
+    ])
+  })
+})
 
 describe('placesOf', () => {
   test('one place for each location, with the first copy and the count of copies', () => {
@@ -58,10 +73,15 @@ describe('placesOf', () => {
 })
 
 // A DOM element as `brokenLinks` reads it.
-type FakeNode = LinkElement & { name: string }
+type FakeNode = LinkNode & { name: string; parentElement: FakeNode | null; removed?: true }
 
 function node(name: string, parentElement: FakeNode | null = null, href: string | null = null): FakeNode {
-  return { name, parentElement, getAttribute: (attribute) => (attribute === 'href' ? href : null) }
+  return {
+    name,
+    localName: href === null ? 'div' : 'a',
+    parentElement,
+    getAttribute: (attribute) => (attribute === 'href' ? href : null),
+  }
 }
 
 describe('brokenLinks', () => {
@@ -140,5 +160,30 @@ describe('brokenLinks', () => {
     const loose = node('loose', node('body'), '#/missing')
     const links = brokenLinks([{ node: hiddenLink, site: button }], [hiddenLink, loose], ids, (n) => n === hiddenLink)
     expect(links.size).toBe(0)
+  })
+
+  test('a link inside a removed element is left out: the mark is on an element above the link', () => {
+    // As `hiddenBy` reads the DOM: a node is hidden when it or a node above it
+    // has the mark of a remove edit.
+    const hidden = (n: FakeNode) => {
+      for (let current: FakeNode | null = n; current; current = current.parentElement) if (current.removed) return true
+      return false
+    }
+    const removedCard = { ...node('card'), removed: true as const }
+    const inner = node('inner', removedCard)
+    const link = node('a', inner, '#/missing')
+    const keptCard = node('kept')
+    const keptLink = node('a2', node('inner2', keptCard), '#/missing')
+    const links = brokenLinks(
+      [
+        { node: removedCard, site: card },
+        { node: link, site: button },
+        { node: keptCard, site: site(90, 'Card') },
+      ],
+      [link, keptLink],
+      ids,
+      hidden,
+    )
+    expect([...links]).toEqual([[site(90, 'Card').loc, ['#/missing']]])
   })
 })

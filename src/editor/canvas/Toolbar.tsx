@@ -18,10 +18,10 @@ import type { EditorTheme } from '../theme.ts'
 import { maxScale, minScale } from './viewport.ts'
 
 // The floating bar at the bottom center of the canvas: the Preview switch
-// (`operate.ts`), undo and redo of the edits of all screens, the count of the changes with the sentence for the
-// agent, an error of the save of the request files, the switch of the markers
-// of the elements that are not from the library, the zoom, and the theme of
-// the editor.
+// (`operate.ts`), undo and redo of the edits of all screens, the count of the
+// changes with the sentence for the agent, an error of the save of the request
+// files, the switch of the markers of the elements that are not from the
+// library, the zoom, and the theme of the editor.
 
 type ToolbarProps = {
   operate: boolean

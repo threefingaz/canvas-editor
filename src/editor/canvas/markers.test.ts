@@ -45,6 +45,7 @@ describe('markerRects', () => {
     const issues: Issue[] = [
       { kind: 'no-token', target: target(9, 'Button', 'library'), property: 'padding', value: '8px', state: 'none' },
       { kind: 'override', target: target(3, 'div'), property: 'color', value: 'red' },
+      { kind: 'broken-link', target: target(9, 'Button', 'library'), href: '#/nothing' },
       { kind: 'render-error', text: 'Boom' },
     ]
     expect(markerRects(issues, nodesOf, rectOf, nothing)).toEqual([])

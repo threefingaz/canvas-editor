@@ -115,7 +115,7 @@ function parseToken(raw: unknown, index: number, seen: Set<string>): Token {
       const at = (problem: string): never => fail(`has a media value ${place + 1} that ${problem}`)
       if (!isRecord(entry)) return at('is not an object')
       if (typeof entry.query !== 'string' || entry.query.trim() === '') return at('has no query')
-      return { query: entry.query, value: parseValue(group as TokenGroup, entry.value, (problem) => at(problem)) }
+      return { query: entry.query, value: parseValue(group as TokenGroup, entry.value, at) }
     })
   }
   seen.add(id)

@@ -7,21 +7,26 @@
 // imports and reads no DOM: a node is a plain object with the few fields that
 // the lookup reads.
 
-// The start of each screen address.
-const screenPrefix = '#/'
+// The start of each screen address. Alone it is the address of the index of
+// the site.
+export const screenPrefix = '#/'
 
 // Reads the id from a screen address: the rest after `#/`, decoded, with no
-// slash at the end. Gives null for a text that is not a screen address. An
-// escape that cannot be decoded gives the raw text, which no screen has; it
-// does not throw.
+// slash at the end. The slashes go out after the decoding, thus an encoded
+// slash at the end (`%2F`) goes out as a plain one does. Other characters stay:
+// `#/%20` gives the id ` `, which no screen has. Gives null for a text that is
+// not a screen address. An escape that cannot be decoded gives the raw text,
+// which no screen has; it does not throw.
 function addressId(href: string): string | null {
   if (!href.startsWith(screenPrefix)) return null
-  const raw = href.slice(screenPrefix.length).replace(/\/+$/, '')
+  const raw = href.slice(screenPrefix.length)
+  let id = raw
   try {
-    return decodeURIComponent(raw)
+    id = decodeURIComponent(raw)
   } catch {
-    return raw
+    // The raw text.
   }
+  return id.replace(/\/+$/, '')
 }
 
 // Reads the id of the screen from the hash of the address. Gives null for the
