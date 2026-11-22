@@ -1,4 +1,4 @@
-import { useEffect, useReducer } from 'react'
+import { useEffect, useReducer, useSyncExternalStore } from 'react'
 import type { FrameBox } from '../canvas/layout.ts'
 import type { Rect, View } from '../canvas/viewport.ts'
 import { bubble } from '../comments/bubble-store.ts'
@@ -7,6 +7,7 @@ import { edits } from '../edits/store.ts'
 import { frameWindowOf } from '../frame-window.ts'
 import { hiddenIn } from '../preview/css.ts'
 import { onPreviewApplied, screenElementsOf, usePreviewRemeasure } from '../preview/use-preview.ts'
+import { moveDrag } from './drag-store.ts'
 import { canvasRectOf } from './geometry.ts'
 import { refind, type Hovered } from './pick.ts'
 import { SelectionBar } from './SelectionBar.tsx'
@@ -51,6 +52,9 @@ type SelectionOverlayProps = {
 
 export function SelectionOverlay({ view, frames, documents, hover, shown }: SelectionOverlayProps) {
   const selected = useSelection()
+  // No outline of the element below the pointer while the selected element
+  // drags (`MoveDrag`): the line of the drop shows the place.
+  const dragging = useSyncExternalStore(moveDrag.subscribe, moveDrag.dragging)
   const [, remeasure] = useReducer((count: number) => count + 1, 0)
 
   // The screen of the selection is removed, or its file cannot be read: its
@@ -134,7 +138,7 @@ export function SelectionOverlay({ view, frames, documents, hover, shown }: Sele
   if (!shown) return null
 
   const selectedRect = selected && rectOf(selected.screenId, selected.node)
-  const hoverRect = hover && hover.node !== selected?.node ? rectOf(hover.screenId, hover.node) : null
+  const hoverRect = hover && !dragging && hover.node !== selected?.node ? rectOf(hover.screenId, hover.node) : null
 
   return (
     <div className="pointer-events-none absolute inset-0 overflow-clip" data-selection-layer="">
@@ -149,7 +153,13 @@ export function SelectionOverlay({ view, frames, documents, hover, shown }: Sele
         <div className="absolute border-2 border-[color:var(--link)]" data-selection-frame="" style={placement(selectedRect)} />
       )}
       {selected && (
-        <SelectionBar key={selectionKey(selected)} selected={selected} rect={selectedRect} />
+        <SelectionBar
+          key={selectionKey(selected)}
+          selected={selected}
+          rect={selectedRect}
+          view={view}
+          box={boxes.get(selected.screenId) ?? null}
+        />
       )}
     </div>
   )

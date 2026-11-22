@@ -80,7 +80,7 @@ export function OptionsPanel({ target, live, view, box, document }: OptionsPanel
           name={target.loc === null ? 'screen-panel' : 'element-panel'}
           blocked={blocked}
           autoFocus={blocked === null}
-          className="border-t border-[color:var(--border)] p-3"
+          className="border-t border-[color:var(--editor-line)] p-3"
           onSubmit={ask}
         />
       </section>

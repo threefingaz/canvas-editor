@@ -20,15 +20,13 @@ import {
   TextUnderlineIcon,
 } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
-import { Button, ToggleGroup, ToggleGroupItem } from '../ui'
+import { ToggleGroup, ToggleGroupItem } from '../ui'
 import { layoutKeywords, type LayoutProperty } from './edit.ts'
 
-// The controls of the Layout section:
-// - a segmented control for the direction, the wrap, the alignment and the
-//   justification of a flex or grid container, with the keyword values of
-//   `layoutKeywords` (no free value);
-// - "Move earlier" and "Move later", which move the element among the sibling
-//   elements of its parent.
+// The controls of the Layout section: a segmented control for the direction,
+// the wrap, the alignment and the justification of a flex or grid container,
+// with the keyword values of `layoutKeywords` (no free value). A move of the
+// element among its siblings is made on the canvas (`SelectionBar.tsx`).
 
 // The axis of the alignment and the justification, for the icons: in a flex
 // row the items go from left to right, thus the justification is horizontal
@@ -128,62 +126,5 @@ export function LayoutControl({ property, value, label, axes, onPick }: ControlP
         </ToggleGroupItem>
       ))}
     </ToggleGroup>
-  )
-}
-
-type MoveProps = {
-  // The position of the element among the sibling elements, as the preview
-  // shows it, and their count.
-  position: number
-  count: number
-  // False when the parent is not a flex or grid container: the move is saved
-  // with no preview.
-  previewed: boolean
-  onMove: (next: number) => void
-}
-
-// The buttons that move the element one place earlier or later among the
-// sibling elements of its parent.
-export function MoveControls({ position, count, previewed, onMove }: MoveProps) {
-  return (
-    <div className="flex min-w-0 flex-col gap-1 pt-1" data-move-controls="">
-      <div className="flex min-h-6 min-w-0 items-center gap-2 text-xs">
-        <span className="w-24 shrink-0 truncate text-[color:var(--muted-foreground)]">Sequence</span>
-        <span className="min-w-0 flex-1 truncate font-mono text-[11px]" data-sequence-position={position}>
-          {position + 1} of {count}
-        </span>
-      </div>
-      <div className="flex min-w-0 items-center justify-end gap-1 pl-26">
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={position <= 0}
-          onClick={() => onMove(position - 1)}
-          data-move="earlier"
-        >
-          <ArrowUpIcon data-icon="inline-start" />
-          Move earlier
-        </Button>
-        <Button
-          size="xs"
-          variant="ghost"
-          disabled={position >= count - 1}
-          onClick={() => onMove(position + 1)}
-          data-move="later"
-        >
-          <ArrowDownIcon data-icon="inline-start" />
-          Move later
-        </Button>
-      </div>
-      {!previewed && (
-        <p
-          className="m-0 pl-26 text-xs text-[color:var(--muted-foreground)]"
-          title="The parent is not a flex or grid container, thus the frame cannot show a new sequence. The edit is saved."
-          data-no-order-preview=""
-        >
-          No preview for this parent
-        </p>
-      )}
-    </div>
   )
 }

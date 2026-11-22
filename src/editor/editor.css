@@ -17,6 +17,14 @@
   --link-foreground: oklch(0.145 0 0);
 }
 
+/* The line between two parts of a panel of the editor (below the tabs, below
+   the header of a floating panel, between two sections). `--border` of the
+   copied theme is the text color at full strength: the copied components mix
+   it down, and so does this line, to the strength of their separator. */
+[data-editor-theme] {
+  --editor-line: color-mix(in oklab, var(--border) 10%, transparent);
+}
+
 html,
 body,
 #root {

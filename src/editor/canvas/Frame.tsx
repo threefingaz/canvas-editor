@@ -258,7 +258,10 @@ export function Frame({
             title={screen.title}
           />
           <div
-            className={cn('absolute inset-0', overLink && 'cursor-pointer')}
+            className={cn(
+              'absolute inset-0 data-[drag-cursor=grab]:cursor-grab data-[drag-cursor=grabbing]:cursor-grabbing',
+              overLink && 'cursor-pointer',
+            )}
             data-frame-overlay={screen.id}
             onPointerMove={(event) => onHover(screen.id, framePoint(event))}
             onPointerLeave={() => onHover(screen.id, null)}

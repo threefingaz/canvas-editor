@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { barActions, barPlace, noSite } from './bar.ts'
+import { barActions, barPlace, moveSides, noSite } from './bar.ts'
 
 const bar = { width: 120, height: 30 }
 const canvas = { width: 1000, height: 800 }
@@ -82,5 +82,25 @@ describe('barActions', () => {
 
   test('no site wins over a block, and an option with no site still has no options', () => {
     expect(barActions({ option: true, block: 'blocked', site: false })).toEqual({ actions: ['comment', 'remove'], off: noSite })
+  })
+})
+
+describe('moveSides', () => {
+  test('a row moves left and right', () => {
+    expect(moveSides({ axis: 'row', reversed: false })).toEqual([
+      { arrow: 'left', label: 'Move left (←)' },
+      { arrow: 'right', label: 'Move right (→)' },
+    ])
+  })
+
+  test('a column moves up and down', () => {
+    expect(moveSides({ axis: 'column', reversed: false })).toEqual([
+      { arrow: 'up', label: 'Move up (↑)' },
+      { arrow: 'down', label: 'Move down (↓)' },
+    ])
+  })
+
+  test('a reversed row names the same directions on the screen', () => {
+    expect(moveSides({ axis: 'row', reversed: true })).toEqual(moveSides({ axis: 'row', reversed: false }))
   })
 })

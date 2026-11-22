@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { barKey, escapeAction, historyKey, submitKey, typingIn, viewKey } from './focus.ts'
+import { arrowsFree, barKey, escapeAction, focusOnCanvas, historyKey, submitKey, typingIn, viewKey } from './focus.ts'
 
 describe('typingIn', () => {
   test('true for an input, a text area, a select, and an element that can be edited', () => {
@@ -111,23 +111,25 @@ describe('viewKey', () => {
 })
 
 describe('escapeAction', () => {
-  const none = { floating: false, operating: false, selected: false }
+  const none = { dragging: false, floating: false, operating: false, selected: false }
 
   test('nothing to do gives null', () => {
     expect(escapeAction(none)).toBeNull()
   })
 
   test('each state alone gives its action', () => {
+    expect(escapeAction({ ...none, dragging: true })).toBe('cancel-drag')
     expect(escapeAction({ ...none, floating: true })).toBe('close-floating')
     expect(escapeAction({ ...none, operating: true })).toBe('operate-off')
     expect(escapeAction({ ...none, selected: true })).toBe('clear-selection')
   })
 
-  test('the floating panel first, then Preview, then the selection', () => {
-    const all = { floating: true, operating: true, selected: true }
-    expect(escapeAction(all)).toBe('close-floating')
-    expect(escapeAction({ ...all, floating: false })).toBe('operate-off')
-    expect(escapeAction({ ...all, floating: false, operating: false })).toBe('clear-selection')
+  test('a drag first, then the floating panel, then Preview, then the selection', () => {
+    const all = { dragging: true, floating: true, operating: true, selected: true }
+    expect(escapeAction(all)).toBe('cancel-drag')
+    expect(escapeAction({ ...all, dragging: false })).toBe('close-floating')
+    expect(escapeAction({ ...all, dragging: false, floating: false })).toBe('operate-off')
+    expect(escapeAction({ ...all, dragging: false, floating: false, operating: false })).toBe('clear-selection')
   })
 })
 
@@ -168,5 +170,73 @@ describe('barKey', () => {
   test('a different key is no key of the bar', () => {
     expect(barKey(key('x', 'KeyX'))).toBeNull()
     expect(barKey(key('!', 'Digit1', { shift: true }))).toBeNull()
+  })
+
+  test('each arrow key moves the element in its direction on the screen', () => {
+    expect(barKey(key('ArrowLeft', 'ArrowLeft'))).toEqual({ move: 'left' })
+    expect(barKey(key('ArrowRight', 'ArrowRight'))).toEqual({ move: 'right' })
+    expect(barKey(key('ArrowUp', 'ArrowUp'))).toEqual({ move: 'up' })
+    expect(barKey(key('ArrowDown', 'ArrowDown'))).toEqual({ move: 'down' })
+  })
+
+  test('an arrow key with Shift, Ctrl, Cmd or Alt is no key of the bar', () => {
+    for (const modifier of [{ shift: true }, { ctrl: true }, { meta: true }, { alt: true }]) {
+      for (const arrow of ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown']) {
+        expect(barKey(key(arrow, arrow, modifier))).toBeNull()
+      }
+    }
+  })
+})
+
+describe('arrowsFree', () => {
+  const free = (state: { typing?: boolean; floating?: boolean; onCanvas?: boolean }) =>
+    arrowsFree({ typing: state.typing ?? false, floating: state.floating ?? false, onCanvas: state.onCanvas ?? false })
+
+  test('true with the focus on the body or on the canvas', () => {
+    // The body counts as the canvas: the caller gives `onCanvas: true` for it.
+    expect(free({ onCanvas: true })).toBe(true)
+  })
+
+  test('false in a field that takes text, also on the canvas', () => {
+    expect(free({ onCanvas: true, typing: true })).toBe(false)
+  })
+
+  test('false in a floating part of the canvas', () => {
+    expect(free({ onCanvas: true, floating: true })).toBe(false)
+  })
+
+  test('false off the canvas, also with no field and no floating part', () => {
+    // The caller gives `onCanvas: false` for the panel and for a list that a
+    // control of the panel opens outside it (`focusOnCanvas`).
+    expect(free({ onCanvas: false })).toBe(false)
+  })
+})
+
+describe('focusOnCanvas', () => {
+  // A plain element inside the parts that `within` names (the selectors of
+  // its parents). `closest` answers for each selector of a list.
+  const element = (tagName: string, within: string[] = []) => ({
+    tagName,
+    closest: (selector: string) => (selector.split(',').some((part) => within.includes(part.trim())) ? {} : null),
+  })
+
+  test('true for no element, the body, and an element in the canvas', () => {
+    expect(focusOnCanvas(null)).toBe(true)
+    expect(focusOnCanvas(element('BODY'))).toBe(true)
+    expect(focusOnCanvas(element('BUTTON', ['[data-canvas]']))).toBe(true)
+    expect(focusOnCanvas(element('DIV', ['[data-canvas]']))).toBe(true)
+  })
+
+  test('false for a control of the panel', () => {
+    expect(focusOnCanvas(element('BUTTON', ['[data-inspector]']))).toBe(false)
+  })
+
+  test('false for a list that a control of the panel opens outside the panel', () => {
+    // The list is a child of the body, in no part of the editor.
+    expect(focusOnCanvas(element('DIV'))).toBe(false)
+  })
+
+  test('false for a control of the toolbar, which is inside the canvas', () => {
+    expect(focusOnCanvas(element('BUTTON', ['[data-canvas]', '[data-toolbar]']))).toBe(false)
   })
 })

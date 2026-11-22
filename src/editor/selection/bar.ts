@@ -1,5 +1,6 @@
 import type { Point, Rect, Size, Strips } from '../canvas/viewport.ts'
 import { clamp } from '../clamp.ts'
+import { arrowsOf, type Arrow, type Flow } from './move.ts'
 
 // The bar of the selection: its place on the canvas and its actions. The bar
 // is above the selected element, or below it when there is no room above, and
@@ -30,11 +31,12 @@ export type BarAction = 'comment' | 'options' | 'remove'
 export const noSite = 'The element has no place in the screen file.'
 
 // The actions of the bar, and the reason why they are off, or null when they
-// work: each action of the bar is on or off for the same reason. `option`:
-// the screen is an option, thus it has no "Ask for options" (an option has no
-// options). `block`: the reason why the screen takes no edit with a target
-// (an open `keep`, see `editBlock`). `site`: the element has a place in the
-// code; with none, it takes no edit.
+// work: each action of the bar is on or off for the same reason, the arrows
+// of the move too. `option`: the screen is an option, thus it has no "Ask for
+// options" (an option has no options). `block`: the reason why the screen
+// takes no edit with a target (an open `keep`, see `editBlock`). `site`: the
+// element has a place in the code; with none, it takes no edit. Which arrow
+// of the move is on is `arrowNext` of `move.ts`, with `off`.
 export function barActions(state: { option: boolean; block: string | null; site: boolean }): {
   actions: BarAction[]
   off: string | null
@@ -43,4 +45,25 @@ export function barActions(state: { option: boolean; block: string | null; site:
     actions: state.option ? ['comment', 'remove'] : ['comment', 'options', 'remove'],
     off: state.site ? state.block : noSite,
   }
+}
+
+const arrowLabels: Record<Arrow, string> = {
+  left: 'Move left (←)',
+  right: 'Move right (→)',
+  up: 'Move up (↑)',
+  down: 'Move down (↓)',
+}
+
+// The two arrow buttons of the move, the one at the left (or at the top)
+// first, each with its arrow and its label (`arrowsOf`). They name the
+// direction on the screen: in a reversed flow the button at the left still
+// moves the element to the left, and `stepOf` gives the step in the code.
+export type MoveSide = { arrow: Arrow; label: string }
+
+export function moveSides(flow: Flow): [MoveSide, MoveSide] {
+  const [first, second] = arrowsOf(flow.axis)
+  return [
+    { arrow: first, label: arrowLabels[first] },
+    { arrow: second, label: arrowLabels[second] },
+  ]
 }

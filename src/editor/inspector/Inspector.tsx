@@ -17,14 +17,13 @@ import { messageOf } from '../../tokens/format.ts'
 import { bubble } from '../comments/bubble-store.ts'
 import { useCopy, type CopyState } from '../copy.ts'
 import { editBlock } from '../edits/keep.ts'
-import type { Item } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
 import { frameWindowOf, inLiveFrame } from '../frame-window.ts'
 import { IssuesPanel } from '../issues/IssuesPanel.tsx'
 import { breadcrumb, elementOf, fiberName, siteOf, type Fiber, type Site } from '../locate/fiber.ts'
 import { ownTextNode } from '../preview/apply.ts'
 import { editAttribute } from '../preview/css.ts'
-import { nodesAt, pickElement, siblingsOf } from '../selection/pick.ts'
+import { nodesAt, pickElement } from '../selection/pick.ts'
 import { selection, selectionKey, useSelection, type Selected } from '../selection/store.ts'
 import { selectionTarget } from '../selection/target.ts'
 import { useTokenFile } from '../tokens/editor-tokens.ts'
@@ -61,14 +60,12 @@ import {
   controlOf,
   isLayoutProperty,
   layoutEdit,
-  movePlan,
-  orderEdit,
   rowAction,
   rowEdit,
   textEdit,
   textEditable,
 } from './edit.ts'
-import { LayoutControl, MoveControls, type Axes } from './LayoutControls.tsx'
+import { LayoutControl, type Axes } from './LayoutControls.tsx'
 import { inspectorModel, type InspectorRow, type InspectorSection, type SectionTitle, type SidesKey } from './model.ts'
 import { isTab, type Tab } from './tabs.ts'
 import { TokenControl } from './TokenControl.tsx'
@@ -82,21 +79,20 @@ import { ValueRow } from './ValueRow.tsx'
 // when it has no token link, and a row of four equal sides can be split into
 // one row for each side. The Layout section has a segmented control for the
 // direction, the wrap, the alignment and the justification of a flex or grid
-// container, and the buttons that move the element among its siblings. The
-// Content section changes the text of an element whose place gives one text.
-// With nothing selected, Design says so. Changes: the listed screen (the
-// screen of the last click on a frame, its title or a pin), its title and
-// file, its Changes list and then its Issues list, in one column that
-// scrolls; the tab shows the count of the items of the Changes list. Its
-// header has "Comment on the screen" and "Ask for options" of the screen (not
-// for an option), as the title row of the frame has them: at a low zoom the
-// title row has no room for its buttons. They move the canvas to the title
-// row first (`onShowTitle`), where the bubble or the options panel opens. A
-// click on a row selects its element and moves the canvas to it when it is
-// not in the view (`onReveal`); the tab stays. A comment, a request for options and
-// a removal are made on the canvas: the bar of the selection
-// (`SelectionBar.tsx`), the bubble of a comment and the options panel
-// (`CommentBubble.tsx`). While a screen has an open request to keep an
+// container. The Content section changes the text of an element whose place
+// gives one text. With nothing selected, Design says so. Changes: the listed
+// screen (the screen of the last click on a frame, its title or a pin), its
+// title and file, its Changes list and then its Issues list, in one column
+// that scrolls; the tab shows the count of the items of the Changes list.
+// Its header has "Comment on the screen" and "Ask for options" of the screen
+// (not for an option), as the title row of the frame has them: at a low zoom
+// the title row has no room for its buttons. They move the canvas to the
+// title row first (`onShowTitle`), where the bubble or the options panel
+// opens. A click on a row selects its element and moves the canvas to it
+// when it is not in the view (`onReveal`); the tab stays. A comment, a
+// request for options, a move and a removal are made on the canvas: the bar
+// of the selection (`SelectionBar.tsx`), the bubble of a comment and the
+// options panel (`CommentBubble.tsx`). While a screen has an open request to keep an
 // option, its elements take no edit (the option replaces their markup), and
 // the view of an element says why. An edit goes to the edits store, and the
 // preview shows it in the frame. With the Preview switch on, the editor does
@@ -122,32 +118,6 @@ function applyFor(selected: Selected, site: Site): Apply {
     if (width === undefined) return
     const edit = build(selectionTarget(selected, site), width)
     if (edit) edits.apply(selected.screenId, edit, replaces)
-  }
-}
-
-// The move of the element among the sibling elements of its parent, for the
-// Layout section.
-type Move = { position: number; count: number; previewed: boolean; onMove: (next: number) => void }
-
-// The move of the selected element (`movePlan`); null when a sequence edit
-// is not possible.
-function moveOf(selected: Selected, items: readonly Item[], copies: number, onEdit: Apply | null): Move | null {
-  if (!onEdit) return null
-  const document = selected.node.ownerDocument
-  const parent = selected.node.parentElement
-  const plan = movePlan(
-    selected.loc,
-    siblingsOf(selected.node, selected.loc, copies),
-    items,
-    (loc) => nodesAt(document, loc)[0]?.parentElement === parent,
-  )
-  if (!plan) return null
-  const { position, count, previewed, replaced } = plan
-  return {
-    position,
-    count,
-    previewed,
-    onMove: (next) => onEdit((target, width) => orderEdit(position, next, count, previewed, target, width), replaced),
   }
 }
 
@@ -183,7 +153,7 @@ export function Inspector({ screenId, documents, tab, onTab, onShowScreen, onSho
           className="min-h-0 flex-1 gap-0"
           data-inspector-tabs={tab}
         >
-          <div className="shrink-0 border-b border-[color:var(--border)] px-2 pt-1.5 pb-1">
+          <div className="shrink-0 border-b border-[color:var(--editor-line)] px-2 pt-1.5 pb-1">
             <TabsList variant="line" className="w-full justify-start">
               <TabsTrigger value="design" className="flex-none" data-inspector-tab="design">
                 Design
@@ -315,7 +285,7 @@ function ScreenChanges({ screen, document, onShowScreen, onShowTitle, onReveal }
       <IssuesPanel
         screenId={screen.id}
         document={document}
-        className="border-t border-[color:var(--border)]"
+        className="border-t border-[color:var(--editor-line)]"
         onReveal={onReveal}
       />
     </PanelContentSurface>
@@ -421,7 +391,6 @@ function ElementView({ selected }: { selected: Selected }) {
   // An open `keep` of the screen: the element takes no edit.
   const blocked = editBlock(items)
   const onEdit = site && blocked === null ? applyFor(selected, site) : null
-  const move = moveOf(selected, items, copies, onEdit)
 
   const selectParent = (parent: Fiber) => {
     const picked = pickElement(selected.node.ownerDocument, parent)
@@ -483,7 +452,6 @@ function ElementView({ selected }: { selected: Selected }) {
         key={changes}
         node={selected.node}
         onEdit={onEdit}
-        move={move}
         split={split}
         onSplit={toggleSplit}
         content={
@@ -502,8 +470,6 @@ function ElementView({ selected }: { selected: Selected }) {
 type StylesProps = {
   node: Element
   onEdit: Apply | null
-  // The move of the element among its siblings; null when it cannot move.
-  move: Move | null
   split: ReadonlySet<SidesKey>
   onSplit: (key: SidesKey) => void
   // The Content section, first in the sections; null when the text cannot
@@ -511,7 +477,7 @@ type StylesProps = {
   content: ReactNode
 }
 
-function StylesView({ node, onEdit, move, split, onSplit, content }: StylesProps) {
+function StylesView({ node, onEdit, split, onSplit, content }: StylesProps) {
   const read = useMemo(() => stylesOf(node), [node])
   const tokenFile = useTokenFile()
   const model = useMemo(
@@ -573,7 +539,6 @@ function StylesView({ node, onEdit, move, split, onSplit, content }: StylesProps
                     />
                   )
                 })}
-                {section.title === 'Layout' && move && <MoveControls {...move} />}
               </div>
             </PanelSection>
           ))}

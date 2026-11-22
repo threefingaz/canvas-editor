@@ -1,3 +1,5 @@
+import type { Arrow } from './selection/move.ts'
+
 // True when the focus is in a field that takes text: an input, a text area, a
 // select, or an element that can be edited. A key of the editor (Delete, the
 // keys of undo) then does nothing, thus the field gets the key.
@@ -54,10 +56,18 @@ export function viewKey(event: {
 }
 
 // The keys of the bar of the selection: Delete or Backspace (Shift may be
-// down) removes the element, and C with no Shift, matched by `event.code`,
-// opens its comment. Null for a different key and when Ctrl, Cmd or Alt is
-// down.
-export type BarKey = 'remove' | 'comment'
+// down) removes the element, C with no Shift, matched by `event.code`, opens
+// its comment, and an arrow key with no Shift moves the element one place
+// (`{ move }`, the direction on the screen). Null for a different key and
+// when Ctrl, Cmd or Alt is down.
+export type BarKey = 'remove' | 'comment' | { move: Arrow }
+
+const arrowKeys: Readonly<Record<string, Arrow>> = {
+  ArrowLeft: 'left',
+  ArrowRight: 'right',
+  ArrowUp: 'up',
+  ArrowDown: 'down',
+}
 
 export function barKey(event: {
   key: string
@@ -69,17 +79,43 @@ export function barKey(event: {
 }): BarKey | null {
   if (event.ctrlKey || event.metaKey || event.altKey) return null
   if (event.key === 'Delete' || event.key === 'Backspace') return 'remove'
+  if (Object.hasOwn(arrowKeys, event.key)) return event.shiftKey ? null : { move: arrowKeys[event.key]! }
   return event.code === 'KeyC' && !event.shiftKey ? 'comment' : null
 }
 
-// What Escape does, in this order: it closes the floating panel (the comment
-// bubble or the options panel; only one of them is open), then turns the
-// Preview switch off, then clears the selection. Null when there is nothing
-// to do. A field that uses Escape for its own work (it puts back its text)
-// prevents the default, and the editor then does not call this.
-export type EscapeAction = 'close-floating' | 'operate-off' | 'clear-selection'
+// True when an arrow key may move the selected element: the focus is on the
+// canvas (`[data-canvas]`) or on no control (the body), and not in a field
+// that takes text or in a floating part of the canvas (the comment bubble,
+// the options panel, a pin). A positive rule: the focus in the panel, or in
+// a list that a control of the panel opens outside the panel, is not on the
+// canvas, thus that control gets its arrows.
+export function arrowsFree(state: { typing: boolean; floating: boolean; onCanvas: boolean }): boolean {
+  return state.onCanvas && !state.typing && !state.floating
+}
 
-export function escapeAction(state: { floating: boolean; operating: boolean; selected: boolean }): EscapeAction | null {
+// True when the focus is on the canvas for `arrowsFree`: on no element, on
+// the body, or inside the root of the canvas (`[data-canvas]`) and not in its
+// toolbar (`[data-toolbar]`): a control of the toolbar can use the arrows.
+export function focusOnCanvas(element: { tagName: string; closest(selector: string): unknown } | null): boolean {
+  if (!element || element.tagName.toLowerCase() === 'body') return true
+  return element.closest('[data-canvas]') != null && element.closest('[data-toolbar]') == null
+}
+
+// What Escape does, in this order: it cancels a drag of the selected
+// element, then closes the floating panel (the comment bubble or the options
+// panel; only one of them is open), then turns the Preview switch off, then
+// clears the selection. Null when there is nothing to do. A field that uses
+// Escape for its own work (it puts back its text) prevents the default, and
+// the editor then does not call this.
+export type EscapeAction = 'cancel-drag' | 'close-floating' | 'operate-off' | 'clear-selection'
+
+export function escapeAction(state: {
+  dragging: boolean
+  floating: boolean
+  operating: boolean
+  selected: boolean
+}): EscapeAction | null {
+  if (state.dragging) return 'cancel-drag'
   if (state.floating) return 'close-floating'
   if (state.operating) return 'operate-off'
   if (state.selected) return 'clear-selection'

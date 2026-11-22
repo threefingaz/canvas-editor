@@ -40,6 +40,7 @@ import { clearsSelection, tabAfter, type Tab, type TabEvent } from './inspector/
 import { useMediaQuery } from './media-query.ts'
 import { hiddenIn } from './preview/css.ts'
 import { useRequestSync } from './requests/sync.ts'
+import { moveDrag } from './selection/drag-store.ts'
 import { canvasRectOf } from './selection/geometry.ts'
 import { hitAt, pickAt, type Hovered } from './selection/pick.ts'
 import { SelectionOverlay } from './selection/SelectionOverlay.tsx'
@@ -377,7 +378,8 @@ export default function App() {
     setLinkFrame(null)
   }
 
-  // The one Escape of the editor (`escapeAction`): it closes the comment
+  // The one Escape of the editor (`escapeAction`): it cancels a drag of the
+  // selected element (`moveDrag`, read at the key), else closes the comment
   // bubble or the options panel and keeps the selection, else turns the
   // Preview switch off, else clears the selection. A field that uses Escape
   // for its own work prevents the default. The keys of the view (`viewKey`)
@@ -387,13 +389,15 @@ export default function App() {
     if (event.defaultPrevented) return
     if (event.key === 'Escape') {
       const action = escapeAction({
+        dragging: moveDrag.dragging(),
         floating: bubble.get().kind !== 'closed',
         operating,
         selected: selection.get() !== null,
       })
       if (action === null) return
       event.preventDefault()
-      if (action === 'close-floating') bubble.send({ type: 'close' })
+      if (action === 'cancel-drag') moveDrag.send({ type: 'cancel' })
+      else if (action === 'close-floating') bubble.send({ type: 'close' })
       else if (action === 'operate-off') toggleOperate()
       else if (action === 'clear-selection') selection.clear()
       return

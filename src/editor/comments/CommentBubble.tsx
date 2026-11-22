@@ -187,7 +187,7 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
         <FloatingHeader name={name} title={title} closeLabel="Close the comments" />
         {comments.length > 0 && (
           <ul
-            className="m-0 min-h-0 shrink list-none overflow-y-auto border-t border-[color:var(--border)] p-0 py-1"
+            className="m-0 min-h-0 shrink list-none overflow-y-auto border-t border-[color:var(--editor-line)] p-0 py-1"
             data-canvas-scroll=""
             data-bubble-comments=""
           >
@@ -206,7 +206,7 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
         )}
         {newBox === 'draft' && (
           <p
-            className="m-0 flex items-start gap-1 border-t border-[color:var(--border)] px-3 pt-3 text-xs text-[color:var(--attention)]"
+            className="m-0 flex items-start gap-1 border-t border-[color:var(--editor-line)] px-3 pt-3 text-xs text-[color:var(--attention)]"
             data-bubble-draft=""
           >
             <WarningCircleIcon className="mt-px size-3.5 shrink-0" aria-hidden />
@@ -226,17 +226,17 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
             mode="new"
             onChange={(text) => bubble.setDraft(draftKey(target), text)}
             autoFocus={state.kind === 'new'}
-            className={newBox === 'draft' ? 'p-3' : 'border-t border-[color:var(--border)] p-3'}
+            className={newBox === 'draft' ? 'p-3' : 'border-t border-[color:var(--editor-line)] p-3'}
             onSubmit={newBox === 'draft' ? addOnScreen : add}
           />
         )}
         {newBox === 'blocked' && (
-          <p className="m-0 border-t border-[color:var(--border)] p-3 text-xs text-[color:var(--attention)]" data-bubble-blocked="keep">
+          <p className="m-0 border-t border-[color:var(--editor-line)] p-3 text-xs text-[color:var(--attention)]" data-bubble-blocked="keep">
             {block}
           </p>
         )}
         {newBox === 'no-site' && (
-          <p className="m-0 border-t border-[color:var(--border)] p-3 text-xs text-[color:var(--muted-foreground)]" data-bubble-blocked="no-site">
+          <p className="m-0 border-t border-[color:var(--editor-line)] p-3 text-xs text-[color:var(--muted-foreground)]" data-bubble-blocked="no-site">
             The element is not found in the frame, thus it takes no new comment.
           </p>
         )}
