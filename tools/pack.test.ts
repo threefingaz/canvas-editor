@@ -52,6 +52,21 @@ describe('choosePack', () => {
     expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json has no "package"')
   })
 
+  test('reads the keys of the scales, and takes a manifest with no list', () => {
+    const text = JSON.stringify({ name: 'mui', package: '@mui/material', scaleKeys: ['padding', 'gap'] })
+    const state = choosePack([{ folder: 'mui', text }])
+    expect(state.kind === 'one' && state.pack.scaleKeys).toEqual(['padding', 'gap'])
+    const plain = choosePack([{ folder: 'mui', text: JSON.stringify({ name: 'mui', package: '@mui/material' }) }])
+    expect(plain.kind === 'one' && 'scaleKeys' in plain.pack).toBe(false)
+  })
+
+  test('a list of scale keys that is not a list of texts is an error', () => {
+    for (const scaleKeys of ['padding', [1], ['']]) {
+      const text = JSON.stringify({ name: 'mui', package: '@mui/material', scaleKeys })
+      expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json: "scaleKeys" must be a list of texts')
+    }
+  })
+
   test('an empty package is an error', () => {
     const text = JSON.stringify({ name: 'mui', package: '' })
     expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json has no "package"')
@@ -242,6 +257,7 @@ describe('packChange', () => {
     expect(change(null, { kind: 'one', pack })).toEqual({ kind: 'restart' })
     expect(change(pack, { kind: 'none' })).toEqual({ kind: 'restart' })
     expect(change(pack, { kind: 'one', pack: { ...pack, package: '@mui/joy' } })).toEqual({ kind: 'restart' })
+    expect(change(pack, { kind: 'one', pack: { ...pack, scaleKeys: ['gap'] } })).toEqual({ kind: 'restart' })
     const other = { name: 'kit', package: '@acme/kit', folder: 'packs/kit' }
     expect(change(pack, { kind: 'one', pack: other })).toEqual({ kind: 'restart' })
   })

@@ -249,7 +249,7 @@ export function Frame({
         <>
           {/* The measure sets the height (`measureHeight`); it starts at the
               least height. */}
-          <MeasureRects screenId={screen.id} document={frameDocument} enabled={!operating} />
+          <MeasureRects screenId={screen.id} document={frameDocument} enabled={!operating} links={screen.links} />
           <iframe
             className="block w-full border-0 bg-white"
             style={{ height: defaultFrameHeight }}
@@ -539,10 +539,22 @@ function IssueCount({ screenId, onClick }: { screenId: string; onClick: () => vo
   )
 }
 
-// The measure of the targets of the edits of the screen (`useMeasureRects`),
-// in a child that renders nothing, thus the frame does not read the edits.
-function MeasureRects({ screenId, document, enabled }: { screenId: string; document: Document | null; enabled: boolean }) {
-  useMeasureRects(screenId, document, enabled)
+// The measure of the targets of the edits of the screen and of its links
+// (`useMeasureRects`), in a child that renders nothing, thus the frame does
+// not read the edits. `links` are the ids that the screen file links to: the
+// arrows of the canvas start at their link elements.
+function MeasureRects({
+  screenId,
+  document,
+  enabled,
+  links,
+}: {
+  screenId: string
+  document: Document | null
+  enabled: boolean
+  links: readonly string[]
+}) {
+  useMeasureRects(screenId, document, enabled, links)
   return null
 }
 

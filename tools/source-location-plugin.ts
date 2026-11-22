@@ -14,6 +14,9 @@ import { addSourceLocations, screenModuleFile } from './source-location.ts'
 export function sourceLocationPlugin(pack: Pack | null): Plugin {
   let root = process.cwd()
   const libraryPackage = pack === null ? null : pack.package
+  // The keys of the scales of the pack: a number under a different key of a
+  // size marks its element as one that sets a value.
+  const scale = pack?.scaleKeys ? new Set(pack.scaleKeys) : null
 
   return {
     name: 'canvas-source-location',
@@ -24,7 +27,7 @@ export function sourceLocationPlugin(pack: Pack | null): Plugin {
     },
     transform(code, id) {
       const file = screenModuleFile(id, root, config.screens)
-      return file === null ? undefined : addSourceLocations(code, file, libraryPackage, id)
+      return file === null ? undefined : addSourceLocations(code, file, libraryPackage, id, scale)
     },
   }
 }

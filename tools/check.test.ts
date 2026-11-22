@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { checkReport, checkScreens, screenArgument } from './check.ts'
+import { checkReport, checkScreens, forbiddenImport, screenArgument } from './check.ts'
 
 const lib = '@lib/core'
 
@@ -100,5 +100,52 @@ describe('checkReport', () => {
       'Notes (not findings):',
       '  screens/a/t.tsx: no link leads to this screen',
     ])
+  })
+})
+
+describe('checkScreens with the scale keys of the pack', () => {
+  const body = `<Box sx={{ p: 2, padding: 3, fontSize: 14, borderRadius: 1 }} />`
+
+  test('finds a number that stands for pixels', () => {
+    const { findings } = checkScreens([file('a/one', body)], { libraryPackage: lib, scaleKeys: ['padding', 'borderRadius'] })
+    expect(findings.map((finding) => `${finding.kind} ${finding.text}`)).toEqual(['raw-value Box: `fontSize: 14` in `sx`, a number of pixels'])
+  })
+
+  test('finds no number when the pack has no list', () => {
+    expect(checkScreens([file('a/one', body)], { libraryPackage: lib }).findings).toEqual([])
+  })
+})
+
+describe('checkScreens and the rules of a picture', () => {
+  test('finds a handler, a hook, a class name, an import of a component and a placeholder text', () => {
+    const code = `import { Box } from '${lib}'
+import { useState } from 'react'
+import { Row } from './row.tsx'
+export const meta = { title: 'T', width: 1440 }
+export default function S() {
+  const [on] = useState(false)
+  return <Box className="wide" onClick={() => {}}>Lorem ipsum</Box>
+}
+`
+    const { findings } = checkScreens([{ file: 'screens/a/one.tsx', code }], { libraryPackage: lib })
+    expect(findings.map((finding) => `${finding.line} ${finding.kind}`)).toEqual(['3 import', '6 behavior', '7 behavior', '7 class-name', '7 placeholder'])
+  })
+})
+
+describe('forbiddenImport', () => {
+  const file = 'screens/tools/list.tsx'
+
+  test('takes a module with JSX, a file of the tool and a virtual module', () => {
+    expect(forbiddenImport(file, './row.tsx')).toBe(true)
+    expect(forbiddenImport(file, '../../src/editor/copy.ts')).toBe(true)
+    expect(forbiddenImport(file, '../../canvas.config.ts')).toBe(true)
+    expect(forbiddenImport(file, 'virtual:canvas-screens')).toBe(true)
+    expect(forbiddenImport(file, '../shared/rows', (path) => path === 'screens/shared/rows')).toBe(true)
+  })
+
+  test('leaves plain data, also in a flow with the name of a folder of the tool', () => {
+    expect(forbiddenImport(file, './rows.ts')).toBe(false)
+    expect(forbiddenImport(file, './rows')).toBe(false)
+    expect(forbiddenImport(file, '../tools/data.ts')).toBe(false)
   })
 })

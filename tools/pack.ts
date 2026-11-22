@@ -35,6 +35,13 @@ export type Pack = {
   package: string
   // The folder of the pack, relative to the project root: 'packs/demo'.
   folder: string
+  // The keys of the style object of the library, and the props of the same
+  // name, whose number is a step of a scale of its theme (`"scaleKeys"` in
+  // the manifest): `padding`, `gap`, `borderRadius`. A number under a
+  // different key of a size is a count of pixels, and the check of the
+  // screens finds it (`sizeKeys` in `screen-facts.ts`). The manifest may have
+  // no list: then the check finds no number.
+  scaleKeys?: string[]
 }
 
 export type PackState =
@@ -68,7 +75,16 @@ function readManifest(found: FoundManifest): Pack | string {
     return `${path}: the name "${name}" must be the same as the folder name "${found.folder}"`
   }
   if (typeof packageName !== 'string' || packageName === '') return `${path} has no "package"`
-  return { name, package: packageName, folder: `${packsFolder}/${found.folder}` }
+  const { scaleKeys } = data
+  if (scaleKeys !== undefined && !(Array.isArray(scaleKeys) && scaleKeys.every((key) => typeof key === 'string' && key !== ''))) {
+    return `${path}: "scaleKeys" must be a list of texts`
+  }
+  return {
+    name,
+    package: packageName,
+    folder: `${packsFolder}/${found.folder}`,
+    ...(scaleKeys === undefined ? {} : { scaleKeys: scaleKeys as string[] }),
+  }
 }
 
 // Pure: the state from the manifests that were found.
@@ -187,7 +203,11 @@ export function packChange(
   const same =
     pack === null || current === null
       ? pack === current
-      : pack.name === current.name && pack.package === current.package && pack.folder === current.folder
+      : pack.name === current.name &&
+        pack.package === current.package &&
+        pack.folder === current.folder &&
+        // A new list of scale keys changes the marks of the elements.
+        JSON.stringify(pack.scaleKeys ?? null) === JSON.stringify(current.scaleKeys ?? null)
   if (same) return { kind: 'same' }
   if (pack !== null && !hasProvider(pack)) {
     return { kind: 'wait', message: `${noProviderMessage(pack, root)} yet; the dev server restarts when it exists` }

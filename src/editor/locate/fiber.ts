@@ -60,7 +60,9 @@ export type CodeLocation = { loc: string; file: string; line: number; column: nu
 // `Card.Header`, `div`) and its origin.
 // `set` is true for an element that sets a value in the screen file (the
 // last word of the value, `setMark`).
-export type Site = CodeLocation & { tag: string; origin: Origin; set?: true }
+// `values` are the values that the element sets, as the page shows them
+// (`set=16,#667085`); with none, each value of the element counts.
+export type Site = CodeLocation & { tag: string; origin: Origin; set?: true; values?: string[] }
 
 // The same text as `setMark` in `tools/source-location.ts`; a test checks
 // that they are equal.
@@ -103,13 +105,20 @@ export function parseLocation(loc: string): CodeLocation | null {
 // the location (the file can have a space). An element that sets a value in
 // the file has the word `set` after the origin. Null for a different text.
 export function parseLoc(value: string): Site | null {
-  // The last word of a value with no mark is an origin, never `set`.
-  const marked = value.endsWith(` ${setMark}`)
-  const match = /^(.+) (\S+) (\S+)$/.exec(marked ? value.slice(0, -setMark.length - 1) : value)
+  // The last word of a value with no mark is an origin, never `set` or
+  // `set=…`.
+  const mark = new RegExp(` ${setMark}(=\\S+)?$`).exec(value)
+  const match = /^(.+) (\S+) (\S+)$/.exec(mark ? value.slice(0, mark.index) : value)
   if (!match || !(origins as readonly string[]).includes(match[3])) return null
   const location = parseLocation(match[1])
   if (!location) return null
-  return { ...location, tag: match[2], origin: match[3] as Origin, ...(marked ? { set: true as const } : {}) }
+  return {
+    ...location,
+    tag: match[2],
+    origin: match[3] as Origin,
+    ...(mark ? { set: true as const } : {}),
+    ...(mark?.[1] ? { values: mark[1].slice(1).split(',') } : {}),
+  }
 }
 
 type NamedType = {

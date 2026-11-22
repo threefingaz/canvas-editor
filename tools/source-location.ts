@@ -31,7 +31,7 @@
 import MagicString, { type SourceMap } from 'magic-string'
 import { parseSync, Visitor } from 'vite'
 import { fragmentNames, importSources, isFragment, originOf, position } from './jsx.ts'
-import { tagValues } from './screen-facts.ts'
+import { tagValues, type ScaleKeys } from './screen-facts.ts'
 import { folderPrefix, screenExtension } from './screens.ts'
 
 // The last word of the value of an element that sets a value in the screen
@@ -72,6 +72,8 @@ export function addSourceLocations(
   relativeFile: string,
   libraryPackage: string | null,
   source: string = relativeFile,
+  // The keys of the scales of the pack (`scaleKeys`), or null.
+  scale: ScaleKeys = null,
 ): SourceLocationResult | null {
   const { program, errors } = parseSync(relativeFile, code)
   if (errors.length > 0) return null
@@ -103,7 +105,10 @@ export function addSourceLocations(
       const tag = name.replaceAll(/\s+/g, '')
       const origin = originOf(tag, imports, libraryPackage)
       // The word `set` marks an element that sets a value in the file.
-      const mark = tagValues(node, code).sets ? ` ${setMark}` : ''
+      const values = tagValues(node, code, scale)
+      // With the values that the element sets, when the file says them all:
+      // `set=16,#667085`. They have no space.
+      const mark = !values.sets ? '' : values.values && values.values.length > 0 ? ` ${setMark}=${values.values.join(',')}` : ` ${setMark}`
       const value = JSON.stringify(`${relativeFile}:${line}:${column} ${tag} ${origin}${mark}`)
       output.appendLeft(insertAt, ` ${locationPrefix}${line}-${column}={${value}}`)
       changed = true

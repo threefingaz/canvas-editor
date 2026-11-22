@@ -36,7 +36,10 @@ describe('elementPresets', () => {
       'stand-out-less',
       'shorten-text',
       'better-part',
+      'choices',
+      'use-tokens',
       'next-state',
+      'error-state',
       'simplify',
     ])
   })
@@ -97,9 +100,18 @@ describe('linkPresets', () => {
 })
 
 describe('screenPresets', () => {
+  test('a phone width is named as the mobile width', () => {
+    const labels = screenPresets(base, widths, false).filter((preset) => preset.key.startsWith('width-')).map((preset) => preset.label)
+    expect(labels).toEqual(['Draw at 1024 px', 'Mobile width (390 px)'])
+  })
+
   test('a base screen with states', () => {
     expect(keys(screenPresets(base, widths, true))).toEqual([
       'missing-states',
+      'state-empty',
+      'state-loading',
+      'state-error',
+      'next-screen',
       'width-1024',
       'width-390',
       'update-states',

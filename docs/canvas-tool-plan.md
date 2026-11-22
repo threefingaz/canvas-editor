@@ -702,16 +702,54 @@ Each agent was a fresh agent with only the files of the repository; two runs use
 
 No need has the score 10: for each, the last part is the test in the work environment, with Copilot, the command line of VS Code and the design system of the company. "Next steps", item 11, names the checks.
 
+### The second round (2026-11-22)
+
+The score above named what was left. Five of these parts did not need the work environment, and are closed.
+
+- **An arrow starts at its control** (need 2). A dot at the link element and a thin stem up to the arc; the rectangle of the link is read by the one measure of the frame, and nothing is written into a frame. The arcs of a row have different heights in a band near the row. A click on a title or on a row of the Project tab makes the arrows of that screen strong (solid when they leave it, dashed when they reach it) and the others weak. Proof: a temporary project of 20 screens in 3 flows with 33 links, at the zoom of 6 % that shows all of it; the first form, with arcs as high as their length, covered the rows above and was thrown away. The space between two rows is 360 px of the canvas now (was 200), thus the titles of a row have room at that zoom.
+- **A deviation names its value** (need 4). The mark of an element has the values that the file writes as they are (`set=16,#667085`). An issue of such a value has `written: true`: its row in the Issues list says "written in the file", and a library element with a deviation has a marker on the canvas with the property and the value, these first (`gap 16px`, `padding-top 13px`). The count stays by element. A first form counted only the written values; the review showed that it hid a deviation in each case where the file does not write the value as the page shows it (`color: 'red'`, a name, `'50%'`, a shadow), thus it was thrown away: to hide a deviation is worse than to show a default. An inline value with no token is one issue, not two: the sample `welcome` counts 9 deviations (was 15), and each is one value or one element.
+- **The check finds a number of pixels** (need 4). The pack names the keys whose number is a step of a scale (`"scaleKeys"` in `pack.json`); a number under a different key of a size is a finding. The core has only the CSS names of the sizes and names no library. On the sample: `fontSize: 14` of the `div` of `welcome`. A fresh agent filled the list for the sample library from the setup skill alone (see "The proof of the second round").
+- **More quick requests** (need 3). The user has no open comment in `.canvas/requests/` (only edits), thus the list was read against the comments of the agent checks of 2026-11-20 and 2026-11-21: "make this a select", "add a state for an empty list", "add a state for a wrong email", a text size of a label, a brand color, a confirmation. New: "Add the empty state", "Add the loading state", "Add the error state", "Draw the next screen" and "Mobile width (390 px)" on the screen; "Draw its error state", "Make it a list of choices" and "Use tokens" on an element. A brand color and a confirmation stay typed comments: they need a value or a decision that only the user has.
+- **The agent does not see its screen** (need 1). A picture is not possible here: a picture of a page needs a browser that the agent can start, and that is a new dependency (a browser for Node) or a service; the open editor could draw a frame to an image only with a second renderer of the page, and Copilot would still need to read images from the disk. In its place the checks see more. The code check finds what a picture of one state must not have: a handler, a hook, a `className`, an import of the tool or of a component, a placeholder text. The page check has a new issue, `layout`: the content is wider than the screen, with the element that goes over the edge; the agent reads it in the issues file while the editor is open.
+
+### The proof of the second round
+
+- The unit tests: 1719. Each new part has pure functions with tests.
+- The browser pane: the 20 screens with the arrows and the focus; the dot and the stem at "Get started" of `welcome`; the markers `gap 16px` and `padding-top 13px`; the count 9 of `welcome`; a phone screen with a line of 560 px gave "The content is 186 px wider than the screen (390 px) … It goes over the edge at Typography, line 9." in its issues file.
+- A fresh agent got the pack with no `"scaleKeys"` and the setup skill: it rendered each key with a number to a text in Node, read the CSS, and wrote the same list as the sample pack has (the spacing keys and `borderRadius`; not `fontSize`, `letterSpacing`, the four corners and `borderWidth`).
+- A fresh reviewer read the code of the round: eight findings, each fixed (among them the hidden deviations above, a false `layout` issue with a scroll bar at the side, a false finding for `theme.spacing(2)`, and an import of a component with no extension).
+- `npm run check` on the sample: eight findings in `welcome.tsx`, with `fontSize: 14` and the `className` of its `div`.
+
+### The score after the second round
+
+| Need | Score | What changed | What only the work environment can prove |
+|---|---|---|---|
+| 1. A good interface from the first output, with Copilot | 8 | The check also finds behavior, class names, imports and placeholder text; the page check finds a content that is wider than the screen. | That Copilot follows the instructions as the stand-in agents did, and that the screens are good with the design system of the company. A picture for the agent is not possible without a new dependency. |
+| 2. The whole project on a canvas | 9 | An arrow starts at its control; a large project stays readable; the links of one screen stand out. | The eyes of the user on a real project. |
+| 3. Changes with no typed or spoken prompt | 9 | Twenty-three quick requests, with the states and the mobile width by one click. | `code chat` and the prompt files in Copilot. A new screen needs its task in words; a change with a value that only the user knows (a brand color) is a typed comment. |
+| 4. Certainty about the design system | 9 | A deviation is one value, named on the canvas; the check finds a number of pixels. | That `scaleKeys` and the token entry of the real library are right, and that each counted deviation is a true one there. |
+
+### The checklist for the work environment (ten minutes)
+
+1. `npm install`, then give Copilot: `Connect a library as the skill canvas-library-setup says.` When it is done: does `pack.json` have `"scaleKeys"`, and does the editor show a sample screen with the look of the design system? (This step takes longer than ten minutes the first time; the others do not.)
+2. In the chat of Copilot: `/canvas-screen`, and one task in a sentence. Does it read the skills first, and does `npm run check` find nothing in the new screens?
+3. In the editor: is each count of deviations 0 on those screens, and does the group "Defaults of the library" have only values that you cannot change in a screen file?
+4. Write `'13px'` into one screen by hand. Does `npm run check` exit with 1, and does the canvas show a marker with the value?
+5. Click an element, then **Comment**, then a quick request. Click **Send to the agent**. Does the chat of Copilot open in the window of the project with the sentence? If the button says "Copied: paste it in the chat", the command `code` is not on the path: use `/canvas-apply`, or paste.
+6. Does Copilot apply the request, remove it from the list, and does the frame change?
+7. On a screen: **Add the error state** and **Mobile width (390 px)**, then send. Are the new frames next to their screen, with an arrow from the control that leads to them?
+8. Click the title of a frame at the zoom that shows all frames. Are its links clear?
+
 ## Open issues
 
 Each item is for a later step. The step is in brackets. Seven items left this list on 2026-11-22 with the work for the four needs: the states after a change of their screen, the link of a new state, a comment with an `options` item, a comment that asks for a state that exists, and the fixed values of library components in the Issues list.
 
 - **`code chat` is not checked.** "Send to the agent" starts `code chat --mode agent --reuse-window "<sentence>"`. The command is not on the machine of the development, thus the options, the window that it takes and its exit code are from the documentation only. On Windows a command that is not there gives an exit code of the shell, and the reason then reads "ended with the code 1". (The test at work)
 - **The prompt files are not checked in Copilot.** Their head has `description` and `agent: agent`; an older version names the second key `mode`. (The test at work)
-- **The mark of a value is by element.** An element with one raw value shows each of its values with no token as set in the screen, also a default of its component. A number that stands for pixels marks its element only under a key of the font; under a different key (`borderRadius: 3` in a library where a number is a count of pixels) the value shows as a default of the library. Possible fix: the names of the scale keys of a library in its pack. (When a library needs it)
-- **The check does not find a number that stands for pixels,** and no value that the code computes: only the page shows them, in the Issues list of the editor. (When it gets in the way)
-- **An inline value is two issues.** A value in a `style` attribute with no token gives a `no-token` and an `override` issue, thus the `div` of the sample counts 11. (When it gets in the way)
-- **An arrow has no control.** It goes from frame to frame. Two links from one screen to targets at one side start at one point. A link between two flows is a curve that can cross a frame of a different column. (When it gets in the way)
+- **A number of pixels under a short key of a library** (`p: 3` in a library where `p` is pixels) is not found: the tool knows only the keys of a size as CSS names them, and the pack names which of them take a scale. (When a library needs it)
+- **The count of deviations is by element.** Each value with no token of an element that sets a value in the file counts, also a default of its component; only the values that the file writes as pixels or as a hex color are named as "written in the file". Possible fix: the pack names the defaults of its components. (When it gets in the way)
+- **The `layout` issue is one kind:** a content that is wider than the screen. A text that is cut, two elements that lie on each other, and a control that is too small for a thumb are not found. (When it gets in the way)
+- **A link between two flows** is a curve between the near edges of its two frames, and can cross a frame of a different column. Two links from one control cannot be: an `a` has one address. (When it gets in the way)
 - **The quick requests are a fixed list.** A team cannot add its own without a change of `presets.ts`. Possible fix: a list in `canvas.config.ts`. (When the user asks)
 - **The inspector counts the defaults of the library** in its line "N values have no token link" of a library element. (When it gets in the way)
 
@@ -764,11 +802,11 @@ Each item is for a later step. The step is in brackets. Seven items left this li
 - A screen links to a different screen with `href="#/<screen id>"`. With the Preview switch on, a click on a link moves the canvas to the frame of its screen; each frame title opens its screen as a full page.
 - `npm run build` writes the prototype site into `dist/`: the index of the screens by flow, with the states of a screen below it and no options, and each screen as a full page. `npm run preview` serves it. The editor and the frame are for the dev server only.
 - The skills: `canvas-screen-design`, `canvas-information-display` and `canvas-library-setup` in `.github/skills/`, and the library skill `canvas-library-mui` in `packs/mui/skills/`. They say how a screen links to the next state.
-- Vitest tests the pure logic (1680 tests). The interface was checked in the browser pane.
+- Vitest tests the pure logic (1719 tests). The interface was checked in the browser pane.
 - `.claude/launch.json` starts the dev server (with the pack and with no pack) and the server of the built site for the browser pane of the Claude desktop app.
 - Fresh agents ran the loop with only the instruction files: screens, links, edits, comments, the setup of a library, states, options and keeps. Copilot at work has not run it yet.
 - `tokens.json` is not committed.
-- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and seven commits, exports of `canvas-tool`. Its remote is the repository `canvas-editor` on GitHub (since 2026-11-21; public since 2026-11-22). It has the work for the four needs (the last export of 2026-11-22). `AGENTS.md`, section "Current state", says how a new export goes into it.
+- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and eight commits, exports of `canvas-tool`. Its remote is the repository `canvas-editor` on GitHub (since 2026-11-21; public since 2026-11-22). It has the work for the four needs (the last export of 2026-11-22). `AGENTS.md`, section "Current state", says how a new export goes into it.
 - The work for the four needs of the user is done (2026-11-22): `npm run check`, the deviations apart from the defaults of the library, the arrows of the links and the names of the flows, the Project tab, the quick requests, "Send to the agent" and the prompt files. The section "The four needs" has the score of each need and what is left.
 - Not done yet: the checks of the user of step 10, of the move on the canvas and of the new parts, and the test in the work environment.
 

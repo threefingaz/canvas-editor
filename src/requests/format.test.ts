@@ -445,6 +445,12 @@ describe('parseIssues', () => {
     expect(() => parseIssues(file)).toThrow(/issue 1 .*state "linked"/)
   })
 
+  test('keeps `written` of a no-token issue, and rejects a wrong one', () => {
+    const file = issuesWith(0, (issue) => (issue.written = true))
+    expect(parseIssues(file).issues[0]).toMatchObject({ written: true })
+    expect(() => parseIssues(issuesWith(0, (issue) => (issue.written = 'yes')))).toThrow(/issue 1 .*written/)
+  })
+
   test('rejects a no-token issue with a wrong `set`', () => {
     const file = issuesWith(0, (issue) => (issue.set = 'page'))
     expect(() => parseIssues(file)).toThrow(/issue 1 .*set "page"/)

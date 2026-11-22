@@ -7,11 +7,41 @@ import type { Rect } from './viewport.ts'
 // the Issues list. The user can hide them with a switch in the toolbar; the
 // choice is kept in `localStorage`.
 
-// One marker: `key` is the place in the code and the index of the copy.
-export type Marker = { key: string; tag: string; rect: Rect }
+// The second kind of marker: a library element with a value that the screen
+// file sets and that has no token (a `no-token` issue with `set: 'screen'`, or
+// a local override). Its badge names the value, `gap 16px`, and how many more
+// the element has, thus the user sees on the canvas which value deviates.
 
-// The rect of each visible copy of each place in `issues` that is not from the
-// library. `nodesOf` gives the first DOM node of each copy of a place, in
+// One marker: `key` is the place in the code and the index of the copy; `tag`
+// is the text of its badge.
+export type Marker = { key: string; tag: string; rect: Rect; kind: 'element' | 'value' }
+
+// The text of the badge of each place with a marker: the tag of an element
+// that is not from the library, else the first value that deviates and the
+// count of the others.
+export function markerLabels(issues: readonly Issue[]): Map<string, { tag: string; kind: Marker['kind'] }> {
+  const labels = new Map<string, { tag: string; kind: Marker['kind'] }>()
+  // The values that the file writes as they are come first.
+  const values = new Map<string, string[]>()
+  const sorted = [...issues].sort((a, b) => Number(b.kind === 'no-token' && b.written === true) - Number(a.kind === 'no-token' && a.written === true))
+  for (const issue of sorted) {
+    if (issue.kind === 'not-library') labels.set(locOf(issue.target), { tag: issue.target.tag, kind: 'element' })
+    else if ((issue.kind === 'no-token' && issue.set === 'screen') || issue.kind === 'override') {
+      const loc = locOf(issue.target)
+      const text = `${issue.property} ${issue.value}`
+      const list = values.get(loc)
+      if (!list) values.set(loc, [text])
+      else if (!list.includes(text)) list.push(text)
+    }
+  }
+  for (const [loc, list] of values) {
+    if (!labels.has(loc)) labels.set(loc, { tag: list.length === 1 ? list[0] : `${list[0]} +${list.length - 1}`, kind: 'value' })
+  }
+  return labels
+}
+
+// The rect of each visible copy of each place in `issues` that has a marker
+// (`markerLabels`). `nodesOf` gives the first DOM node of each copy of a place, in
 // document order; `rectOf` gives the rect of a node in canvas coordinates, or
 // null when the node is not in the current document. A node that the preview
 // hides (`hidden`), and a node with no size at all, have no marker.
@@ -22,14 +52,12 @@ export function markerRects<N>(
   hidden: (node: N) => boolean,
 ): Marker[] {
   const result: Marker[] = []
-  for (const issue of issues) {
-    if (issue.kind !== 'not-library') continue
-    const loc = locOf(issue.target)
+  for (const [loc, label] of markerLabels(issues)) {
     nodesOf(loc).forEach((node, index) => {
       if (hidden(node)) return
       const rect = rectOf(node)
       if (!rect || (rect.width === 0 && rect.height === 0)) return
-      result.push({ key: `${loc}#${index}`, tag: issue.target.tag, rect })
+      result.push({ key: `${loc}#${index}`, ...label, rect })
     })
   }
   return result

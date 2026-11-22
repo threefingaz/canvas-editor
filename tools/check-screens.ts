@@ -4,6 +4,7 @@
 // so, and has no finding of the kind `not-library`. Its decisions are in
 // `check.ts`.
 
+import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { config } from '../canvas.config.ts'
@@ -15,8 +16,11 @@ import { screenList } from './screens.ts'
 const root = fileURLToPath(new URL('..', import.meta.url)).replaceAll('\\', '/')
 
 let libraryPackage: string | null = null
+let scaleKeys: string[] | null = null
 try {
-  libraryPackage = packOf(readPackState(root))?.package ?? null
+  const pack = packOf(readPackState(root))
+  libraryPackage = pack?.package ?? null
+  scaleKeys = pack?.scaleKeys ?? null
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error))
   process.exit(1)
@@ -37,7 +41,8 @@ for (const argument of process.argv.slice(2)) {
 if (libraryPackage === null) {
   console.log('No library is connected: the check cannot tell an element of the library from a different one. It has no finding of the kind not-library.')
 }
-const result = checkScreens(files, { libraryPackage, only })
+const isComponent = (path: string) => ['.tsx', '.jsx', '/index.tsx', '/index.jsx'].some((end) => existsSync(join(root, path + end)))
+const result = checkScreens(files, { libraryPackage, scaleKeys, only, isComponent })
 console.log(checkReport(result))
 // Not `process.exit`: it can cut a long report that goes through a pipe.
 process.exitCode = result.findings.length > 0 ? 1 : 0

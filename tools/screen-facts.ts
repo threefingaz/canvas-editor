@@ -11,14 +11,22 @@
 //   library are numbers (`spacing={2}`), and the file cannot tell a step of a
 //   scale from a count of pixels;
 // - each element that sets a value in the file (`sets`): it has a raw value,
-//   a `style` attribute, or in an object of an attribute a number under a key
-//   of the font (`fontSize: 14`) or a text that the code computes (a template
-//   literal with an expression).
+//   a `style` attribute, a number that stands for pixels, or in an object of
+//   an attribute a text that the code computes (a template literal with an
+//   expression).
 //   The element-to-code step marks such an element, and the Issues list tells
 //   its values from the defaults of the library. The rule is wide on purpose:
 //   a wrong mark shows a default of the library as a value of the screen, and
 //   a missing mark would hide a deviation;
-// - each literal link to a screen (`href="#/<id>"`).
+// - each number that stands for pixels: a number under a key of a size
+//   (`sizeKeys`: `fontSize`, `borderRadius`, `padding`) that the pack does
+//   not name as a key of a scale of its theme (`scaleKeys` in its manifest).
+//   With no such list in the manifest, only a size of the font counts, and
+//   only for the mark of the element, not as a finding;
+// - each literal link to a screen (`href="#/<id>"`);
+// - what a picture of one state must not have: a handler, a hook, a
+//   `className`, an import of the tool or of a module with JSX, a placeholder
+//   text.
 //
 // The place of a fact is the place of its element: the `<` of the opening
 // tag, 1-based, as the location attribute and a target of a request have it.
@@ -33,7 +41,8 @@ export type Place = { line: number; column: number }
 export type ElementFact = Place & { tag: string; origin: Origin }
 
 // `attribute` is the name of the attribute that has the literal `text`.
-export type RawFact = Place & { tag: string; attribute: string; text: string }
+// `number` is true for a number that stands for pixels (`fontSize: 14`).
+export type RawFact = Place & { tag: string; attribute: string; text: string; number?: true }
 
 // `id` is the screen id of the address `href`.
 export type LinkFact = Place & { tag: string; href: string; id: string }
@@ -46,6 +55,17 @@ export type ScreenFacts = {
   links: LinkFact[]
   // The places of the elements that set a value in the file.
   sets: Place[]
+  // The behavior that a picture of one state must not have: a handler
+  // (`onClick`) and a hook (`useState`).
+  behavior: (Place & { text: string })[]
+  // The elements with a `className` attribute.
+  classNames: (Place & { tag: string })[]
+  // The imports of a file of the project (a relative path) and of a virtual
+  // module of the tool. The check decides which of them a screen must not
+  // have (`forbiddenImport` in `check.ts`).
+  imports: (Place & { source: string })[]
+  // The places of a placeholder text ("Lorem ipsum").
+  placeholders: Place[]
 }
 
 const length = /^-?(\d+\.?\d*|\.\d+)(px|rem|em)$/
@@ -84,6 +104,27 @@ export function isRawValue(text: string, wide = false): boolean {
     else if (!wide && !plain.test(part)) return false
   }
   return raw
+}
+
+// The values of a raw text as the page shows them: each length in `px` as its
+// number (`'24px 64px'` gives `24` and `64`) and each hex color as `#RRGGBB`
+// in capital letters. Null when the text has a value that the page shows in a
+// different form: a length in `rem` or `em`, a color function.
+export function pageValues(text: string): string[] | null {
+  if (colorFunction.test(text)) return null
+  const values: string[] = []
+  for (const part of partsOf(text.trim())) {
+    const size = length.exec(part)
+    if (size) {
+      if (size[2] !== 'px') return null
+      values.push(String(Math.abs(Number(size[1]))))
+    } else if (hexColor.test(part)) {
+      const hex = part.slice(1).toUpperCase()
+      const full = hex.length <= 4 ? [...hex].map((digit) => digit + digit).join('') : hex
+      values.push(`#${full.slice(0, 6)}`)
+    }
+  }
+  return values
 }
 
 // The attributes that have an address, a name or a text for a person, not a
@@ -143,46 +184,109 @@ function literalTexts(node: Node | null | undefined, into: Literal[], nested = f
   }
 }
 
-// The keys of a style object whose number is a size of the font, not a step
-// of a scale.
-const fontKey = /^(fontSize|lineHeight|letterSpacing|font-size|line-height|letter-spacing)$/
+// The keys of a style object, and the props of the same name, whose number
+// is a count of pixels when the library does not map the key to a scale of
+// its theme: the sizes of the font, the corners, the lines and the spacing,
+// as CSS names them. A key of a library alone (`p`, `spacing`) is not in the
+// list: its number is always a step of a scale.
+const sides = ['', 'Top', 'Right', 'Bottom', 'Left', 'Inline', 'Block', 'X', 'Y']
+export const sizeKeys: ReadonlySet<string> = new Set([
+  'fontSize',
+  'letterSpacing',
+  'borderRadius',
+  'borderTopLeftRadius',
+  'borderTopRightRadius',
+  'borderBottomRightRadius',
+  'borderBottomLeftRadius',
+  'borderWidth',
+  ...sides.map((side) => `padding${side}`),
+  ...sides.map((side) => `margin${side}`),
+  'gap',
+  'rowGap',
+  'columnGap',
+])
 
-// True when an attribute value has a number under a key of the font, or a
-// text that the code computes, at each depth of an object.
-function computes(node: Node | null | undefined, key: string | null = null): boolean {
-  if (!node) return false
+// With no list of the pack, only a size of the font is taken as pixels: a
+// number under each other key can be a step of a scale.
+const fontKeys: ReadonlySet<string> = new Set(['fontSize', 'letterSpacing'])
+
+// The keys of the text style whose number is not a count of pixels.
+const textKeys: ReadonlySet<string> = new Set(['lineHeight', 'fontWeight'])
+
+// The keys whose number is a step of a scale of the theme: `scaleKeys` of the
+// manifest of the pack, or null when the pack does not say.
+export type ScaleKeys = ReadonlySet<string> | null
+
+function isPixelKey(key: string, scale: ScaleKeys): boolean {
+  return scale === null ? fontKeys.has(key) : sizeKeys.has(key) && !scale.has(key)
+}
+
+type Found = {
+  // `fontSize: 14`: a number that stands for pixels, with its key.
+  numbers: string[]
+  // A text that the code computes (a template literal with an expression) as
+  // a value of an object.
+  computed: boolean
+}
+
+// Reads an attribute value for the numbers that stand for pixels and for a
+// computed text. `key` is the key of the value: the name of the attribute at
+// first, then the key of the object; a key of a size stays for the values
+// below it (the keys of a responsive object, `fontSize: { xs: 12, md: 14 }`).
+function findNumbers(node: Node | null | undefined, key: string, scale: ScaleKeys, nested: boolean, found: Found): void {
+  if (!node) return
   switch (node.type) {
     case 'Literal':
-      return typeof node.value === 'number' && key !== null && fontKey.test(key)
+      if (typeof node.value !== 'number' || node.value === 0) return
+      if (isPixelKey(key, scale)) found.numbers.push(`${key}: ${node.value}`)
+      // A number of the text style is no count of pixels, but it sets a
+      // value of the text: the element gets the mark.
+      else if (textKeys.has(key)) found.computed = true
+      return
+    case 'UnaryExpression': {
+      const argument = node.argument as Node
+      if (node.operator === '-' && argument.type === 'Literal' && typeof argument.value === 'number' && isPixelKey(key, scale)) {
+        found.numbers.push(`${key}: -${argument.value}`)
+      }
+      return
+    }
     case 'TemplateLiteral':
       // Only as a value of an object: a computed text of an attribute itself
       // is a label for a person (`aria-label`).
-      return key !== null && (node.expressions as Node[]).length > 0
+      if (nested && (node.expressions as Node[]).length > 0) found.computed = true
+      return
     case 'JSXExpressionContainer':
     case 'TSAsExpression':
     case 'TSSatisfiesExpression':
     case 'TSNonNullExpression':
     case 'ParenthesizedExpression':
-      return computes(node.expression as Node, key)
+      findNumbers(node.expression as Node, key, scale, nested, found)
+      return
     case 'ObjectExpression':
-      return (node.properties as Node[]).some((property) => {
-        if (property.type !== 'Property') return false
+      for (const property of node.properties as Node[]) {
+        if (property.type !== 'Property') continue
         const name = property.key as Node
         const text = name.type === 'Identifier' ? (name.name as string) : typeof name.value === 'string' ? name.value : null
-        // A key of the font stays for the values below it: the keys of a
-        // responsive object (`fontSize: { xs: 12, md: 14 }`).
-        return computes(property.value as Node, key !== null && fontKey.test(key) ? key : (text ?? key))
-      })
+        const next = sizeKeys.has(key) || text === null ? key : text
+        findNumbers(property.value as Node, next, scale, true, found)
+      }
+      return
     case 'ArrayExpression':
-      return (node.elements as (Node | null)[]).some((element) => computes(element, key))
+      for (const element of node.elements as (Node | null)[]) findNumbers(element, key, scale, nested, found)
+      return
     case 'ConditionalExpression':
-      return computes(node.consequent as Node, key) || computes(node.alternate as Node, key)
+      findNumbers(node.consequent as Node, key, scale, nested, found)
+      findNumbers(node.alternate as Node, key, scale, nested, found)
+      return
     case 'LogicalExpression':
-      return computes(node.left as Node, key) || computes(node.right as Node, key)
-    case 'CallExpression':
-      return (node.arguments as Node[]).some((argument) => computes(argument, key))
-    default:
-      return false
+      findNumbers(node.left as Node, key, scale, nested, found)
+      findNumbers(node.right as Node, key, scale, nested, found)
+      return
+    case 'BinaryExpression':
+      // `14 * 2`: the code computes the value.
+      if (nested) found.computed = true
+      return
+    // A call is not read: `theme.spacing(2)` has a number that is a step.
   }
 }
 
@@ -190,43 +294,84 @@ function computes(node: Node | null | undefined, key: string | null = null): boo
 // of the parser.
 export type TagValues = {
   style: boolean
-  raw: { attribute: string; text: string }[]
+  // `number` is true for a number that stands for pixels; then `text` is
+  // `<key>: <number>`.
+  raw: { attribute: string; text: string; number?: true }[]
   hrefs: string[]
+  // The names of the attributes that are a handler (`onClick`).
+  handlers: string[]
+  // The element has a `className` attribute.
+  className: boolean
   // The element sets a value in the file (see the head of this module).
   sets: boolean
+  // The values that the element sets, as the page shows them: a count of
+  // pixels with no unit (`16`) and a color as `#RRGGBB`. Null when the file
+  // does not say them all (a `style` attribute, a computed text, a length in
+  // `rem` or `em`, a color function): then each value of the element counts.
+  values: string[] | null
 }
 
-export function tagValues(node: { attributes: readonly unknown[] }, code: string): TagValues {
-  const values: TagValues = { style: false, raw: [], hrefs: [], sets: false }
+export function tagValues(node: { attributes: readonly unknown[] }, code: string, scale: ScaleKeys = null): TagValues {
+  const values: TagValues = { style: false, raw: [], hrefs: [], handlers: [], className: false, sets: false, values: [] }
+  const marked = new Set<string>()
+  let open = false
   for (const attribute of node.attributes as Node[]) {
     if (attribute.type !== 'JSXAttribute') continue
     const name = code.slice((attribute.name as Node).start, (attribute.name as Node).end)
     const texts: Literal[] = []
     literalTexts(attribute.value as Node | null, texts)
     if (name === 'style') values.style = true
+    if (name === 'className') values.className = true
+    if (/^on[A-Z]/.test(name) && (attribute.value as Node | null)?.type === 'JSXExpressionContainer') values.handlers.push(name)
     if (name === 'href') values.hrefs.push(...texts.map((literal) => literal.text))
     if (noValue.has(name)) continue
     for (const { text, nested } of texts) {
-      if (isRawValue(text, nested)) values.raw.push({ attribute: name, text })
+      if (!isRawValue(text, nested)) continue
+      values.raw.push({ attribute: name, text })
+      const parts = pageValues(text)
+      if (parts === null) open = true
+      else for (const part of parts) marked.add(part)
     }
     // Each attribute with an object can be the style object of a library:
     // the name of the override is different in each library.
-    if (computes(attribute.value as Node | null)) values.sets = true
+    const found: Found = { numbers: [], computed: false }
+    findNumbers(attribute.value as Node | null, name, scale, false, found)
+    // With no list of the pack a number is not a finding: it only marks its
+    // element, thus the Issues list of the editor shows its value.
+    if (scale !== null) for (const text of found.numbers) values.raw.push({ attribute: name, text, number: true })
+    if (found.computed || found.numbers.length > 0) values.sets = true
+    if (found.computed) open = true
+    for (const text of found.numbers) {
+      // The spacing of the letters has no value of its own on the page: it
+      // is a part of the text style.
+      if (text.startsWith('letterSpacing:')) open = true
+      else marked.add(String(Math.abs(Number(text.slice(text.indexOf(':') + 1)))))
+    }
   }
   if (values.style || values.raw.length > 0) values.sets = true
+  values.values = values.style || open ? null : [...marked]
   return values
 }
 
+const placeholder = /lorem ipsum/i
+
 // Throws with the message of the parser when the code has a syntax error.
 // `libraryPackage` is the npm package of the library, or null when no library
-// is connected: then no element has the origin `library`.
-export function screenFacts(code: string, file: string, libraryPackage: string | null): ScreenFacts {
+// is connected: then no element has the origin `library`. `scale` is the list
+// of the scale keys of the pack, or null.
+export function screenFacts(code: string, file: string, libraryPackage: string | null, scale: ScaleKeys = null): ScreenFacts {
   const { program, errors } = parseSync(file, code)
   if (errors.length > 0) throw new Error(`${file}: ${errors[0].message}`)
 
   const fragments = fragmentNames(program)
   const imports = importSources(program)
-  const facts: ScreenFacts = { elements: [], styles: [], raw: [], links: [], sets: [] }
+  const facts: ScreenFacts = { elements: [], styles: [], raw: [], links: [], sets: [], behavior: [], classNames: [], imports: [], placeholders: [] }
+
+  for (const statement of program.body) {
+    if (statement.type !== 'ImportDeclaration') continue
+    const source = statement.source.value
+    if (source.startsWith('.') || source.startsWith('/') || source.startsWith('virtual:')) facts.imports.push({ ...position(code, statement.start), source })
+  }
 
   new Visitor({
     JSXOpeningElement(node) {
@@ -236,14 +381,33 @@ export function screenFacts(code: string, file: string, libraryPackage: string |
       const place = position(code, node.start)
       facts.elements.push({ ...place, tag, origin: originOf(tag, imports, libraryPackage) })
 
-      const values = tagValues(node, code)
+      const values = tagValues(node, code, scale)
       if (values.style) facts.styles.push({ ...place, tag })
+      if (values.className) facts.classNames.push({ ...place, tag })
       if (values.sets) facts.sets.push(place)
       for (const raw of values.raw) facts.raw.push({ ...place, tag, ...raw })
+      for (const handler of values.handlers) facts.behavior.push({ ...place, text: `${tag}: the handler \`${handler}\`` })
       for (const href of values.hrefs) {
         const id = screenIdFromHash(href)
         if (id !== null) facts.links.push({ ...place, tag, href, id })
       }
+    },
+    JSXText(node) {
+      if (placeholder.test(node.value)) facts.placeholders.push(position(code, node.start))
+    },
+    CallExpression(node) {
+      // A hook: a screen is a picture of one state.
+      const callee = node.callee as unknown as Node
+      // `useState(…)` and `React.useState(…)`; a method of a different object
+      // with such a name is no hook.
+      const object = callee.type === 'MemberExpression' ? (callee.object as Node) : null
+      const name =
+        callee.type === 'Identifier'
+          ? (callee.name as string)
+          : object?.type === 'Identifier' && object.name === 'React'
+            ? ((callee.property as Node).name as string | undefined)
+            : undefined
+      if (name !== undefined && /^use[A-Z]/.test(name)) facts.behavior.push({ ...position(code, node.start), text: `the hook \`${name}\`` })
     },
   }).visit(program)
 

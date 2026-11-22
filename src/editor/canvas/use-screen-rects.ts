@@ -2,8 +2,10 @@ import { useLayoutEffect, useSyncExternalStore } from 'react'
 import type { Item, PlacedEdit } from '../edits/model.ts'
 import { useScreenEdits } from '../edits/store.ts'
 import { frameWindowOf } from '../frame-window.ts'
+import { screenLinkSelector } from '../issues/collect.ts'
 import { hiddenIn } from '../preview/css.ts'
 import { onPreviewApplied } from '../preview/use-preview.ts'
+import { linkRects, linkRectsOf } from './link-rects.ts'
 import { currentRects, measured, rectsOf, rectsResult, screenRects, targetNodes } from './screen-rects.ts'
 import type { Rect } from './viewport.ts'
 
@@ -13,7 +15,7 @@ import type { Rect } from './viewport.ts'
 // writes them to the store; one part of each frame calls it (`Frame.tsx`).
 // With a screen that has no comment on an element and no edit with a
 // preview, or while it is off (`enabled` false: the Preview switch is on),
-// nothing is observed and the store has no entry.
+// no target is measured and the store has no entry.
 //
 // The rectangles are measured again after each change of the list, after
 // each application of the preview, after a new size of a target or of the
@@ -28,19 +30,41 @@ import type { Rect } from './viewport.ts'
 //
 // The measure runs before the paint (a layout effect), thus a new list never
 // paints the marks of the old one.
-export function useMeasureRects(screenId: string, document: Document | null, enabled: boolean) {
+//
+// The same measure reads the links of the screen for the arrows of the
+// canvas (`link-rects.ts`): the rectangle of the first visible link element
+// to each screen of `links`, the ids that the screen file links to. A screen
+// with links is observed also with no edit and with the Preview switch on,
+// because the arrows show then too; the targets of the edits are measured
+// only while `enabled`. A screen with no link and no target is not observed.
+export function useMeasureRects(
+  screenId: string,
+  document: Document | null,
+  enabled: boolean,
+  links: readonly string[] = noLinks,
+) {
   const items = useScreenEdits(screenId)
-  const watched = enabled && document !== null && items.some(measured)
+  const targets = enabled && items.some(measured)
+  const linked = links.length > 0
+  const watched = document !== null && (targets || linked)
 
   useLayoutEffect(() => {
     const frameWindow = frameWindowOf(document)
     if (!watched || !document || !frameWindow) {
       screenRects.delete(screenId)
+      linkRects.delete(screenId)
       return
     }
+    if (!targets) screenRects.delete(screenId)
+    if (!linked) linkRects.delete(screenId)
     const hidden = hiddenIn(items)
-    let nodes = targetNodes(document, items, measured)
-    const measure = () => screenRects.set(screenId, { document, items, rects: nodes && rectsOf(nodes, hidden) })
+    const linkNodes = () => (linked ? Array.from(document.querySelectorAll(screenLinkSelector)) : [])
+    let nodes = targets ? targetNodes(document, items, measured) : null
+    let anchors = linkNodes()
+    const measure = () => {
+      if (targets) screenRects.set(screenId, { document, items, rects: nodes && rectsOf(nodes, hidden) })
+      if (linked) linkRects.set(screenId, linkRectsOf(anchors, links, hidden))
+    }
 
     const resize = new frameWindow.ResizeObserver(() => schedule(false))
     // The nodes of the targets change when the screen renders: observe them
@@ -49,6 +73,7 @@ export function useMeasureRects(screenId: string, document: Document | null, ena
       resize.disconnect()
       resize.observe(document.documentElement)
       for (const node of nodes?.values() ?? []) resize.observe(node)
+      for (const node of anchors) resize.observe(node)
     }
 
     let pending = 0
@@ -60,7 +85,8 @@ export function useMeasureRects(screenId: string, document: Document | null, ena
         pending = 0
         if (walk) {
           walk = false
-          nodes = targetNodes(document, items, measured)
+          nodes = targets ? targetNodes(document, items, measured) : null
+          anchors = linkNodes()
           observe()
         }
         measure()
@@ -87,11 +113,21 @@ export function useMeasureRects(screenId: string, document: Document | null, ena
       document.fonts?.removeEventListener('loadingdone', loaded)
       if (pending !== 0) cancelAnimationFrame(pending)
     }
-  }, [screenId, watched, document, items])
+  }, [screenId, watched, targets, linked, document, items, links])
 
-  // A frame that goes out of the canvas takes its entry with it.
-  useLayoutEffect(() => () => screenRects.delete(screenId), [screenId])
+  // A frame that goes out of the canvas takes its entries with it.
+  useLayoutEffect(
+    () => () => {
+      screenRects.delete(screenId)
+      linkRects.delete(screenId)
+    },
+    [screenId],
+  )
 }
+
+// The list of a screen with no link: one array, thus the effect of the
+// measure does not run again at each render.
+const noLinks: readonly string[] = []
 
 // The marks that a layer of the canvas derives from the edits of one screen
 // and the shared rectangles of its targets (`rectsResult`): the pins of the

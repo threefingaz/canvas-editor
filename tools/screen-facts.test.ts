@@ -96,7 +96,7 @@ describe('screenFacts', () => {
   })
 
   it('marks a size of the font in a responsive object, an array and a condition', () => {
-    for (const sx of ['{ fontSize: { xs: 12, md: 14 } }', '[{ fontSize: 14 }]', 'wide && { lineHeight: 20 }']) {
+    for (const sx of ['{ fontSize: { xs: 12, md: 14 } }', '[{ fontSize: 14 }]', 'wide && { letterSpacing: 2 }']) {
       expect(screenFacts(`const a = <Box sx={${sx}} />`, 'screens/a.tsx', null).sets).toHaveLength(1)
     }
   })
@@ -108,6 +108,49 @@ describe('screenFacts', () => {
       null,
     )
     expect(facts.raw.map((raw) => raw.text)).toEqual(['1px solid currentColor'])
+  })
+
+  it('finds a number that stands for pixels where the pack names the keys of its scales', () => {
+    const code = `const a = <Box padding={3} sx={{ p: 2, fontSize: 14, borderRadius: 1, gap: 4, marginTop: -8, lineHeight: 1.5, width: 320, mb: 0 }} />`
+    const scale = new Set(['padding', 'gap', 'borderRadius'])
+    const facts = screenFacts(code, 'screens/a.tsx', null, scale)
+    expect(facts.raw.map((raw) => `${raw.attribute} ${raw.text} ${raw.number}`)).toEqual(['sx fontSize: 14 true', 'sx marginTop: -8 true'])
+    expect(facts.sets).toHaveLength(1)
+    // With no list, a number is no finding, and only a size of the font marks the element.
+    expect(screenFacts(code, 'screens/a.tsx', null).raw).toEqual([])
+    expect(screenFacts(code, 'screens/a.tsx', null).sets).toHaveLength(1)
+    expect(screenFacts('const a = <Box sx={{ marginTop: 8 }} />', 'screens/a.tsx', null).sets).toEqual([])
+  })
+
+  it('finds what a picture of one state must not have', () => {
+    const code = `import { useState } from 'react'
+import { Shared } from './shared.tsx'
+import { rows } from './rows'
+import { config } from '../../canvas.config.ts'
+export default function S() {
+  const [open] = useState(false)
+  return <Box className="p-4" onClick={() => {}}>Lorem ipsum dolor</Box>
+}`
+    const facts = screenFacts(code, 'screens/a/s.tsx', null)
+    expect(facts.behavior.map((item) => `${item.line} ${item.text}`)).toEqual(['6 the hook `useState`', '7 Box: the handler `onClick`'])
+    expect(facts.classNames).toEqual([{ line: 7, column: 10, tag: 'Box' }])
+    expect(facts.imports.map((item) => item.source)).toEqual(['./shared.tsx', './rows', '../../canvas.config.ts'])
+    expect(facts.placeholders).toEqual([{ line: 7, column: 50 }])
+  })
+
+  it('reads no number of a call, and takes a number of the text style and a computed number as a mark', () => {
+    const scale = new Set(['padding'])
+    expect(screenFacts('const a = <Box sx={{ fontSize: theme.spacing(2) }} />', 'screens/a.tsx', null, scale).raw).toEqual([])
+    for (const sx of ['{ lineHeight: 1.2 }', '{ fontWeight: 700 }', '{ fontSize: 14 * 2 }']) {
+      const facts = screenFacts(`const a = <Box sx={${sx}} />`, 'screens/a.tsx', null, scale)
+      expect(facts.raw).toEqual([])
+      expect(facts.sets).toHaveLength(1)
+    }
+  })
+
+  it('takes a handler with an expression and a hook of React only', () => {
+    const code = 'const a = () => { user.useThing(); React.useMemo(() => 1, []); return <Switch onColor="green" onChange={go} /> }'
+    expect(screenFacts(code, 'screens/a.tsx', null).behavior.map((item) => item.text)).toEqual(['the hook `useMemo`', 'Switch: the handler `onChange`'])
   })
 
   it('does not mark a computed label of an attribute', () => {

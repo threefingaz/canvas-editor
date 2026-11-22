@@ -2,7 +2,7 @@ import { describe, expect, test } from 'vitest'
 import { parseIssues, type Issue, type Target } from '../../requests/format.ts'
 import type { Token } from '../../tokens/format.ts'
 import type { InspectorRow } from '../inspector/model.ts'
-import { issueGroups, issueSummary, rowProperty, screenIssues, type IssueElement } from './model.ts'
+import { issueGroups, issueSummary, overflowText, rowIsSet, rowProperty, screenIssues, type IssueElement } from './model.ts'
 
 function spacing(factor: number): Token {
   return {
@@ -134,7 +134,7 @@ describe('screenIssues', () => {
     expect(issues).toEqual([])
   })
 
-  test('a row from the inline style gives override; a row can give both issues', () => {
+  test('a row from the inline style gives override, or no-token when it has no token: one value is one issue', () => {
     const footer = target(76, 7, { tag: 'div', origin: 'host' })
     const issues = screenIssues(
       [
@@ -168,7 +168,6 @@ describe('screenIssues', () => {
         token: { id: 'spacing.3', name: 'spacing.3', code: 3 },
         set: 'screen',
       },
-      { kind: 'override', target: footer, property: 'padding', value: '24px' },
       { kind: 'override', target: footer, property: 'display', value: 'flex' },
     ])
   })
@@ -328,6 +327,65 @@ describe('rowProperty', () => {
 
   test('other lists give the properties with commas', () => {
     expect(rowProperty(['border-top-color', 'border-left-color'])).toBe('border-top-color, border-left-color')
+  })
+})
+
+describe('overflowText', () => {
+  test('says nothing for a content that fits, also with a part of a pixel more', () => {
+    expect(overflowText(390, 390, [])).toBeNull()
+    expect(overflowText(390, 390.4, [])).toBeNull()
+  })
+
+  test('says how much wider the content is, and names the narrowest element that goes over the edge', () => {
+    const text = overflowText(390, 512, [
+      { tag: 'Stack', line: 12, width: 512 },
+      { tag: 'Table', line: 20, width: 480 },
+    ])
+    expect(text).toBe('The content is 122 px wider than the screen (390 px): a person must scroll to the side. It goes over the edge at Table, line 20.')
+    expect(overflowText(390, 400, [])).toBe('The content is 10 px wider than the screen (390 px): a person must scroll to the side.')
+  })
+
+  test('is an issue of the screen with no target, after a broken relation', () => {
+    expect(screenIssues([], null, 'broken', 'too wide')).toEqual([
+      { kind: 'relation', text: 'broken' },
+      { kind: 'layout', text: 'too wide' },
+    ])
+  })
+})
+
+describe('rowIsSet', () => {
+  test('finds a value of the mark in the value of a row', () => {
+    expect(rowIsSet('16px', ['16'])).toBe(true)
+    expect(rowIsSet('#1f4fd8 70%', ['#1F4FD8'])).toBe(true)
+    expect(rowIsSet('14px / 21px · 400', ['14'])).toBe(true)
+    expect(rowIsSet('-8px', ['8'])).toBe(true)
+    expect(rowIsSet('22px', ['16', '2'])).toBe(false)
+    expect(rowIsSet('15px / 21.75px · 600', ['600'])).toBe(false)
+  })
+
+  test('a marked element with values gives `screen` to each row, and `written` to a row with one of the values', () => {
+    const button = target(66, 15, { tag: 'Button' })
+    const issues = screenIssues(
+      [
+        {
+          target: button,
+          set: true,
+          values: ['13'],
+          links: [],
+          rows: [
+            row('Padding top', ['padding-top'], { value: '13px', missing: true, state: { state: 'none', nearest: spacing(2) } }),
+            row('Padding right', ['padding-right'], { value: '22px', missing: true, state: { state: 'none', nearest: spacing(3) } }),
+          ],
+        },
+      ],
+      null,
+      null,
+    )
+    expect(issues.map((issue) => issue.kind === 'no-token' && [issue.set, issue.written])).toEqual([
+      ['screen', true],
+      ['screen', undefined],
+    ])
+    expect(issueSummary(issues[0])).toBe('padding-top: 13px, nearest spacing.2, written in the file')
   })
 })
 

@@ -1,5 +1,17 @@
 import { describe, expect, test } from 'vitest'
-import { flowArrows, flowFrames, flowLabels, headLength, parseLinksShown, type FlowFrame } from './flow.ts'
+import {
+  flowArrows,
+  flowFocus,
+  flowFrames,
+  flowLabels,
+  flowLinks,
+  headLength,
+  leastLift,
+  leastStep,
+  parseLinksShown,
+  rowLifts,
+  type FlowFrame,
+} from './flow.ts'
 
 const frame = (id: string, x: number, y = 100, width = 400, height = 300): FlowFrame => ({
   id,
@@ -173,5 +185,162 @@ describe('flowArrows with little room above the row', () => {
     const low = flowArrows(frames, [{ from: 'a/one', to: 'a/two' }], 20, 4)[0]
     expect(top(low.d)).toBeGreaterThan(top(high.d))
     expect(top(low.d)).toBeGreaterThanOrEqual(100 - 20 - 12 - 8 / 0.75)
+  })
+})
+
+describe('flowFocus', () => {
+  test('no listed screen: each arrow is normal', () => {
+    expect(flowFocus({ from: 'a', to: 'b' }, null)).toBe(null)
+  })
+
+  test('the arrows that leave the listed screen, that reach it, and the others', () => {
+    expect(flowFocus({ from: 'a', to: 'b' }, 'a')).toBe('out')
+    expect(flowFocus({ from: 'a', to: 'b' }, 'b')).toBe('in')
+    expect(flowFocus({ from: 'a', to: 'b' }, 'c')).toBe('off')
+  })
+
+  test('each arrow has the focus of its pair', () => {
+    const frames = [frame('a/one', 0), frame('a/two', 500), frame('a/three', 1000), frame('b/low', 0, 700)]
+    const pairs = [
+      { from: 'a/one', to: 'a/two' },
+      { from: 'a/two', to: 'a/three' },
+      { from: 'a/three', to: 'a/one' },
+      { from: 'b/low', to: 'a/two' },
+    ]
+    expect(flowArrows(frames, pairs, clearance).map((arrow) => arrow.focus)).toEqual([null, null, null, null])
+    expect(flowArrows(frames, pairs, clearance, Infinity, new Map(), 'a/two').map((arrow) => arrow.focus)).toEqual(['in', 'out', 'off', 'in'])
+  })
+})
+
+describe('flowLinks', () => {
+  test('gives the link rectangles of each frame in canvas coordinates', () => {
+    const boxes = [
+      { screen: { id: 'a/one', flow: 'a' }, x: 100, y: 200, width: 400, height: 900 },
+      { screen: { id: 'a/two', flow: 'a' }, x: 600, y: 200, width: 400, height: 900 },
+    ]
+    const rects = new Map([
+      ['a/one', new Map([['a/two', { x: 40, y: 60, width: 100, height: 20 }]])],
+      ['a/gone', new Map([['a/one', { x: 0, y: 0, width: 10, height: 10 }]])],
+    ])
+    const links = flowLinks(boxes, { x: 10, y: 20, scale: 0.5 }, rects)
+    expect([...links.keys()]).toEqual(['a/one'])
+    expect(links.get('a/one')?.get('a/two')).toEqual({ x: 80, y: 150, width: 50, height: 10 })
+  })
+})
+
+describe('flowArrows from a link element', () => {
+  const one = frame('a/one', 0)
+  const two = frame('a/two', 800)
+  const low = frame('b/low', 0, 700)
+  const link = (from: string, to: string, rect: { x: number; y: number; width: number; height: number }) => new Map([[from, new Map([[to, rect]])]])
+
+  test('an arc starts above the link element, with a dot at its middle and a stem up to the arc', () => {
+    const links = link('a/one', 'a/two', { x: 100, y: 300, width: 80, height: 40 })
+    const [arrow] = flowArrows([one, two], [{ from: 'a/one', to: 'a/two' }], clearance, Infinity, links)
+    expect(arrow.dot).toEqual({ x: 140, y: 320 })
+    expect(arrow.stem).toBe(`M 140 320 L 140 ${100 - clearance}`)
+    const [sx, sy, c1x, , , , ex] = points(arrow.d)
+    expect([sx, sy, c1x]).toEqual([140, 100 - clearance, 140])
+    // The end is at the target as before.
+    expect(ex).toBe(812)
+  })
+
+  test('a target in a lower row: the stem goes down to the bottom edge', () => {
+    const links = link('a/one', 'b/low', { x: 300, y: 200, width: 40, height: 20 })
+    const [arrow] = flowArrows([one, low], [{ from: 'a/one', to: 'b/low' }], clearance, Infinity, links)
+    expect(arrow.dot).toEqual({ x: 320, y: 210 })
+    expect(arrow.stem).toBe('M 320 210 L 320 400')
+    expect(points(arrow.d).slice(0, 2)).toEqual([320, 400])
+  })
+
+  test('with no link rectangle the arrow starts at the frame, with no dot and no stem', () => {
+    const other = link('a/two', 'a/one', { x: 900, y: 300, width: 80, height: 40 })
+    const [arrow] = flowArrows([one, two], [{ from: 'a/one', to: 'a/two' }], clearance, Infinity, other)
+    expect(arrow.dot).toBe(null)
+    expect(arrow.stem).toBe(null)
+    expect(points(arrow.d)[0]).toBe(388)
+  })
+
+  test('a link element out of its frame counts as not known', () => {
+    const links = link('a/one', 'a/two', { x: 600, y: 300, width: 80, height: 40 })
+    const [arrow] = flowArrows([one, two], [{ from: 'a/one', to: 'a/two' }], clearance, Infinity, links)
+    expect(arrow.dot).toBe(null)
+    expect(points(arrow.d)[0]).toBe(388)
+  })
+})
+
+describe('the heights of the arcs of one row', () => {
+  // The top of an arc: 3/4 of the height of its control points above its end.
+  const lift = (d: string) => {
+    const [, , , c1y, , , , ey] = points(d)
+    return (ey - c1y) * 0.75
+  }
+  const frames = [frame('a/one', 0), frame('a/two', 500), frame('a/three', 1000), frame('a/four', 1500)]
+  const pairs = [
+    { from: 'a/one', to: 'a/four' },
+    { from: 'a/one', to: 'a/two' },
+    { from: 'a/one', to: 'a/three' },
+  ]
+
+  test('three arcs have three heights: a short arc is low, a long one is high', () => {
+    const [long, short, middle] = flowArrows(frames, pairs, clearance).map((arrow) => lift(arrow.d))
+    expect(short).toBeLessThan(middle)
+    expect(middle).toBeLessThan(long)
+    // The path has one decimal, thus the heights are near to the numbers.
+    expect(middle - short).toBeGreaterThan(9.8)
+    expect(long - middle).toBeGreaterThan(9.8)
+  })
+
+  test('arcs of the same length do not lie on each other', () => {
+    const same = [
+      { from: 'a/one', to: 'a/two' },
+      { from: 'a/two', to: 'a/three' },
+      { from: 'a/three', to: 'a/four' },
+    ]
+    const lifts = flowArrows(frames, same, clearance).map((arrow) => lift(arrow.d))
+    expect(new Set(lifts).size).toBe(3)
+  })
+
+  test('the arcs of a different row do not count', () => {
+    const lower = [frame('b/one', 0, 700), frame('b/two', 500, 700)]
+    const [upper, other] = flowArrows([...frames, ...lower], [pairs[1], { from: 'b/one', to: 'b/two' }], clearance)
+    expect(lift(other.d)).toBeCloseTo(lift(upper.d), 1)
+  })
+
+  test('with room, the arcs stay in it', () => {
+    const lifts = flowArrows(frames, pairs, clearance, 30).map((arrow) => lift(arrow.d))
+    expect(Math.max(...lifts)).toBeCloseTo(30, 0)
+    expect(new Set(lifts).size).toBe(3)
+  })
+
+  test('at a low zoom, with no room above the row, the arcs keep a least height and a least distance', () => {
+    // 6 %: a frame of 1440 px is 86 px wide, and the gap of two rows is less
+    // than the title row.
+    const small = [0, 100, 200, 300].map((x, index) => frame(`a/${index}`, x, 100, 86, 54))
+    const low = [
+      { from: 'a/0', to: 'a/3' },
+      { from: 'a/0', to: 'a/1' },
+      { from: 'a/0', to: 'a/2' },
+    ]
+    const [long, short, middle] = flowArrows(small, low, clearance, -16).map((arrow) => lift(arrow.d))
+    expect(short).toBeCloseTo(leastLift, 0)
+    expect(middle - short).toBeCloseTo(leastStep, 0)
+    expect(long - middle).toBeCloseTo(leastStep, 0)
+    expect(rowLifts([{ span: 100, right: true }], -16)).toEqual([leastLift])
+  })
+
+  test('with no room, many arcs share a band of three heights, and an arrow of the listed screen rises out of it', () => {
+    const many = Array.from({ length: 8 }, (_, index) => ({ span: 100 + index * 50, right: true }))
+    expect(Math.max(...rowLifts(many, -16))).toBeCloseTo(leastLift + leastStep * 2, 5)
+    const small = [0, 100, 200, 300].map((x, index) => frame(`a/${index}`, x, 100, 86, 54))
+    const low = [
+      { from: 'a/0', to: 'a/3' },
+      { from: 'a/1', to: 'a/2' },
+    ]
+    const [plain] = flowArrows(small, low, clearance, -16).map((arrow) => lift(arrow.d))
+    const [strong, other] = flowArrows(small, low, clearance, -16, undefined, 'a/0').map((arrow) => lift(arrow.d))
+    expect(strong).toBeGreaterThan(plain)
+    expect(strong).toBeGreaterThanOrEqual(26)
+    expect(other).toBeLessThanOrEqual(leastLift + leastStep * 2)
   })
 })

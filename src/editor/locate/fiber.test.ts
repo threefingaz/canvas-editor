@@ -66,6 +66,8 @@ describe('parseLoc', () => {
     expect(parseLoc('screens/a.tsx:3:5 set host')).toMatchObject({ tag: 'set', origin: 'host' })
     expect(parseLoc('screens/a.tsx:3:5 set host')).not.toHaveProperty('set')
     expect(parseLoc('screens/a.tsx:3:5 Stack set')).toBeNull()
+    expect(parseLoc('screens/a.tsx:3:5 Stack library set=16,#667085')).toMatchObject({ tag: 'Stack', set: true, values: ['16', '#667085'] })
+    expect(parseLoc('screens/a.tsx:3:5 Stack library set')).not.toHaveProperty('values')
     expect(parseLoc('screens/a.tsx:3:5 Stack')).toBeNull()
     expect(parseLoc('screens/a.tsx:3:5 Stack other')).toBeNull()
     expect(parseLoc('screens/a.tsx:3 Stack library')).toBeNull()

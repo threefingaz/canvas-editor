@@ -33,6 +33,7 @@ const groupTitle: Record<IssueGroup['kind'], string> = {
   library: 'Defaults of the library',
   'render-error': 'Render errors',
   relation: 'Relation to a different screen',
+  layout: 'Layout',
   'broken-link': 'Broken links',
   'not-library': 'Not from the library',
   'no-token': 'No token link',
@@ -104,7 +105,7 @@ function IssueItem({ issue, screenId, document, onReveal }: IssueItemProps) {
       <p className="m-0 px-1.5 py-1 font-mono text-[11px] whitespace-pre-wrap text-[color:var(--destructive)]">{summary}</p>
     )
   }
-  if (issue.kind === 'relation') {
+  if (issue.kind === 'relation' || issue.kind === 'layout') {
     return (
       <p className="m-0 px-1.5 py-1 text-xs text-[color:var(--attention)]" data-issue-summary="">
         {summary}

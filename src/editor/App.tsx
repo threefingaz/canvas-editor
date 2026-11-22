@@ -449,7 +449,7 @@ export default function App() {
           onResize={onResize}
           overlay={
             <>
-              <FlowLayer view={view} frames={layout.frames} pairs={pairs} arrows={links} />
+              <FlowLayer view={view} frames={layout.frames} pairs={pairs} arrows={links} listed={operating ? null : listedId} />
               <Markers view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
               <EditMarks view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
               <Pins

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test, vi } from 'vitest'
 import type { Issue, Target } from '../../requests/format.ts'
-import { markerRects, parseMarkersShown, readMarkersShown, writeMarkersShown } from './markers.ts'
+import { markerLabels,
+  markerRects, parseMarkersShown, readMarkersShown, writeMarkersShown } from './markers.ts'
 import type { Rect } from './viewport.ts'
 
 function target(line: number, tag: string, origin: Target['origin'] = 'host'): Target {
@@ -34,21 +35,36 @@ describe('markerRects', () => {
       { kind: 'not-library', target: target(7, 'Chip', 'local') },
     ]
     expect(markerRects(issues, nodesOf, rectOf, nothing)).toEqual([
-      { key: 'screens/a.tsx:3:5#0', tag: 'div', rect: footer.rect },
-      { key: 'screens/a.tsx:7:5#0', tag: 'Chip', rect: chips[0].rect },
-      { key: 'screens/a.tsx:7:5#1', tag: 'Chip', rect: chips[1].rect },
-      { key: 'screens/a.tsx:7:5#2', tag: 'Chip', rect: chips[2].rect },
+      { key: 'screens/a.tsx:3:5#0', tag: 'div', kind: 'element', rect: footer.rect },
+      { key: 'screens/a.tsx:7:5#0', tag: 'Chip', kind: 'element', rect: chips[0].rect },
+      { key: 'screens/a.tsx:7:5#1', tag: 'Chip', kind: 'element', rect: chips[1].rect },
+      { key: 'screens/a.tsx:7:5#2', tag: 'Chip', kind: 'element', rect: chips[2].rect },
     ])
   })
 
-  test('the other kinds of issues give no marker', () => {
+  test('a default of the library, a broken link and an error give no marker', () => {
     const issues: Issue[] = [
-      { kind: 'no-token', target: target(9, 'Button', 'library'), property: 'padding', value: '8px', state: 'none' },
-      { kind: 'override', target: target(3, 'div'), property: 'color', value: 'red' },
+      { kind: 'no-token', target: target(9, 'Button', 'library'), property: 'padding', value: '8px', state: 'none', set: 'library' },
+      { kind: 'no-token', target: target(9, 'Button', 'library'), property: 'gap', value: '4px', state: 'none' },
       { kind: 'broken-link', target: target(9, 'Button', 'library'), href: '#/nothing' },
       { kind: 'render-error', text: 'Boom' },
     ]
     expect(markerRects(issues, nodesOf, rectOf, nothing)).toEqual([])
+  })
+
+  test('a value that the screen file sets gives a marker that names it, and the count of the others', () => {
+    const chip = target(7, 'Chip', 'library')
+    const issues: Issue[] = [
+      { kind: 'no-token', target: chip, property: 'gap', value: '16px', state: 'equal', set: 'screen' },
+      { kind: 'no-token', target: chip, property: 'padding', value: '8px', state: 'none', set: 'library' },
+      { kind: 'override', target: chip, property: 'color', value: 'red' },
+      { kind: 'not-library', target: target(3, 'div') },
+      { kind: 'override', target: target(3, 'div'), property: 'color', value: 'red' },
+    ]
+    expect([...markerLabels(issues)]).toEqual([
+      ['screens/a.tsx:3:5', { tag: 'div', kind: 'element' }],
+      ['screens/a.tsx:7:5', { tag: 'gap 16px +1', kind: 'value' }],
+    ])
   })
 
   test('a node that the preview hides has no marker, and the keys keep the index of the copy', () => {
@@ -71,7 +87,7 @@ describe('markerRects', () => {
     }
     const issues: Issue[] = [{ kind: 'not-library', target: target(3, 'div') }]
     expect(markerRects(issues, (loc) => local[loc] ?? [], rectOf, nothing)).toEqual([
-      { key: 'screens/a.tsx:3:5#2', tag: 'div', rect: flat },
+      { key: 'screens/a.tsx:3:5#2', tag: 'div', kind: 'element', rect: flat },
     ])
   })
 

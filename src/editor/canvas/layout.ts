@@ -27,7 +27,7 @@ export const frameGap = 80
 // reads as one thing.
 export const groupGap = 240
 // The space between two rows; the titles of the lower row are in it.
-export const rowGap = 200
+export const rowGap = 360
 // The space between a frame and its first option, and between two options of
 // a column. A title keeps its size on the screen, thus it needs as much space
 // of the canvas as the title of a row.

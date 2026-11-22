@@ -17,7 +17,7 @@ import { screenRendered, sitesIn } from '../selection/pick.ts'
 import { useTokenFile } from '../tokens/editor-tokens.ts'
 import { frameTokens } from '../tokens/frame-tokens.ts'
 import { readStyles } from '../tokens/read-styles.ts'
-import { screenIssues, type IssueElement } from './model.ts'
+import { overflowText, screenIssues, type IssueElement } from './model.ts'
 import { issues } from './store.ts'
 
 // Reads the Issues list of a screen from its frame document: the screen
@@ -123,13 +123,32 @@ export function collectIssues(
   const sites = sitesIn(document)
   const innerOf = innerLocs<Element>(sites)
   const links = brokenLinks(sites, Array.from(document.querySelectorAll(screenLinkSelector)), ids, hidden, innerOf)
-  const elements: IssueElement[] = placesOf(sites, hidden, innerOf).map((place) => ({
+  const places = placesOf(sites, hidden, innerOf)
+  const elements: IssueElement[] = places.map((place) => ({
     target: targetOf(place.site, place.node.tagName.toLowerCase(), place.copies, codeText(place.node)),
     rows: place.inner ? inspectorModel(readStyles(place.node), tokens).sections.flatMap((section) => section.rows) : [],
     links: links.get(place.site.loc) ?? [],
     set: place.site.set === true,
+    ...(place.site.values ? { values: place.site.values } : {}),
   }))
-  return screenIssues(elements, error, relation)
+  // The content against the width of the screen. A scroll to the side is
+  // what an agent cannot see in its code.
+  // The width of the screen is the width of the frame window, not the width
+  // less a scroll bar: a frame that is lower than its content for a moment
+  // has a scroll bar at its side.
+  const root = document.documentElement
+  const frameWindow = frameWindowOf(document)
+  const width = frameWindow?.innerWidth ?? root.clientWidth
+  let layout: string | null = null
+  if (root.scrollWidth - width >= 1) {
+    const scrolled = frameWindow?.scrollX ?? 0
+    const crossing = places
+      .map((place) => ({ place, rect: place.node.getBoundingClientRect() }))
+      .filter(({ rect }) => rect.width > 0 && rect.right + scrolled - width >= 1)
+      .map(({ place, rect }) => ({ tag: place.site.tag, line: place.site.line, width: rect.width }))
+    layout = overflowText(width, root.scrollWidth, crossing)
+  }
+  return screenIssues(elements, error, relation, layout)
 }
 
 // The time after the last change of a frame document before its issues are

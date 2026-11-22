@@ -27,6 +27,7 @@ For each group that the library has (color, spacing, radius, shadow, text style,
 - which steps of a scale are tokens;
 - the breakpoints, how a value for a range of widths is written, and which range holds at each width of `widths` in `canvas.config.ts` (the widths of the frames);
 - which properties the library does not map to a scale, and how to write a value of the scale there;
+- which keys take a number as a step of a scale: the same list as `"scaleKeys"` in `pack.json` (see step 2 of `SKILL.md`), thus an agent that writes a screen and the check agree;
 - how a text takes a color that is not one of the text colors (a status color, the main color);
 - how the thinnest border is written, and if it is a token;
 - how a drawing element (`svg`) takes a color of the palette;

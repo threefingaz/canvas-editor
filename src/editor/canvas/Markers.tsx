@@ -1,5 +1,4 @@
 import { useEffect, useReducer } from 'react'
-import { locOf } from '../edits/model.ts'
 import { edits } from '../edits/store.ts'
 import { frameWindowOf } from '../frame-window.ts'
 import { useIssueScreens } from '../issues/store.ts'
@@ -9,18 +8,24 @@ import { usePreviewRemeasure } from '../preview/use-preview.ts'
 import { toEditorRect } from '../selection/geometry.ts'
 import { nodesByLoc } from '../selection/pick.ts'
 import type { FrameBox } from './layout.ts'
-import { markerRects, type Marker } from './markers.ts'
+import { markerLabels, markerRects, type Marker } from './markers.ts'
 import { toScreen, type View } from './viewport.ts'
 
 // The layer above the frames, below the selection layer, that marks each copy
 // of each element that is not from the library (the `not-library` issues of
-// each screen) with an outline and a badge with its tag name. It does not get
-// the pointer.
+// each screen) with an outline and a badge with its tag name, and each library
+// element with a value that the screen file sets and that has no token, with
+// a badge that names the value (`gap 16px`). It does not get the pointer.
 //
 // The rectangles are in canvas coordinates and are measured at each render,
 // as those of the selection layer: a new view, a new layout, a new list of
 // issues, a new size of a marked node (an observer here), and each application
 // of the preview, which can move a node and not change its size.
+
+// Below this zoom a marker is only its outline: a badge keeps its size on the
+// screen, and at the zoom that shows a whole project it would cover the
+// titles of the frames.
+const labelScale = 0.15
 
 type MarkersProps = {
   view: View
@@ -44,8 +49,8 @@ export function Markers({ view, frames, documents, shown }: MarkersProps) {
       if (!frameWindow || !list) continue
       const observer = new frameWindow.ResizeObserver(() => remeasure())
       const nodes = nodesByLoc(document)
-      for (const issue of list) {
-        if (issue.kind === 'not-library') for (const node of nodes.get(locOf(issue.target)) ?? []) observer.observe(node)
+      for (const loc of markerLabels(list).keys()) {
+        for (const node of nodes.get(loc) ?? []) observer.observe(node)
       }
       observers.push(observer)
     }
@@ -83,15 +88,17 @@ export function Markers({ view, frames, documents, shown }: MarkersProps) {
         <div
           key={marker.key}
           className="absolute border border-dashed border-[color:var(--attention)]"
-          data-marker=""
+          data-marker={marker.kind}
           style={{ left: marker.rect.x, top: marker.rect.y, width: marker.rect.width, height: marker.rect.height }}
         >
-          <span
-            className="absolute bottom-full -left-px rounded-t-sm bg-[color:var(--attention)] px-1 text-[10px] leading-3.5 whitespace-nowrap text-[color:var(--attention-foreground)]"
-            data-marker-label=""
-          >
-            {marker.tag}
-          </span>
+          {view.scale >= labelScale && (
+            <span
+              className="absolute bottom-full -left-px rounded-t-sm bg-[color:var(--attention)] px-1 text-[10px] leading-3.5 whitespace-nowrap text-[color:var(--attention-foreground)]"
+              data-marker-label=""
+            >
+              {marker.tag}
+            </span>
+          )}
         </div>
       ))}
     </div>

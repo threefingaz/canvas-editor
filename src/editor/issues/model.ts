@@ -11,13 +11,22 @@ import type { InspectorRow } from '../inspector/model.ts'
 //   includes fixed values that a library component sets itself. `set` tells
 //   them apart by the element: `screen` when the element sets a value in the
 //   screen file (the mark of its location), the value is in its inline
-//   style, or the element is not from the library; else `library`. Only the first is a deviation (`isDeviation`).
+//   style, or the element is not from the library; else `library`. The rule
+//   is by element, because the file does not say each value (a keyword, a
+//   name, a value that the code computes): a narrower rule would hide a
+//   deviation. `written` is true for a value that the mark names: the file
+//   writes it as it is, thus it is a deviation for certain. The marker of
+//   the canvas and the Issues list name these values first. Only the first is a deviation (`isDeviation`).
 // - `override`: a row whose winning declaration is in the inline style of the
-//   element (the `style` prop). A value from `sx` cannot be told apart from
+//   element (the `style` prop), when the row gives no `no-token` issue: one
+//   value is one issue. A value from `sx` cannot be told apart from
 //   the rules of the component.
 // - `not-library`: an element with the origin `host` or `local`.
 // - `broken-link`: a link to a screen address whose id no screen has, on the
 //   screen element that the link belongs to (`brokenLinks` in `collect.ts`).
+// - `layout`: the content is wider than the screen (`overflowText`): a
+//   person must scroll to the side. Only the page shows it; an agent cannot
+//   see its screen, and reads it here.
 // - `render-error`: the screen cannot be rendered or read.
 // - `relation`: the relation of the screen in its `meta` (`stateOf`,
 //   `optionOf`) breaks a rule of the list, with the cause (`relationError` of
@@ -28,7 +37,26 @@ import type { InspectorRow } from '../inspector/model.ts'
 // that belong to it, in each of its copies.
 // `set` is true when the element sets a value in the screen file (the mark of
 // its location, `Site.set`).
-export type IssueElement = { target: Target; rows: readonly InspectorRow[]; links: readonly string[]; set?: boolean }
+// `values` are the values that the element sets, as the page shows them; with
+// none, each value of a marked element counts.
+export type IssueElement = {
+  target: Target
+  rows: readonly InspectorRow[]
+  links: readonly string[]
+  set?: boolean
+  values?: readonly string[]
+}
+
+// True when a value of a row (`16px`, `#1F4FD8 70%`, `14px / 21px · 400`) has
+// one of the values that the element sets in the screen file: a count of
+// pixels with no unit, or a color as `#RRGGBB`.
+export function rowIsSet(value: string, values: readonly string[]): boolean {
+  for (const part of value.split(/[\s/·,]+/)) {
+    const size = /^(-?\d*\.?\d+)px$/.exec(part)
+    if (size ? values.includes(String(Math.abs(Number(size[1])))) : part.startsWith('#') && values.includes(part.toUpperCase())) return true
+  }
+  return false
+}
 
 // The shorthand of a list of longhands, for the property of an issue.
 const shorthands: Record<string, readonly string[]> = {
@@ -58,7 +86,7 @@ export function rowProperty(properties: readonly string[]): string {
   return properties.join(', ')
 }
 
-function rowIssues(target: Target, row: InspectorRow, set: boolean): Issue[] {
+function rowIssues(target: Target, row: InspectorRow, set: boolean, written: boolean): Issue[] {
   const issues: Issue[] = []
   const property = rowProperty(row.properties)
   const state = row.state
@@ -74,15 +102,36 @@ function rowIssues(target: Target, row: InspectorRow, set: boolean): Issue[] {
       // An inline style is in the screen file, also with no mark, and an
       // element that is not from the library has no default of the library.
       set: set || row.inline || target.origin !== 'library' ? 'screen' : 'library',
+      ...(written ? { written: true as const } : {}),
     })
   }
-  if (row.inline) issues.push({ kind: 'override', target, property, value: row.value })
+  // One value is one issue: a value of the inline style with no token is the
+  // `no-token` issue above, which names its token; `override` is for an inline
+  // value that has no such issue (a linked value, a property with no tokens).
+  if (row.inline && issues.length === 0) issues.push({ kind: 'override', target, property, value: row.value })
   return issues
 }
 
 function compareTargets(a: Target, b: Target): number {
   if (a.file !== b.file) return a.file < b.file ? -1 : 1
   return a.line - b.line || a.column - b.column
+}
+
+// An element that goes over the right edge of the screen: its tag, its line
+// in the screen file and its width on the page.
+export type Crossing = { tag: string; line: number; width: number }
+
+// The text of the `layout` issue of a screen whose content is wider than the
+// screen, or null. `width` is the width of the screen and `content` the width
+// of its content, in px; a difference of a part of a pixel does not count.
+// `crossing` are the screen elements that go over the right edge: the text
+// names the narrowest one, which is nearest to the cause.
+export function overflowText(width: number, content: number, crossing: readonly Crossing[]): string | null {
+  const over = Math.round(content - width)
+  if (over < 1) return null
+  const cause = [...crossing].sort((a, b) => a.width - b.width || b.line - a.line)[0]
+  const where = cause ? ` It goes over the edge at ${cause.tag}, line ${cause.line}.` : ''
+  return `The content is ${over} px wider than the screen (${Math.round(width)} px): a person must scroll to the side.${where}`
 }
 
 // The text of a render error that has no text.
@@ -99,10 +148,13 @@ export function screenIssues(
   elements: readonly IssueElement[],
   error: string | null,
   relation: string | null,
+  // The text of a `layout` issue, or null (`overflowText`).
+  layout: string | null = null,
 ): Issue[] {
   const issues: Issue[] = []
   if (error !== null) issues.push({ kind: 'render-error', text: error.trim() || noErrorText })
   if (relation !== null) issues.push({ kind: 'relation', text: relation })
+  if (layout !== null) issues.push({ kind: 'layout', text: layout })
 
   const places = new Map<string, IssueElement>()
   for (const element of elements) {
@@ -110,17 +162,17 @@ export function screenIssues(
     if (!places.has(loc)) places.set(loc, element)
   }
   const sorted = [...places.values()].sort((a, b) => compareTargets(a.target, b.target))
-  for (const { target, rows, links, set } of sorted) {
+  for (const { target, rows, links, set, values } of sorted) {
     if (target.origin !== 'library') issues.push({ kind: 'not-library', target })
     for (const href of links) issues.push({ kind: 'broken-link', target, href })
-    for (const row of rows) issues.push(...rowIssues(target, row, set === true))
+    for (const row of rows) issues.push(...rowIssues(target, row, set === true, set === true && values !== undefined && rowIsSet(row.value, values)))
   }
   return issues
 }
 
 // The sequence of the groups of the Issues list: an error first, then a broken
 // relation, then the broken links, then the elements, then the values.
-const groupOrder: readonly Issue['kind'][] = ['render-error', 'relation', 'broken-link', 'not-library', 'no-token', 'override']
+const groupOrder: readonly Issue['kind'][] = ['render-error', 'relation', 'layout', 'broken-link', 'not-library', 'no-token', 'override']
 
 // `library` is the group of the values that a component of the library sets
 // by itself: they are not deviations.
@@ -143,6 +195,7 @@ export function issueSummary(issue: Issue): string {
   switch (issue.kind) {
     case 'render-error':
     case 'relation':
+    case 'layout':
       return issue.text
     case 'not-library':
       return issue.target.origin === 'host' ? 'HTML element, not from the library' : 'local component, not from the library'
@@ -152,8 +205,9 @@ export function issueSummary(issue: Issue): string {
       return `${issue.property}: ${issue.value} in the inline style`
     case 'no-token': {
       const value = `${issue.property}: ${issue.value}`
-      if (issue.state === 'equal' && issue.token) return `${value}, equal to ${issue.token.name}`
-      return issue.token ? `${value}, nearest ${issue.token.name}` : `${value}, no token`
+      const where = issue.written ? ', written in the file' : ''
+      if (issue.state === 'equal' && issue.token) return `${value}, equal to ${issue.token.name}${where}`
+      return issue.token ? `${value}, nearest ${issue.token.name}${where}` : `${value}, no token${where}`
     }
   }
 }

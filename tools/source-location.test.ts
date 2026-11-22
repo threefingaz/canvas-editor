@@ -113,7 +113,9 @@ describe('addSourceLocations', () => {
 
   test('marks an element that sets a value in the file', () => {
     const out = changed(`const a = <Box sx={{ gap: '16px' }}><Box sx={{ p: 2 }} /><i style={{}} /></Box>`)
-    expect(out).toContain(`${file}:1:11 Box local set"`)
+    expect(out).toContain(`${file}:1:11 Box local set=16"`)
+    expect(changed(`const a = <Box sx={{ p: '24px 64px', color: '#abc', m: '1rem' }} />`)).toContain('Box local set"')
+    expect(changed(`const a = <Box sx={{ p: '24px 64px', color: '#abc' }} />`)).toContain('Box local set=24,64,#AABBCC"')
     expect(out).toContain(`Box local"} />`)
     expect(out).toContain(`i host set"`)
   })

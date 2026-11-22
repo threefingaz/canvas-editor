@@ -161,6 +161,10 @@ export type Issue =
       // value is a default of a component of the library, and it is not a
       // deviation. A file with no `set` is older: each value counts.
       set?: 'screen' | 'library'
+      // True when the screen file writes this value as it is (`'16px'`,
+      // `fontSize: 14`, `'#667085'`): the mark of the element names it. The
+      // other values of such an element can be defaults of its component.
+      written?: true
     }
   | { kind: 'override'; target: Target; property: string; value: string }
   | { kind: 'not-library'; target: Target }
@@ -173,6 +177,10 @@ export type Issue =
   // a rule of the list: `text` is the cause. The screen shows as a base
   // screen. It has no target, as a render error.
   | { kind: 'relation'; text: string }
+  // What only the page shows, and the code does not say: the content is
+  // wider than the screen. `text` says it, with the element that goes over
+  // the edge. It has no target.
+  | { kind: 'layout'; text: string }
 
 // The kinds of `Issue`. A test checks that the list has each kind of the
 // union.
@@ -183,6 +191,7 @@ export const issueKinds = [
   'broken-link',
   'render-error',
   'relation',
+  'layout',
 ] as const satisfies readonly Issue['kind'][]
 
 export const issueSets = ['screen', 'library'] as const
@@ -437,6 +446,10 @@ function parseIssue(raw: unknown, index: number): Issue {
       }
       if (value.token !== undefined) issue.token = parseTokenRef(value.token, fail)
       if (value.set !== undefined) issue.set = oneOf(value.set, issueSets, 'set', fail)
+      if (value.written !== undefined) {
+        if (value.written !== true) fail('has a "written" that is not true')
+        issue.written = true
+      }
       return issue
     }
     case 'override':
@@ -452,6 +465,7 @@ function parseIssue(raw: unknown, index: number): Issue {
       return { kind, target: parseTarget(value.target, fail), href: text(value.href, 'href', fail) }
     case 'render-error':
     case 'relation':
+    case 'layout':
       return { kind, text: text(value.text, 'text', fail) }
   }
 }

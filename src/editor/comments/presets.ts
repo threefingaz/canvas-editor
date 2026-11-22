@@ -60,6 +60,24 @@ const nextState: Preset = {
   text: 'Draw the state of the screen after a person uses this control, as a new screen file with `stateOf`, and link this control to it.',
 }
 
+const errorState: Preset = {
+  key: 'error-state',
+  label: 'Draw its error state',
+  text: 'Draw the state of the screen where this element shows an error (a wrong or a missing value), as a new screen file with `stateOf`. The message is at the element and says the cause and the fix.',
+}
+
+const choices: Preset = {
+  key: 'choices',
+  label: 'Make it a list of choices',
+  text: 'Change this control to a control that offers its possible values as a list of choices (a select, radio buttons or checkboxes, as the design skills say for the count of the values). Keep its label.',
+}
+
+const useTokens: Preset = {
+  key: 'use-tokens',
+  label: 'Use tokens',
+  text: 'Write each value of this element with a token of the library: the token that is equal to the value, else the nearest one. Name each change that a person can see.',
+}
+
 const simplifyPart: Preset = {
   key: 'simplify',
   label: 'Simplify',
@@ -77,8 +95,8 @@ export function elementPresets(origin: Origin, option: boolean): Preset[] {
     standOutMore,
     standOutLess,
     shortenText,
-    ...(origin === 'library' ? [betterPart] : []),
-    ...(option ? [] : [nextState]),
+    ...(origin === 'library' ? [betterPart, choices, useTokens] : []),
+    ...(option ? [] : [nextState, errorState]),
     simplifyPart,
   ]
 }
@@ -101,6 +119,18 @@ export function linkPresets(screens: readonly LinkScreen[], currentId: string): 
   })
 }
 
+// The states that a screen most often has, each as its own quick request:
+// the user asks for one of them by a click, in place of the words "add a
+// state for an empty list".
+const stateKinds = [
+  { key: 'empty', label: 'Add the empty state', what: 'with nothing to show yet (an empty list, no result)' },
+  { key: 'loading', label: 'Add the loading state', what: 'during a wait (the content loads, or an action runs)' },
+  { key: 'error', label: 'Add the error state', what: 'after an error that the system can know (the content did not load, a value is wrong)' },
+] as const
+
+// A width of this size or less is a phone.
+const mobileWidth = 480
+
 type PresetScreen = { id: string; width: number; stateOf?: string; optionOf?: string }
 
 // The quick requests of the whole screen. Only a base screen has states and
@@ -117,9 +147,19 @@ export function screenPresets(screen: PresetScreen, widths: readonly number[], h
             label: 'Draw the missing states',
             text: 'Draw the states that this screen can have and that no screen file shows yet (after an error, during a wait, with nothing to show, after an action), each as a screen file with `stateOf`, and link each control that leads to one. Name each state that you do not draw.',
           },
+          ...stateKinds.map(({ key, label, what }) => ({
+            key: `state-${key}`,
+            label,
+            text: `Draw the state of this screen ${what}, as a new screen file with \`stateOf\`, and link the control that leads to it. If a screen file already shows this state, change that file.`,
+          })),
+          {
+            key: 'next-screen',
+            label: 'Draw the next screen',
+            text: 'Draw the screen that a person reaches after this one, as a new screen file in the same flow, and link the control that leads to it.',
+          },
           ...others.map((width) => ({
             key: `width-${width}`,
-            label: `Draw at ${width} px`,
+            label: width <= mobileWidth ? `Mobile width (${width} px)` : `Draw at ${width} px`,
             text: `Draw this screen for the width ${width} px as a new screen file in the same flow.`,
           })),
         ]
