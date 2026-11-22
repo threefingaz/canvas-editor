@@ -10,7 +10,7 @@ import { PanelSurface } from '../ui'
 import { bubble } from './bubble-store.ts'
 import type { BubbleTarget } from './bubble.ts'
 import { FloatingHeader } from './FloatingHeader.tsx'
-import { elementAnchor, targetSite, titleAnchor, usePanelPlace } from './floating.ts'
+import { elementAnchor, rowAnchor, targetSite, titleAnchor, usePanelPlace } from './floating.ts'
 import { OptionsBox } from './OptionsBox.tsx'
 
 // The options panel: one floating panel in the layer of the bubble
@@ -42,7 +42,7 @@ export function OptionsPanel({ target, live, view, box, document }: OptionsPanel
   const anchor = elementAnchor(null, node, view, box)
   const panel = usePanelPlace((layer) => {
     const id = CSS.escape(screenId)
-    return anchor ?? titleAnchor(layer, [`[data-frame-ask-options="${id}"]`, `[data-frame-title="${id}"]`])
+    return anchor ?? rowAnchor(titleAnchor(layer, [`[data-frame-ask-options="${id}"]`, `[data-frame-title="${id}"]`]))
   })
 
   const blocked = optionsBlock({

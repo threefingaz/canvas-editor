@@ -26,7 +26,7 @@ import {
 } from './bubble.ts'
 import { CommentBox } from './CommentBox.tsx'
 import { FloatingHeader } from './FloatingHeader.tsx'
-import { elementAnchor, targetSite, titleAnchor, usePanelPlace } from './floating.ts'
+import { elementAnchor, rowAnchor, targetSite, titleAnchor, usePanelPlace } from './floating.ts'
 import { OptionsPanel } from './OptionsPanel.tsx'
 import { lostPin, screenPin } from './pins.ts'
 import { pinsSourceOf, useScreenPins } from './use-pins.ts'
@@ -134,7 +134,7 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
       `[data-frame-comment="${id}"]`,
       `[data-frame-title="${id}"]`,
     ]
-    return anchor ?? titleAnchor(layer, selectors)
+    return anchor ?? rowAnchor(titleAnchor(layer, selectors))
   })
 
   // The comment whose text is open for a change, as it was when it opened.

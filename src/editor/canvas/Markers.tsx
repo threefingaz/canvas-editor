@@ -3,6 +3,7 @@ import { locOf } from '../edits/model.ts'
 import { edits } from '../edits/store.ts'
 import { frameWindowOf } from '../frame-window.ts'
 import { useIssueScreens } from '../issues/store.ts'
+import { once } from '../once.ts'
 import { hiddenIn } from '../preview/css.ts'
 import { usePreviewRemeasure } from '../preview/use-preview.ts'
 import { toEditorRect } from '../selection/geometry.ts'
@@ -66,10 +67,10 @@ export function Markers({ view, frames, documents, shown }: MarkersProps) {
     const corner = toScreen(view, box)
     // One walk of the document for all the places of the list, and none for
     // a list with no marker.
-    let nodes: Map<string, Element[]> | null = null
+    const nodes = once(() => nodesByLoc(document))
     const rects = markerRects(
       list,
-      (loc) => (nodes ??= nodesByLoc(document)).get(loc) ?? [],
+      (loc) => nodes().get(loc) ?? [],
       (node) => (node.isConnected ? toEditorRect(node.getBoundingClientRect(), corner, view.scale) : null),
       hiddenIn(edits.get(box.screen.id)),
     )

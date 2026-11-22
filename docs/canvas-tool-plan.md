@@ -686,7 +686,7 @@ Each item is for a later step. The step is in brackets.
 - `.claude/launch.json` starts the dev server (with the pack and with no pack) and the server of the built site for the browser pane of the Claude desktop app.
 - Fresh agents ran the loop with only the instruction files: screens, links, edits, comments, the setup of a library, states, options and keeps. Copilot at work has not run it yet.
 - `tokens.json` is not committed.
-- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and four commits, exports of `canvas-tool`. Its remote is the private repository `canvas-editor` on GitHub (since 2026-11-21). It has step 10 (the export of 2026-11-22). `AGENTS.md`, section "Current state", says how a new export goes into it.
+- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and five commits, exports of `canvas-tool`. Its remote is the private repository `canvas-editor` on GitHub (since 2026-11-21). It has step 10 (the export of 2026-11-22). `AGENTS.md`, section "Current state", says how a new export goes into it.
 - Not done yet: the checks of the user of step 10, and the test in the work environment.
 
 ## Next steps

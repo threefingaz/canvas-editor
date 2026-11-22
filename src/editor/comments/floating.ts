@@ -59,13 +59,21 @@ export function targetSite(
 }
 
 // The anchor of a panel of an element on the canvas: the place of the pin of
-// the element, at its top right corner (`pinPoint`). `elementRect` is the
-// rectangle of the pin's element when the pins know it, else null, and then
-// the node of the panel is measured; null when neither is known: the panel
-// is then at its button in the title row.
-export function elementAnchor(elementRect: Rect | null, node: Element | null, view: View, box: FrameBox): Rect | null {
+// the element, at its top right corner (`pinPoint`), and the rectangle of
+// the element, which the panel does not cover when it has room (`panelPlace`).
+// `elementRect` is the rectangle of the pin's element when the pins know it,
+// else null, and then the node of the panel is measured; null when neither
+// is known: the panel is then at its button in the title row.
+export type ElementAnchor = { anchor: Rect; element: Rect }
+
+export function elementAnchor(
+  elementRect: Rect | null,
+  node: Element | null,
+  view: View,
+  box: FrameBox,
+): ElementAnchor | null {
   const rect = elementRect ?? (node && inLiveFrame(node) ? canvasRectOf(view, box, node.getBoundingClientRect()) : null)
-  return rect ? { ...pinPoint(rect, pinSize), width: pinSize, height: pinSize } : null
+  return rect ? { anchor: { ...pinPoint(rect, pinSize), width: pinSize, height: pinSize }, element: rect } : null
 }
 
 // The anchor of a panel in the title row of a frame, in the coordinates of
@@ -92,14 +100,37 @@ export function titleAnchor(layer: Element, selectors: readonly string[]): Rect 
 // view gives a panel at the nearest edge of the free part, and the toolbar
 // never covers its buttons. A canvas that is smaller than the panel gives the
 // top left corner of the free part, `gap` from the edges.
-export function panelPlace(anchor: Rect, panel: Size, canvas: Size, gap: number, strips: Strips): Point {
+//
+// `element` is the rectangle of the element of the anchor (a pin is at its
+// top right corner), which the panel must not cover: the user reads the
+// element while he writes about it. With no room at the right, the panel is
+// then at the left of the element, else below it, else above it, with its
+// right edge at the right edge of the element; only with room on no side
+// does it cover the element, as with no `element`.
+export function panelPlace(
+  anchor: Rect,
+  panel: Size,
+  canvas: Size,
+  gap: number,
+  strips: Strips,
+  element: Rect | null = null,
+): Point {
   const right = anchor.x + anchor.width + gap
-  const left = anchor.x - gap - panel.width
   const maxX = canvas.width - gap - panel.width
-  const x = right <= maxX ? right : left >= gap ? left : maxX
   const top = strips.top + gap
   const bottom = canvas.height - strips.bottom - gap - panel.height
-  return { x: clamp(x, gap, maxX), y: clamp(anchor.y, top, bottom) }
+  const beside = (x: number): Point => ({ x: clamp(x, gap, maxX), y: clamp(anchor.y, top, bottom) })
+  if (right <= maxX) return beside(right)
+  const left = (element?.x ?? anchor.x) - gap - panel.width
+  if (left >= gap) return beside(left)
+  if (element) {
+    const x = clamp(element.x + element.width - panel.width, gap, maxX)
+    const below = element.y + element.height + gap
+    if (below >= top && below <= bottom) return { x, y: below }
+    const above = element.y - gap - panel.height
+    if (above >= top && above <= bottom) return { x, y: above }
+  }
+  return beside(maxX)
 }
 
 // Places a floating node of the canvas, after each render (a new view, a new
@@ -154,10 +185,17 @@ export function useFloatingPlace(placeOf: (self: Size, canvas: Size, layer: Elem
 
 // Places a floating panel next to its anchor (`panelPlace`), in the free part
 // of the canvas: out of the notice and the toolbar. `anchor` gives the anchor
-// in the coordinates of the layer, or null while it has none.
-export function usePanelPlace(anchor: (layer: Element) => Rect | null) {
+// in the coordinates of the layer, with the element that the panel does not
+// cover (`elementAnchor`) or with none (an anchor of the title row), or null
+// while it has none.
+export function usePanelPlace(anchor: (layer: Element) => { anchor: Rect; element: Rect | null } | null) {
   return useFloatingPlace((self, canvas, layer) => {
-    const rect = anchor(layer)
-    return rect && panelPlace(rect, self, canvas, floatingGap, overlayStrips)
+    const place = anchor(layer)
+    return place && panelPlace(place.anchor, self, canvas, floatingGap, overlayStrips, place.element)
   })
+}
+
+// An anchor of the title row for `usePanelPlace`: no element to keep free.
+export function rowAnchor(rect: Rect | null): { anchor: Rect; element: null } | null {
+  return rect && { anchor: rect, element: null }
 }

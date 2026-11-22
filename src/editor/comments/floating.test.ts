@@ -153,6 +153,43 @@ describe('panelPlace', () => {
     expect(panelPlace({ x: 100, y: 10, width: 20, height: 20 }, panel, canvas, gap, strips)).toEqual({ x: 128, y: 56 })
   })
 
+  describe('with the element of the anchor', () => {
+    // A wide element: its pin is at its top right corner, with no room at
+    // the right of it and none at the left of the element.
+    const element = { x: 60, y: 200, width: 500, height: 40 }
+    const pin = { x: 550, y: 190, width: 20, height: 20 }
+    const narrow = { width: 600, height: 600 }
+
+    test('with room at the right, the element changes nothing', () => {
+      const small = { x: 100, y: 100, width: 60, height: 20 }
+      expect(panelPlace({ x: 150, y: 90, width: 20, height: 20 }, panel, canvas, gap, noStrips, small)).toEqual({ x: 178, y: 90 })
+    })
+
+    test('with no room at the right, at the left of the element, not of the anchor', () => {
+      const wide = { x: 300, y: 100, width: 600, height: 20 }
+      expect(panelPlace({ x: 890, y: 90, width: 20, height: 20 }, panel, canvas, gap, noStrips, wide)).toEqual({ x: 92, y: 90 })
+    })
+
+    test('with room on neither side, below the element, with its right edge at the right edge of the element', () => {
+      expect(panelPlace(pin, panel, narrow, gap, noStrips, element)).toEqual({ x: 360, y: 248 })
+    })
+
+    test('with no room below, above the element', () => {
+      const low = { ...element, y: 420 }
+      expect(panelPlace({ ...pin, y: 410 }, panel, narrow, gap, noStrips, low)).toEqual({ x: 360, y: 262 })
+    })
+
+    test('with room on no side, at the right edge of the canvas, as with no element', () => {
+      const tall = { x: 60, y: 100, width: 500, height: 400 }
+      expect(panelPlace({ ...pin, y: 90 }, panel, narrow, gap, noStrips, tall)).toEqual({ x: 392, y: 90 })
+    })
+
+    test('below the element, the panel stays out of the toolbar', () => {
+      // 248 + 150 is above 600 - 300 - 8: no room below, thus above.
+      expect(panelPlace(pin, panel, narrow, gap, { top: 0, bottom: 300 }, element)).toEqual({ x: 360, y: 42 })
+    })
+  })
+
   test('a canvas that is smaller than the panel gives the top left corner, gap from the edges', () => {
     expect(panelPlace({ x: 50, y: 50, width: 20, height: 20 }, panel, { width: 100, height: 100 }, gap, noStrips)).toEqual({
       x: 8,
