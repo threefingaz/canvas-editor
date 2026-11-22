@@ -13,6 +13,12 @@ export type CanvasConfig = {
   // The work folder of the tool (request and issues files), relative to the
   // project root. Git ignores it.
   work: string
+  // The command of the code editor that opens the chat of the agent with a
+  // prompt (here the command line of VS Code, for GitHub Copilot in agent
+  // mode). The dev server starts it on this machine for "Send to the agent",
+  // with the fixed sentence for the agent as the last argument. `null` turns
+  // "Send to the agent" off; the button "Copy for the agent" stays.
+  agent: { command: string; args: readonly string[] } | null
 }
 
 export const config = {
@@ -20,4 +26,5 @@ export const config = {
   screens: 'screens',
   tokens: 'tokens.json',
   work: '.canvas',
+  agent: { command: 'code', args: ['chat', '--mode', 'agent', '--reuse-window'] },
 } as const satisfies CanvasConfig

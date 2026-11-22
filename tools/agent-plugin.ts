@@ -1,0 +1,162 @@
+// Development only: "Send to the agent". `POST /__canvas/agent` starts the
+// command of the code editor that opens the chat of the agent with the fixed
+// sentence (`agent` in `canvas.config.ts`, `agent.ts`), thus the user neither
+// types nor pastes it. The process runs on this machine; nothing goes to a
+// remote server.
+//
+// The answer is JSON with the status 200: `{ "started": true }`, or
+// `{ "started": false, "reason": "<short text>" }` when the config has no
+// command, the command is not found, or it ends with an error code within a
+// short time. The editor then copies the sentence for the user.
+//
+// No part of the call goes into the command: the handler does not read the
+// body, the query or a header for it. The command and the sentence are fixed
+// in the code, thus a page cannot make the server run a different thing.
+
+import { spawn as spawnProcess } from 'node:child_process'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import { normalizePath, type Plugin } from 'vite'
+import { config } from '../canvas.config.ts'
+import { agentSentence } from '../src/editor/requests/agent-sentence.ts'
+import { agentAddress, type AgentAnswer } from '../src/requests/api.ts'
+import { messageOf } from '../src/tokens/format.ts'
+import { agentCommand, agentOff, startResult, type AgentConfig, type StartEvent } from './agent.ts'
+import { sameOrigin } from './requests.ts'
+
+// How long the handler waits for an error code of the command, in ms. The
+// command of a code editor hands the prompt to the open window and ends, or
+// stays; a command that fails does so at once.
+export const startWait = 1500
+
+// The part of a child process that the handler reads.
+export type AgentProcess = {
+  once(event: 'spawn', listener: () => void): unknown
+  // `on`, not `once`: a second error of the process with no listener would
+  // stop the dev server.
+  on(event: 'error', listener: (error: Error & { code?: string }) => void): unknown
+  once(event: 'exit', listener: (code: number | null) => void): unknown
+  unref(): void
+}
+
+export type SpawnOptions = {
+  cwd: string
+  shell: boolean
+  detached: true
+  stdio: 'ignore'
+  windowsHide: true
+}
+
+export type Spawn = (command: string, args: string[], options: SpawnOptions) => AgentProcess
+
+export type AgentDeps = {
+  // The project root: the folder in which the command starts, thus the code
+  // editor takes the window of this project.
+  root: () => string
+  // The command of the config, or null.
+  agent: () => AgentConfig
+  // The sentence for the agent.
+  sentence: string
+  platform: string
+  spawn: Spawn
+  // The wait for an error code, in ms.
+  wait?: number
+}
+
+export type AgentHandler = (req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>
+
+function sendText(res: ServerResponse, status: number, text: string, headers: Record<string, string> = {}) {
+  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
+  res.end(`${text}\n`)
+}
+
+function sendAnswer(res: ServerResponse, answer: AgentAnswer) {
+  res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
+  res.end(`${JSON.stringify(answer)}\n`)
+}
+
+// Starts the process and says how the start ended: an error of the system, an
+// end within the wait, or a process that still runs after it. The process is
+// detached with no streams, thus it lives on when the dev server stops.
+function start(deps: AgentDeps, agent: NonNullable<AgentConfig>): Promise<AgentAnswer> {
+  const { command, args, shell } = agentCommand(agent, deps.sentence, deps.platform)
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const done = (event: StartEvent) => {
+      clearTimeout(timer)
+      resolve(startResult(event, command))
+    }
+    const child = deps.spawn(command, args, {
+      cwd: deps.root(),
+      shell,
+      detached: true,
+      stdio: 'ignore',
+      windowsHide: true,
+    })
+    child.on('error', (error) => done({ kind: 'error', code: error.code, message: error.message }))
+    child.once('exit', (code) => done({ kind: 'exit', code }))
+    child.once('spawn', () => {
+      child.unref()
+      timer = setTimeout(() => done({ kind: 'running' }), deps.wait ?? startWait)
+    })
+  })
+}
+
+// The middleware. The checks of a call come in this sequence: the address
+// (the next middleware), the method (405), the origin (403).
+export function createAgentHandler(deps: AgentDeps): AgentHandler {
+  return async function handle(req, res, next) {
+    if (req.url?.split('?', 1)[0] !== agentAddress) {
+      next()
+      return
+    }
+    if (req.method !== 'POST') {
+      sendText(res, 405, 'only POST starts the agent command', { Allow: 'POST' })
+      return
+    }
+    if (!sameOrigin({ origin: req.headers.origin, host: req.headers.host })) {
+      sendText(res, 403, 'only the editor of this server can use this address')
+      return
+    }
+    // The body is not read: it is thrown away.
+    req.resume()
+
+    const agent = deps.agent()
+    if (agent === null) {
+      sendAnswer(res, { started: false, reason: agentOff })
+      return
+    }
+    try {
+      sendAnswer(res, await start(deps, agent))
+    } catch (error) {
+      // The command line was refused, or the start threw.
+      sendAnswer(res, { started: false, reason: messageOf(error) })
+    }
+  }
+}
+
+export function agentPlugin(): Plugin {
+  let root = normalizePath(process.cwd())
+  const handle = createAgentHandler({
+    root: () => root,
+    agent: () => config.agent,
+    sentence: agentSentence,
+    platform: process.platform,
+    spawn: (command, args, options) => spawnProcess(command, args, options),
+  })
+
+  return {
+    name: 'canvas-agent',
+    apply: 'serve',
+    configResolved(resolved) {
+      root = normalizePath(resolved.root)
+    },
+    configureServer(server) {
+      server.middlewares.use((req, res, next) => {
+        handle(req, res, next).catch((error: unknown) => {
+          if (res.headersSent) return
+          sendText(res, 500, messageOf(error))
+        })
+      })
+    },
+  }
+}

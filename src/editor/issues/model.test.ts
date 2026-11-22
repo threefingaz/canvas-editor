@@ -61,7 +61,7 @@ describe('screenIssues', () => {
     const note = target(68, 15, { tag: 'Typography', element: 'span', label: 'No card needed.' })
     const issues = screenIssues(
       [
-        { target: chips, rows: [row('Gap', gap, { missing: true, state: { state: 'equal', token: spacing(2) } })], links: [] },
+        { target: chips, set: true, rows: [row('Gap', gap, { missing: true, state: { state: 'equal', token: spacing(2) } })], links: [] },
         {
           target: note,
           links: [],
@@ -86,6 +86,7 @@ describe('screenIssues', () => {
         value: '16px',
         state: 'equal',
         token: { id: 'spacing.2', name: 'spacing.2', code: 2 },
+        set: 'screen',
       },
       {
         kind: 'no-token',
@@ -94,6 +95,7 @@ describe('screenIssues', () => {
         value: '13px',
         state: 'none',
         token: { id: 'spacing.2', name: 'spacing.2', code: 2 },
+        set: 'library',
       },
     ])
   })
@@ -105,7 +107,7 @@ describe('screenIssues', () => {
       null,
       null,
     )
-    expect(issues).toEqual([{ kind: 'no-token', target: box, property: 'padding', value: '16px', state: 'none' }])
+    expect(issues).toEqual([{ kind: 'no-token', target: box, property: 'padding', value: '16px', state: 'none', set: 'library' }])
   })
 
   test('a linked row and a row that is not missing (a group with no tokens) give nothing', () => {
@@ -164,6 +166,7 @@ describe('screenIssues', () => {
         value: '24px',
         state: 'equal',
         token: { id: 'spacing.3', name: 'spacing.3', code: 3 },
+        set: 'screen',
       },
       { kind: 'override', target: footer, property: 'padding', value: '24px' },
       { kind: 'override', target: footer, property: 'display', value: 'flex' },
@@ -346,6 +349,16 @@ describe('issueGroups', () => {
       { kind: 'not-library', issues: [local] },
       { kind: 'no-token', issues: [gapIssue, colorIssue] },
       { kind: 'override', issues: [override] },
+    ])
+  })
+
+  test('puts the defaults of the library in a last group', () => {
+    const fromLibrary: Issue = { ...gapIssue, set: 'library' }
+    const fromScreen: Issue = { ...colorIssue, set: 'screen' }
+    expect(issueGroups([fromLibrary, fromScreen, override])).toEqual([
+      { kind: 'no-token', issues: [fromScreen] },
+      { kind: 'override', issues: [override] },
+      { kind: 'library', issues: [fromLibrary] },
     ])
   })
 

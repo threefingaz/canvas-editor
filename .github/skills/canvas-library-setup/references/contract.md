@@ -49,7 +49,7 @@ One row for each. If the library has no component, say what to build (section 7)
 - headings: the text style and the level of the document
 - a table, a row header, and a sub heading row inside the table
 - the main menu, tabs, a link
-- a button, a link and a list row that go to a different screen: which components take an address (`href="#/<screen id>"`, see "Layout" in the root `AGENTS.md`), and what they render. The editor and the site follow only an `a` element with that address: a component that renders a different element with the address is not a link. Try each one in the editor with the Preview switch on
+- a button, a link and a list row that go to a different screen: which components take an address (`href="#/<screen id>"`, see "Screen files" in the root `AGENTS.md`), and what they render. The editor and the site follow only an `a` element with that address: a component that renders a different element with the address is not a link. Try each one in the editor with the Preview switch on
 - a list; a divider between rows
 - text only for a screen reader
 - a chart: the plain parts for bars, and for a line

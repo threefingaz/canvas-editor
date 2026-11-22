@@ -10,6 +10,7 @@ import {
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { screenHash } from '../../frame/screen-link.ts'
+import { deviationCount } from '../../requests/format.ts'
 import { relationOf } from '../../related/groups.ts'
 import { siteEntry } from '../../site/entry.ts'
 import { bubble, openPin } from '../comments/bubble-store.ts'
@@ -513,12 +514,13 @@ function KeepButton({ state, onKeep }: KeepControl) {
   )
 }
 
-// The count of issues of a screen, next to its title; nothing before the
-// first reading. A click shows the Issues list of the screen.
+// The count of the deviations of a screen (`deviationCount`: its issues but
+// the defaults of the library), next to its title; nothing before the first
+// reading. A click shows the Issues list of the screen.
 function IssueCount({ screenId, onClick }: { screenId: string; onClick: () => void }) {
   const list = useScreenIssues(screenId)
   if (list === undefined) return null
-  const count = list.length
+  const count = deviationCount(list)
   return (
     <button
       type="button"
@@ -526,8 +528,8 @@ function IssueCount({ screenId, onClick }: { screenId: string; onClick: () => vo
         'flex shrink-0 cursor-pointer items-center gap-1 border-0 bg-transparent p-0 tabular-nums hover:underline',
         count > 0 ? 'text-[color:var(--attention)]' : 'text-inherit',
       )}
-      title={`${count === 1 ? '1 issue' : `${count} issues`}: show the Issues list of this screen`}
-      aria-label={count === 1 ? '1 issue' : `${count} issues`}
+      title={`${count === 1 ? '1 deviation' : `${count} deviations`} from the design system: show the Issues list of this screen`}
+      aria-label={count === 1 ? '1 deviation' : `${count} deviations`}
       onClick={(event) => event.button === 0 && onClick()}
       data-frame-issues={count}
     >

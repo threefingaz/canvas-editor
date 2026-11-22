@@ -4,8 +4,8 @@
 /// <reference lib="dom" />
 
 import { describe, expect, test } from 'vitest'
-import { locationPrefix, parseLoc } from '../src/editor/locate/fiber.ts'
-import { addSourceLocations, locationPrefix as buildPrefix, screenModuleFile } from './source-location.ts'
+import { locationPrefix, parseLoc, setMark } from '../src/editor/locate/fiber.ts'
+import { addSourceLocations, locationPrefix as buildPrefix, screenModuleFile, setMark as buildMark } from './source-location.ts'
 
 const file = 'screens/onboarding/welcome.tsx'
 const library = '@mui/material'
@@ -107,7 +107,15 @@ describe('addSourceLocations', () => {
 
   test('writes the attribute that the editor reads', () => {
     expect(buildPrefix).toBe(locationPrefix)
+    expect(buildMark).toBe(setMark)
     expect(changed('const a = <p />')).toContain(` ${locationPrefix}1-11=`)
+  })
+
+  test('marks an element that sets a value in the file', () => {
+    const out = changed(`const a = <Box sx={{ gap: '16px' }}><Box sx={{ p: 2 }} /><i style={{}} /></Box>`)
+    expect(out).toContain(`${file}:1:11 Box local set"`)
+    expect(out).toContain(`Box local"} />`)
+    expect(out).toContain(`i host set"`)
   })
 
   test('gives each element its own attribute name', () => {

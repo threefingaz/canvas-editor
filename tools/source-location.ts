@@ -11,7 +11,9 @@
 // `local` for each other component: one of the file, or one imported from a
 // different module. A member name (`Card.Header`) takes the origin of its first
 // part. The editor reads the value from the end (see `parseLoc` in
-// `src/editor/locate/fiber.ts`), thus a space in the file name is kept.
+// `src/editor/locate/fiber.ts`), thus a space in the file name is kept. An
+// element that sets a value in the file has one more word at the end, `set`
+// (`setMark`).
 //
 // Each element has its own attribute name, not one shared name: a wrapper that
 // clones its child with its own leftover props (a transition of the library)
@@ -28,8 +30,17 @@
 
 import MagicString, { type SourceMap } from 'magic-string'
 import { parseSync, Visitor } from 'vite'
-import type { Origin } from '../src/requests/format.ts'
+import { fragmentNames, importSources, isFragment, originOf, position } from './jsx.ts'
+import { tagValues } from './screen-facts.ts'
 import { folderPrefix, screenExtension } from './screens.ts'
+
+// The last word of the value of an element that sets a value in the screen
+// file: a raw value, a `style` attribute, a size of the font as a number, or a
+// computed text (`tagValues` in `screen-facts.ts`). The editor reads it
+// (`parseLoc`) and tells the values of such an element from the defaults of
+// the library. The same word is a constant in `src/editor/locate/fiber.ts`; a
+// test checks that they are equal.
+export const setMark = 'set'
 
 // The start of the name of each location attribute.
 export const locationPrefix = 'data-loc-'
@@ -47,64 +58,6 @@ export function screenModuleFile(id: string, root: string, folder: string): stri
   if (!path.startsWith(base)) return null
   const file = path.slice(base.length)
   return file.startsWith(folderPrefix(folder)) ? file : null
-}
-
-// Line and column of an offset, both 1-based.
-function position(code: string, offset: number): { line: number; column: number } {
-  const before = code.slice(0, offset)
-  const lineStart = before.lastIndexOf('\n') + 1
-  return { line: before.split('\n').length, column: offset - lineStart + 1 }
-}
-
-type Program = ReturnType<typeof parseSync>['program']
-
-// The local names of `Fragment`: `Fragment`, and `F` from
-// `import { Fragment as F } from 'react'`. React warns when a fragment gets a
-// prop other than `key` and `children`.
-function fragmentNames(program: Program): Set<string> {
-  const names = new Set(['Fragment'])
-  for (const statement of program.body) {
-    if (statement.type !== 'ImportDeclaration' || statement.source.value !== 'react') continue
-    for (const specifier of statement.specifiers ?? []) {
-      if (
-        specifier.type === 'ImportSpecifier' &&
-        specifier.imported.type === 'Identifier' &&
-        specifier.imported.name === 'Fragment'
-      ) {
-        names.add(specifier.local.name)
-      }
-    }
-  }
-  return names
-}
-
-// The module of each imported local name: `B` from
-// `import { Button as B } from '<package>'`, also a default and a
-// namespace import.
-function importSources(program: Program): Map<string, string> {
-  const sources = new Map<string, string>()
-  for (const statement of program.body) {
-    if (statement.type !== 'ImportDeclaration') continue
-    for (const specifier of statement.specifiers ?? []) {
-      sources.set(specifier.local.name, statement.source.value)
-    }
-  }
-  return sources
-}
-
-// A tag with no dot that starts with a lowercase letter, or has a `-` or a
-// `:`, is a plain element, as JSX reads it.
-function isHostTag(tag: string): boolean {
-  return !tag.includes('.') && (/^[a-z]/.test(tag) || tag.includes('-') || tag.includes(':'))
-}
-
-// The origin of a tag, from the imports of the file. With no library package
-// (no library is connected), no component is from the library.
-function originOf(tag: string, imports: Map<string, string>, libraryPackage: string | null): Origin {
-  if (isHostTag(tag)) return 'host'
-  const source = imports.get(tag.split('.')[0])
-  if (source === undefined || libraryPackage === null) return 'local'
-  return source === libraryPackage || source.startsWith(`${libraryPackage}/`) ? 'library' : 'local'
 }
 
 // Gives null when nothing changes: a file with no JSX, a file where each
@@ -131,7 +84,7 @@ export function addSourceLocations(
   new Visitor({
     JSXOpeningElement(node) {
       const name = code.slice(node.name.start, node.name.end)
-      if (fragments.has(name) || name.endsWith('.Fragment')) return
+      if (isFragment(name, fragments)) return
       const hasLocation = node.attributes.some(
         (attribute) =>
           attribute.type === 'JSXAttribute' &&
@@ -149,7 +102,9 @@ export function addSourceLocations(
       // A member name can have spaces around its dots.
       const tag = name.replaceAll(/\s+/g, '')
       const origin = originOf(tag, imports, libraryPackage)
-      const value = JSON.stringify(`${relativeFile}:${line}:${column} ${tag} ${origin}`)
+      // The word `set` marks an element that sets a value in the file.
+      const mark = tagValues(node, code).sets ? ` ${setMark}` : ''
+      const value = JSON.stringify(`${relativeFile}:${line}:${column} ${tag} ${origin}${mark}`)
       output.appendLeft(insertAt, ` ${locationPrefix}${line}-${column}={${value}}`)
       changed = true
     },

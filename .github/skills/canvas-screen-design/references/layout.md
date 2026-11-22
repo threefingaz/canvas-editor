@@ -80,7 +80,7 @@ To press a thing, a hand must hit it. The farther the target, the longer the aim
   - the main menu gets a different design for a narrow width (see [Navigation](./navigation.md)).
 - **No one point where "desktop" becomes "mobile".** Each block changes at the width where it no longer fits. A phone that is held sideways, or a window of 1024 px, keeps the blocks that still fit in their wide form; do not give a window of that width the phone layout.
 - **Nothing is left out on a narrow screen**: the same content and the same functions.
-- On the canvas a screen file has one width. To show how a screen adapts, draw it as a second screen file with a different `width` from `canvas.config.ts`, with the same content. Keep content that the two share (the rows, the values) in one plain data file with no markup in the folder of the flow.
+- On the canvas a screen file has one width. To show how a screen adapts, draw it as a second screen file with a different `width` from `canvas.config.ts`, with the same content. Each of the two files has its whole markup. Content that the two share (the names, the values of the rows) can be in one plain data file with no markup in the folder of the flow.
 
 ## What to draw
 

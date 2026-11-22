@@ -2,6 +2,7 @@ import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vite'
+import { agentPlugin } from './tools/agent-plugin.ts'
 import { libraryPlugin } from './tools/library-plugin.ts'
 import { packOf, readPackState } from './tools/pack.ts'
 import { packPlugin } from './tools/pack-plugin.ts'
@@ -31,6 +32,9 @@ const pack = packOf(readPackState(fileURLToPath(new URL('.', import.meta.url))))
 export default defineConfig({
   // The source location step runs before the React plugin (dev server only).
   // The requests plugin is the local file API of the editor (dev server only).
+  // The agent plugin starts the command that opens the chat of the agent
+  // (dev server only); it is before the requests plugin, which answers 404 for
+  // each other address of the file API.
   // The tokens plugin writes the token file again after a change in the
   // library folder (dev server only). The library plugin gives the frame and
   // the site the wrapper of the library pack (dev server and build). The pack
@@ -42,6 +46,7 @@ export default defineConfig({
     tailwindcss(),
     screensPlugin(pack),
     libraryPlugin(pack),
+    agentPlugin(),
     requestsPlugin(),
     tokensPlugin(pack),
     packPlugin(pack),

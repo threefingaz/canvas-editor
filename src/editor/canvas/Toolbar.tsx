@@ -2,6 +2,7 @@ import {
   ArrowUUpLeftIcon,
   ArrowUUpRightIcon,
   BoundingBoxIcon,
+  FlowArrowIcon,
   FrameCornersIcon,
   MinusIcon,
   MoonIcon,
@@ -22,7 +23,8 @@ import { maxScale, minScale } from './viewport.ts'
 // the edits of all screens, the button "Copy for the agent" with the count of
 // the changes as a badge, an error of the save of the request
 // files, the switch of the markers of the elements that are not from the
-// library, the zoom, and the theme of the editor. The zoom keeps the
+// library, the switch of the arrows of the links between the screens
+// (`FlowLayer.tsx`), the zoom, and the theme of the editor. The zoom keeps the
 // selection in the view when it is there; the titles of the buttons name
 // their keys.
 
@@ -36,6 +38,9 @@ type ToolbarProps = {
   onFitAll: () => void
   markers: boolean
   onToggleMarkers: () => void
+  // The arrows of the links between the screens show.
+  links: boolean
+  onToggleLinks: () => void
   theme: EditorTheme
   onToggleTheme: () => void
 }
@@ -50,6 +55,8 @@ export function Toolbar({
   onFitAll,
   markers,
   onToggleMarkers,
+  links,
+  onToggleLinks,
   theme,
   onToggleTheme,
 }: ToolbarProps) {
@@ -108,6 +115,15 @@ export function Toolbar({
           onClick={onToggleMarkers}
         >
           <BoundingBoxIcon weight={markers ? 'bold' : 'regular'} />
+        </PanelIconButton>
+      </span>
+      <span data-links-switch={links ? 'on' : 'off'}>
+        <PanelIconButton
+          className={links ? 'text-[color:var(--accent)]' : undefined}
+          label={links ? 'Hide links between screens' : 'Show links between screens'}
+          onClick={onToggleLinks}
+        >
+          <FlowArrowIcon weight={links ? 'bold' : 'regular'} />
         </PanelIconButton>
       </span>
       <PanelIconButton label="Zoom out" disabled={scale <= minScale} onClick={onZoomOut}>

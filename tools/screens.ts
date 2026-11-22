@@ -11,6 +11,7 @@ import { config } from '../canvas.config.ts'
 import { relationOf } from '../src/related/groups.ts'
 import { messageOf } from '../src/tokens/format.ts'
 import type { Pack } from './pack.ts'
+import { linkIds, screenFacts } from './screen-facts.ts'
 
 // `stateOf` and `optionOf` are the id of the base screen of a state or of an
 // option. A file has at most one of them; a screen with neither is a base.
@@ -42,6 +43,10 @@ export type ScreenEntry = {
   // The error text when the file cannot be read; then `title` is the name and
   // `width` is the first width of the config.
   error?: string
+  // The ids of the screens that the file links to with a literal address
+  // (`href="#/<id>"`), in the order of the code, each one time. An id that no
+  // screen has is in it too.
+  links: string[]
 }
 
 export type ScreenFile = { file: string; code: string }
@@ -154,6 +159,7 @@ export function screenEntry(file: string, meta: ScreenMeta, screensFolder: strin
     file: path,
     ...(meta.stateOf === undefined ? {} : { stateOf: meta.stateOf }),
     ...(meta.optionOf === undefined ? {} : { optionOf: meta.optionOf }),
+    links: [],
   }
 }
 
@@ -220,15 +226,18 @@ function withRelationError(entry: ScreenEntry, problem: string): ScreenEntry {
 // The list of the virtual module. A file with an error gives an entry with
 // the error text, thus one broken screen does not break the editor. A broken
 // relation gives an entry with `relationError`, not an error: the screen
-// stays visible.
+// stays visible. `libraryPackage` is the npm package of the library, or null
+// with no library; the links of a file do not depend on it.
 export function screenList(
   files: readonly ScreenFile[],
   widths: readonly number[] = config.widths,
   screensFolder: string = config.screens,
+  libraryPackage: string | null = null,
 ): ScreenEntry[] {
   const entries = files.map(({ file, code }) => {
     try {
-      return screenEntry(file, readScreenMeta(code, file, widths), screensFolder)
+      const entry = screenEntry(file, readScreenMeta(code, file, widths), screensFolder)
+      return { ...entry, links: linkIds(screenFacts(code, file, libraryPackage)) }
     } catch (error) {
       const fallback = screenEntry(file, { title: '', width: widths[0] }, screensFolder)
       return { ...fallback, title: fallback.name, error: messageOf(error) }

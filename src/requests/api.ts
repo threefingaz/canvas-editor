@@ -31,3 +31,13 @@ export function hashOfHeader(header: string | null | undefined): string | null {
 // The event of the dev server to the editor when a request file changes, is
 // added or is removed, with `{ id }`: the screen id.
 export const requestChangedEvent = 'canvas:request-changed'
+
+// `POST` on this address starts the command of the code editor that opens the
+// chat of the agent with the fixed sentence (`tools/agent-plugin.ts`). The
+// call carries no content: the command and the sentence are fixed on the
+// server.
+export const agentAddress = `${apiPrefix}agent`
+
+// The answer of `agentAddress`, with the status 200 in the two cases.
+// `reason` is a short text for the user: why the command did not start.
+export type AgentAnswer = { started: true } | { started: false; reason: string }

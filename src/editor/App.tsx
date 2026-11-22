@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { library, screens } from 'virtual:canvas-screens'
 import { linkAt, type LinkTarget } from '../frame/screen-link.ts'
 import { optionTotals } from '../related/groups.ts'
+import { flowPairs } from '../related/links.ts'
 import { Canvas } from './canvas/Canvas.tsx'
 import { EditMarks } from './canvas/EditMarks.tsx'
+import { readLinksShown, writeLinksShown } from './canvas/flow.ts'
+import { FlowLayer } from './canvas/FlowLayer.tsx'
 import { Frame, type KeepBase } from './canvas/Frame.tsx'
 import { keepKeys, layoutFrames } from './canvas/layout.ts'
 import { readMarkersShown, writeMarkersShown } from './canvas/markers.ts'
@@ -51,7 +54,8 @@ import { Alert, AlertDescription, AlertTitle, PanelSurface } from './ui'
 
 // The editor: the canvas with the frames of the screens, the markers of the
 // elements that are not from the library, the pins of the comments, the
-// selection with its bar, the bubble of the comments, and the toolbar, and
+// arrows of the links between the screens and the names of the flows
+// (`FlowLayer.tsx`), the selection with its bar, the bubble of the comments, and the toolbar, and
 // the inspector in a column at the right. With the Preview switch on
 // (`operate.ts`), a click on a link in a frame moves the view to the frame of
 // its screen in place of a selection, and the inspector is closed: the canvas
@@ -130,6 +134,11 @@ const minEditorWidth = 1024
 // The strips of the canvas that a fit leaves free, in px on the screen: the
 // title row above a frame (it keeps its size at each zoom) and the toolbar at
 // the bottom with its distance from the edge.
+// The free space around all frames after a fit of all of them, in px on the
+// screen: the name of each flow is at the left of its row, and the arrows of
+// the links are above it.
+const fitAllPadding = 120
+
 const fitStrips: Strips = { top: titleRowHeight, bottom: toolbarStrip }
 // The least distance of the middle of an element from the edges of the free
 // part of the canvas (the canvas less the notice and the toolbar) for a click
@@ -164,6 +173,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('design')
   // The markers of the elements that are not from the library show or hide.
   const [markers, setMarkers] = useState(() => readMarkersShown())
+  // The arrows of the links between the screens show or hide.
+  const [links, setLinks] = useState(() => readLinksShown())
   // The Preview switch, the frame whose link is below the pointer, the frame
   // of the last link target, and the message of a link to an unknown screen.
   const operating = useOperate()
@@ -183,6 +194,8 @@ export default function App() {
   // once for the list, not once for each frame.
   const totals = useMemo(() => optionTotals(screens), [])
   const byId = useMemo(() => new Map(screens.map((screen) => [screen.id, screen])), [])
+  // The links between the screens, for the arrows of the canvas.
+  const pairs = useMemo(() => flowPairs(screens), [])
   const bounds = layout.bounds
   // The frames that have a document: the screens with no error. The maps by
   // screen id drop the entries of removed screens at their next change, and
@@ -262,7 +275,7 @@ export default function App() {
   }
 
   const fitAll = () => {
-    if (size.current) setView(centerOn(bounds, size.current, fitStrips))
+    if (size.current) setView(centerOn(bounds, size.current, fitStrips, fitAllPadding))
   }
 
   // The rectangle of the selected node in the frame document and the place
@@ -345,6 +358,14 @@ export default function App() {
     if (clearsSelection(event, selection.get()?.screenId ?? null, id)) selection.clear()
   }
 
+  // A click on a row of the Project tab: the Changes tab lists the screen, as
+  // after a click on its title, and the view fits its frame, which is marked
+  // for a short time.
+  const openScreen = (id: string) => {
+    onTitle(id, 'title')
+    showScreen(id)
+  }
+
   const onResize = useCallback(
     (next: Size) => {
       size.current = next
@@ -355,7 +376,7 @@ export default function App() {
       // empty; after that a new size keeps the middle of the view.
       if (!centered.current) {
         centered.current = true
-        setView(centerOn(bounds, next, fitStrips))
+        setView(centerOn(bounds, next, fitStrips, fitAllPadding))
       } else if (before) {
         setView((current) => resized(current, before, next))
       }
@@ -366,6 +387,11 @@ export default function App() {
   const toggleMarkers = () => {
     setMarkers(!markers)
     writeMarkersShown(!markers)
+  }
+
+  const toggleLinks = () => {
+    setLinks(!links)
+    writeLinksShown(!links)
   }
 
   // The selection, the outline and the bubble go away when the Preview switch
@@ -423,6 +449,7 @@ export default function App() {
           onResize={onResize}
           overlay={
             <>
+              <FlowLayer view={view} frames={layout.frames} pairs={pairs} arrows={links} />
               <Markers view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
               <EditMarks view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
               <Pins
@@ -459,6 +486,8 @@ export default function App() {
                 onFitAll={fitAll}
                 markers={markers}
                 onToggleMarkers={toggleMarkers}
+                links={links}
+                onToggleLinks={toggleLinks}
                 theme={theme}
                 onToggleTheme={toggle}
               />
@@ -494,6 +523,7 @@ export default function App() {
           tab={tab}
           onTab={setTab}
           onShowScreen={showScreen}
+          onOpenScreen={openScreen}
           onShowTitle={showTitle}
           onReveal={reveal}
         />

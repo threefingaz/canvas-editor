@@ -1,18 +1,21 @@
-// The two tabs of the panel at the right of the editor: Design, the values of
-// the selected element, and Changes, the edits, the comments, the requests
-// and the issues of the listed screen. The panel shows one of them at a time.
+// The three tabs of the panel at the right of the editor: Design, the values
+// of the selected element; Changes, the edits, the comments, the requests and
+// the issues of the listed screen; and Project, each screen of the project by
+// flow with its counts. The panel shows one of them at a time.
 // A click on an element in a frame opens Design; a click on the title of a
 // frame, on its count of issues, on its mark "Options asked" or on a pin of
 // its title row (the comments on the screen, the lost comments) opens
-// Changes. A selection that comes from a row of a list in the panel, or from
+// Changes. A click on a row of the Project tab lists its screen and opens
+// Changes too. No click on the canvas opens Project: only its tab does. A
+// selection that comes from a row of a list in the panel, or from
 // a pin on an element, sends no event: the tab stays, thus the user can go
 // down the list.
 
-export type Tab = 'design' | 'changes'
+export type Tab = 'design' | 'changes' | 'project'
 
 // True for the value of a tab: the tabs give the value of a click as text.
 export function isTab(value: unknown): value is Tab {
-  return value === 'design' || value === 'changes'
+  return value === 'design' || value === 'changes' || value === 'project'
 }
 
 export type TabEvent = 'pick' | 'title' | 'issues' | 'pin-of-screen'

@@ -107,6 +107,7 @@ Much of this skill is about behavior: an undo, a wait, a change between two stat
 - **If the screen can operate, build the behavior** as the rules say.
 - **If the screen is a picture of one state, draw the states** that carry the behavior, each as its own screen file, and name in your report the behavior between them.
 - **A picture builds one behavior: a link to a different screen.** The control that leads to the next state links to the screen file of that state (the send button of a form links to the "sending" state), and the path back links to the screen before it. Write the link as `AGENTS.md` says, on a part of the design system that takes an address; the library skill names those parts. A control whose target you did not draw has no link: name it in your report.
+- **A step that no person takes has no link.** A wait ends by itself, and a picture cannot do that. The control that starts the wait links to the state that the person acts on next (the result), thus the flow can be clicked through; the state during the wait is drawn as a state that no link reaches, and your report names it.
 
 **A remark of the author** is a line on a picture that is not a part of the product: it tells the viewer what the picture leaves out or stands for (rows that are not drawn, a picture with no file, a text that is not written yet). Each remark starts with the words "Not drawn:" and is in the weakest text style of the design system, thus nobody takes it for product text and nobody builds it. A caption of the product (a source under a chart) uses the same style and has no such words. Use a remark only where the picture would mislead with no remark, and list the remarks in your report.
 
@@ -172,6 +173,8 @@ Check each screen against the list "What to check" in [Access for each person](.
 
 Walk the task through the screens that you wrote. At each step, name what the person must notice, read, remember, compute, enter and hit. A step that needs arithmetic, memory of an earlier screen, a guess or a second try is a defect: fix it before you report. Then read each text of the screen together with its neighbors, as a stranger: two correct parts can say a wrong thing together (see "Meanings that nobody intended" in [Messages](./references/messages.md) when a general text, a status or a reaction control meets real content).
 
+Then run the check of the code that `AGENTS.md` names (`npm run check` with the screens that you wrote). You do not see the screen, and the check reads what the code says: a part that is not from the design system, a style of your own, a value that is not from a scale, a link to no screen. Fix each finding, or name it in your report with its reason, as `AGENTS.md` says.
+
 Then tell the user, in about 10 lines (the three items of section 1 do not count; a flow of four or more screens can take 15):
 
 - what you left out or joined, and why;
@@ -181,6 +184,7 @@ Then tell the user, in about 10 lines (the three items of section 1 do not count
 - each place where the design system lacks a thing that the screen needs, where you kept its default against a rule of this skill, or where you followed an explicit rule of its guidance against this skill;
 - the behavior that you did not build and that you rely on (an undo, a state during a wait, a hover, a motion), and the states that the screen has in use and that you did not draw, together in one or two lines;
 - for options, each option and its difference, in one line each;
-- the controls that have no link because their target is not drawn, in one line.
+- the controls that have no link because their target is not drawn, in one line;
+- each finding of the check that stays, with its reason, in one line each.
 
 Give only the items that the user can want to change. Do not list each rule that you followed.

@@ -127,6 +127,7 @@ export function collectIssues(
     target: targetOf(place.site, place.node.tagName.toLowerCase(), place.copies, codeText(place.node)),
     rows: place.inner ? inspectorModel(readStyles(place.node), tokens).sections.flatMap((section) => section.rows) : [],
     links: links.get(place.site.loc) ?? [],
+    set: place.site.set === true,
   }))
   return screenIssues(elements, error, relation)
 }

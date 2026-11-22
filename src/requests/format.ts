@@ -155,6 +155,12 @@ export type Issue =
       value: string
       state: 'equal' | 'none'
       token?: TokenRef
+      // Where the value is set: `screen` when the element sets a value in
+      // the screen file (a raw value, a `style` attribute, a size of the font
+      // as a number, a computed text), `library` when it does not: then the
+      // value is a default of a component of the library, and it is not a
+      // deviation. A file with no `set` is older: each value counts.
+      set?: 'screen' | 'library'
     }
   | { kind: 'override'; target: Target; property: string; value: string }
   | { kind: 'not-library'; target: Target }
@@ -178,6 +184,19 @@ export const issueKinds = [
   'render-error',
   'relation',
 ] as const satisfies readonly Issue['kind'][]
+
+export const issueSets = ['screen', 'library'] as const
+
+// True for an issue that is a deviation of the screen: each issue but a value
+// with no token that a component of the library sets by itself.
+export function isDeviation(issue: Issue): boolean {
+  return !(issue.kind === 'no-token' && issue.set === 'library')
+}
+
+// The count of the deviations of a list of issues.
+export function deviationCount(issues: readonly Issue[]): number {
+  return issues.filter(isDeviation).length
+}
 
 export type IssuesFile = { version: typeof formatVersion; screen: string; file: string; issues: Issue[] }
 
@@ -417,6 +436,7 @@ function parseIssue(raw: unknown, index: number): Issue {
         state: oneOf(value.state, ['equal', 'none'] as const, 'state', fail),
       }
       if (value.token !== undefined) issue.token = parseTokenRef(value.token, fail)
+      if (value.set !== undefined) issue.set = oneOf(value.set, issueSets, 'set', fail)
       return issue
     }
     case 'override':

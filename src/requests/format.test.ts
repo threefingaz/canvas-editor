@@ -7,6 +7,8 @@ import {
   isTask,
   issueKinds,
   labelOf,
+  deviationCount,
+  isDeviation,
   parseIssues,
   parseRequest,
   tokenRef,
@@ -397,6 +399,7 @@ const issues: IssuesFile = {
       value: '24px',
       state: 'equal',
       token: { id: 'spacing.3', name: 'spacing.3', code: 3 },
+      set: 'library',
     },
     { kind: 'no-token', target, property: 'gap', value: '13px', state: 'none' },
     { kind: 'override', target, property: 'color', value: 'rgb(255, 0, 0)' },
@@ -440,6 +443,16 @@ describe('parseIssues', () => {
   test('rejects a no-token issue with a wrong state', () => {
     const file = issuesWith(0, (issue) => (issue.state = 'linked'))
     expect(() => parseIssues(file)).toThrow(/issue 1 .*state "linked"/)
+  })
+
+  test('rejects a no-token issue with a wrong `set`', () => {
+    const file = issuesWith(0, (issue) => (issue.set = 'page'))
+    expect(() => parseIssues(file)).toThrow(/issue 1 .*set "page"/)
+  })
+
+  test('counts each issue as a deviation, but a default of the library', () => {
+    expect(issues.issues.map(isDeviation)).toEqual([false, true, true, true, true, true, true])
+    expect(deviationCount(issues.issues)).toBe(6)
   })
 
   test('rejects an override with no property and a render error with no text', () => {

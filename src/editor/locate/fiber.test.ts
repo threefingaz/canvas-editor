@@ -59,6 +59,13 @@ describe('parseLoc', () => {
 
   test('gives null for a text that is not a location prop value', () => {
     expect(parseLoc('screens/a.tsx:3:5')).toBeNull()
+  })
+
+  test('reads the mark of an element that sets a value in the file', () => {
+    expect(parseLoc('screens/a.tsx:3:5 Stack library set')).toMatchObject({ tag: 'Stack', origin: 'library', set: true })
+    expect(parseLoc('screens/a.tsx:3:5 set host')).toMatchObject({ tag: 'set', origin: 'host' })
+    expect(parseLoc('screens/a.tsx:3:5 set host')).not.toHaveProperty('set')
+    expect(parseLoc('screens/a.tsx:3:5 Stack set')).toBeNull()
     expect(parseLoc('screens/a.tsx:3:5 Stack')).toBeNull()
     expect(parseLoc('screens/a.tsx:3:5 Stack other')).toBeNull()
     expect(parseLoc('screens/a.tsx:3 Stack library')).toBeNull()

@@ -58,7 +58,13 @@ export type CodeLocation = { loc: string; file: string; line: number; column: nu
 
 // A place in a screen file, the tag name that is written there (`Stack`,
 // `Card.Header`, `div`) and its origin.
-export type Site = CodeLocation & { tag: string; origin: Origin }
+// `set` is true for an element that sets a value in the screen file (the
+// last word of the value, `setMark`).
+export type Site = CodeLocation & { tag: string; origin: Origin; set?: true }
+
+// The same text as `setMark` in `tools/source-location.ts`; a test checks
+// that they are equal.
+export const setMark = 'set'
 
 // A DOM node, as far as this module reads it.
 type NodeLike = object & { parentNode?: unknown }
@@ -94,12 +100,16 @@ export function parseLocation(loc: string): CodeLocation | null {
 
 // The value of a location prop, `file:line:column Tag origin`, read from the
 // end: the last word is the origin, the word before it is the tag, the rest is
-// the location (the file can have a space). Null for a different text.
+// the location (the file can have a space). An element that sets a value in
+// the file has the word `set` after the origin. Null for a different text.
 export function parseLoc(value: string): Site | null {
-  const match = /^(.+) (\S+) (\S+)$/.exec(value)
+  // The last word of a value with no mark is an origin, never `set`.
+  const marked = value.endsWith(` ${setMark}`)
+  const match = /^(.+) (\S+) (\S+)$/.exec(marked ? value.slice(0, -setMark.length - 1) : value)
   if (!match || !(origins as readonly string[]).includes(match[3])) return null
   const location = parseLocation(match[1])
-  return location && { ...location, tag: match[2], origin: match[3] as Origin }
+  if (!location) return null
+  return { ...location, tag: match[2], origin: match[3] as Origin, ...(marked ? { set: true as const } : {}) }
 }
 
 type NamedType = {

@@ -1,15 +1,18 @@
-import type { Issue } from '../../requests/format.ts'
+import { deviationCount, type Issue } from '../../requests/format.ts'
 import { locOf } from '../edits/model.ts'
 import { ListHeader } from '../inspector/ListHeader.tsx'
 import { selectPlace } from '../inspector/select-place.ts'
 import { cn } from '../ui/lib/utils.ts'
-import { issueGroups, issueSummary } from './model.ts'
+import { issueGroups, issueSummary, type IssueGroup } from './model.ts'
 import { useScreenIssues } from './store.ts'
 
 // The Issues list of a screen, in groups by kind: render errors, a broken
 // relation to a different screen, links to a screen that does not exist,
 // elements that are not from the library, values with no token link, and local
-// overrides.
+// overrides. These are the deviations of the screen, and the header has their
+// count. The values with no token that a component of the library sets by
+// itself are a last group, "Defaults of the library", which is closed at
+// first: the user cannot change them in the screen file.
 // The list is read with the open previews applied. A click on an issue selects
 // its element in the frame and moves the canvas to it when it is not in the
 // view (`onReveal`). The summary of an issue wraps to two lines, and its title
@@ -26,7 +29,8 @@ type IssuesPanelProps = {
   onReveal: () => void
 }
 
-const groupTitle: Record<Issue['kind'], string> = {
+const groupTitle: Record<IssueGroup['kind'], string> = {
+  library: 'Defaults of the library',
   'render-error': 'Render errors',
   relation: 'Relation to a different screen',
   'broken-link': 'Broken links',
@@ -39,31 +43,55 @@ export function IssuesPanel({ screenId, document, className, onReveal }: IssuesP
   const list = useScreenIssues(screenId)
   return (
     <section className={cn('flex flex-col', className)} data-issues={screenId}>
-      <ListHeader title="Issues" name="issues" count={list?.length} />
+      <ListHeader title="Issues" name="issues" count={list && deviationCount(list)} />
       {list === undefined ? (
         <p className="m-0 px-3 pb-3 text-xs text-[color:var(--muted-foreground)]">Reading the issues…</p>
       ) : list.length === 0 ? (
         <p className="m-0 px-3 pb-3 text-xs text-[color:var(--muted-foreground)]">No issues in this screen.</p>
       ) : (
         <div className="pb-2">
-          {issueGroups(list).map((group) => (
-            <div key={group.kind} data-issue-group={group.kind}>
-              <h4 className="m-0 flex items-baseline gap-2 px-3 pt-2 pb-0.5 text-[11px] font-medium text-[color:var(--muted-foreground)]">
-                {groupTitle[group.kind]}
-                <span className="tabular-nums">{group.issues.length}</span>
-              </h4>
-              <ul className="m-0 list-none p-0">
-                {group.issues.map((issue, index) => (
-                  <li key={index} className="px-1.5" data-issue={issue.kind}>
-                    <IssueItem issue={issue} screenId={screenId} document={document} onReveal={onReveal} />
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
+          {deviationCount(list) === 0 && (
+            <p className="m-0 px-3 pb-1 text-xs text-[color:var(--muted-foreground)]" data-issues-clean="">
+              No deviation in this screen.
+            </p>
+          )}
+          {issueGroups(list).map((group) =>
+            group.kind === 'library' ? (
+              <details key={group.kind} data-issue-group={group.kind}>
+                <summary
+                  className="flex cursor-pointer items-baseline gap-2 px-3 pt-2 pb-0.5 text-[11px] font-medium text-[color:var(--muted-foreground)]"
+                  title="Values with no token that a component of the library sets by itself. They are not deviations of the screen."
+                >
+                  {groupTitle[group.kind]}
+                  <span className="tabular-nums">{group.issues.length}</span>
+                </summary>
+                <GroupItems group={group} screenId={screenId} document={document} onReveal={onReveal} />
+              </details>
+            ) : (
+              <div key={group.kind} data-issue-group={group.kind}>
+                <h4 className="m-0 flex items-baseline gap-2 px-3 pt-2 pb-0.5 text-[11px] font-medium text-[color:var(--muted-foreground)]">
+                  {groupTitle[group.kind]}
+                  <span className="tabular-nums">{group.issues.length}</span>
+                </h4>
+                <GroupItems group={group} screenId={screenId} document={document} onReveal={onReveal} />
+              </div>
+            ),
+          )}
         </div>
       )}
     </section>
+  )
+}
+
+function GroupItems({ group, ...item }: { group: IssueGroup } & Omit<IssueItemProps, 'issue'>) {
+  return (
+    <ul className="m-0 list-none p-0">
+      {group.issues.map((issue, index) => (
+        <li key={index} className="px-1.5" data-issue={issue.kind}>
+          <IssueItem issue={issue} {...item} />
+        </li>
+      ))}
+    </ul>
   )
 }
 

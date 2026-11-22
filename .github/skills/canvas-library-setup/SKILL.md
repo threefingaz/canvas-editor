@@ -80,7 +80,7 @@ Then write `packs/<name>/AGENTS.md`. The root `AGENTS.md` names no library and s
 
 ## 7. The proof
 
-A connection is proven, not assumed. Make one sample screen, `screens/sample/<name>.tsx`, with a heading, a text, a button, a field, a card or a panel, and a group with spacing. The rules of a screen file are in the section "Layout" of the root `AGENTS.md`; the design skills are not needed for it, because it is a test of the library and not a screen for a person. Keep the screen after the proof: it is the check for the next version of the library. Then check, with the dev server (started or restarted after `pack.json` was written, see step 3) and a visible browser pane:
+A connection is proven, not assumed. Make one sample screen, `screens/sample/<name>.tsx`, with a heading, a text, a button, a field, a card or a panel, and a group with spacing. The rules of a screen file are in the section "Screen files" of the root `AGENTS.md`; the design skills are not needed for it, because it is a test of the library and not a screen for a person. Keep the screen after the proof: it is the check for the next version of the library. Then check, with the dev server (started or restarted after `pack.json` was written, see step 3) and a visible browser pane:
 
 1. The screen renders with no error, and its styles are the same as with no editor.
 2. A click on each element selects it, and its tag and its place in the code are correct. No element of the library has the marker "not from the library".

@@ -1,5 +1,7 @@
 import { WarningCircleIcon, XIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
+import { screens } from 'virtual:canvas-screens'
+import { config } from '../../../canvas.config.ts'
 import type { Edit } from '../../requests/format.ts'
 import type { FrameBox } from '../canvas/layout.ts'
 import type { View } from '../canvas/viewport.ts'
@@ -29,7 +31,9 @@ import { FloatingHeader } from './FloatingHeader.tsx'
 import { elementAnchor, rowAnchor, targetSite, titleAnchor, usePanelPlace } from './floating.ts'
 import { OptionsPanel } from './OptionsPanel.tsx'
 import { lostPin, screenPin } from './pins.ts'
+import { elementPresets, linkPresets, screenPresets } from './presets.ts'
 import { pinsSourceOf, useScreenPins } from './use-pins.ts'
+import { QuickRequests } from './QuickRequests.tsx'
 
 // The bubble of the comments: one floating panel in the overlay of the canvas,
 // above the pins and the selection. It lists the comments of one place (a
@@ -51,6 +55,11 @@ import { pinsSourceOf, useScreenPins } from './use-pins.ts'
 // `keep`, an element takes no new comment and the bubble says why
 // (`newBoxOf`). With the Preview switch on (`shown` false) the bubble is not
 // drawn; the switch closes it. A screen that leaves the list closes it.
+//
+// Above the box of a new comment the bubble has the quick requests
+// (`QuickRequests.tsx`, `presets.ts`): comments with a fixed text for the
+// element or for the screen. A click adds one through `add`, as the button
+// "Add" does, and leaves the draft of the box as it is.
 //
 // The layer holds the options panel too (`OptionsPanel.tsx`): the store has
 // one state for the two, thus only one of them is open.
@@ -174,6 +183,25 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
     return true
   }
 
+  // The quick requests of the place, only where it takes a new comment: of
+  // the screen, or of the element with the requests that link it to a screen.
+  const quick =
+    !target || newBox !== 'box'
+      ? null
+      : target.loc === null
+        ? {
+            presets: screenPresets(
+              box.screen,
+              config.widths,
+              screens.some((screen) => screen.stateOf === screenId),
+            ),
+            links: [],
+          }
+        : site && {
+            presets: elementPresets(site.origin, box.screen.optionOf !== undefined),
+            links: linkPresets(screens, screenId),
+          }
+
   const title = lost ? 'Comments whose element is not found' : `Comments on ${name}`
 
   return (
@@ -214,6 +242,14 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
             the screen, or copy it and select the element again.
           </p>
         )}
+        {quick && (
+          <QuickRequests
+            presets={quick.presets}
+            links={quick.links}
+            texts={comments.map((item) => (item.edit.change.kind === 'comment' ? item.edit.change.text : ''))}
+            onAdd={add}
+          />
+        )}
         {/* One place for the box of the element and of its kept draft, with no
             key of its own: when the element moves or goes while the user types,
             the box and its focus stay (the panel keeps its key, `bubblePlace`). */}
@@ -226,7 +262,7 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
             mode="new"
             onChange={(text) => bubble.setDraft(draftKey(target), text)}
             autoFocus={state.kind === 'new'}
-            className={newBox === 'draft' ? 'p-3' : 'border-t border-[color:var(--editor-line)] p-3'}
+            className={newBox === 'draft' || quick ? 'p-3' : 'border-t border-[color:var(--editor-line)] p-3'}
             onSubmit={newBox === 'draft' ? addOnScreen : add}
           />
         )}

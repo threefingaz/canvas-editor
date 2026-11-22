@@ -1,4 +1,4 @@
-import { tokenRef, type Issue, type Target } from '../../requests/format.ts'
+import { isDeviation, tokenRef, type Issue, type Target } from '../../requests/format.ts'
 import { locOf } from '../edits/model.ts'
 import type { InspectorRow } from '../inspector/model.ts'
 
@@ -8,8 +8,10 @@ import type { InspectorRow } from '../inspector/model.ts'
 //
 // - `no-token`: a row with no token link (`equal` or `none`) in a group that
 //   has tokens, the same rule as the count in the inspector (`missing`). It
-//   includes fixed values that a library component sets itself: the editor
-//   cannot tell them apart from values of the screen file.
+//   includes fixed values that a library component sets itself. `set` tells
+//   them apart by the element: `screen` when the element sets a value in the
+//   screen file (the mark of its location), the value is in its inline
+//   style, or the element is not from the library; else `library`. Only the first is a deviation (`isDeviation`).
 // - `override`: a row whose winning declaration is in the inline style of the
 //   element (the `style` prop). A value from `sx` cannot be told apart from
 //   the rules of the component.
@@ -24,7 +26,9 @@ import type { InspectorRow } from '../inspector/model.ts'
 // A screen element: the target of its place in the code, the rows that the
 // inspector shows for its first copy, and the addresses of the broken links
 // that belong to it, in each of its copies.
-export type IssueElement = { target: Target; rows: readonly InspectorRow[]; links: readonly string[] }
+// `set` is true when the element sets a value in the screen file (the mark of
+// its location, `Site.set`).
+export type IssueElement = { target: Target; rows: readonly InspectorRow[]; links: readonly string[]; set?: boolean }
 
 // The shorthand of a list of longhands, for the property of an issue.
 const shorthands: Record<string, readonly string[]> = {
@@ -54,7 +58,7 @@ export function rowProperty(properties: readonly string[]): string {
   return properties.join(', ')
 }
 
-function rowIssues(target: Target, row: InspectorRow): Issue[] {
+function rowIssues(target: Target, row: InspectorRow, set: boolean): Issue[] {
   const issues: Issue[] = []
   const property = rowProperty(row.properties)
   const state = row.state
@@ -67,6 +71,9 @@ function rowIssues(target: Target, row: InspectorRow): Issue[] {
       value: row.value,
       state: state.state,
       ...(token ? { token: tokenRef(token) } : {}),
+      // An inline style is in the screen file, also with no mark, and an
+      // element that is not from the library has no default of the library.
+      set: set || row.inline || target.origin !== 'library' ? 'screen' : 'library',
     })
   }
   if (row.inline) issues.push({ kind: 'override', target, property, value: row.value })
@@ -103,10 +110,10 @@ export function screenIssues(
     if (!places.has(loc)) places.set(loc, element)
   }
   const sorted = [...places.values()].sort((a, b) => compareTargets(a.target, b.target))
-  for (const { target, rows, links } of sorted) {
+  for (const { target, rows, links, set } of sorted) {
     if (target.origin !== 'library') issues.push({ kind: 'not-library', target })
     for (const href of links) issues.push({ kind: 'broken-link', target, href })
-    for (const row of rows) issues.push(...rowIssues(target, row))
+    for (const row of rows) issues.push(...rowIssues(target, row, set === true))
   }
   return issues
 }
@@ -115,14 +122,20 @@ export function screenIssues(
 // relation, then the broken links, then the elements, then the values.
 const groupOrder: readonly Issue['kind'][] = ['render-error', 'relation', 'broken-link', 'not-library', 'no-token', 'override']
 
-export type IssueGroup = { kind: Issue['kind']; issues: Issue[] }
+// `library` is the group of the values that a component of the library sets
+// by itself: they are not deviations.
+export type IssueGroup = { kind: Issue['kind'] | 'library'; issues: Issue[] }
 
-// The issues of a screen in groups by kind, for the Issues list. A kind with
-// no issues has no group; in a group the issues keep their sequence.
+// The issues of a screen in groups by kind, for the Issues list: the
+// deviations first, then the defaults of the library as a last group. A kind
+// with no issues has no group; in a group the issues keep their sequence.
 export function issueGroups(issues: readonly Issue[]): IssueGroup[] {
-  return groupOrder
-    .map((kind) => ({ kind, issues: issues.filter((issue) => issue.kind === kind) }))
+  const groups: IssueGroup[] = groupOrder
+    .map((kind) => ({ kind, issues: issues.filter((issue) => issue.kind === kind && isDeviation(issue)) }))
     .filter((group) => group.issues.length > 0)
+  const library = issues.filter((issue) => !isDeviation(issue))
+  if (library.length > 0) groups.push({ kind: 'library', issues: library })
+  return groups
 }
 
 // The text of an issue in the Issues list, after the tag name of its element.

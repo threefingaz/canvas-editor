@@ -11,5 +11,6 @@ export function screenEntry(id: string): ScreenEntry {
     title: id,
     width: 1440,
     file: `screens/${id}.tsx`,
+    links: [],
   }
 }

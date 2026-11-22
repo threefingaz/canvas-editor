@@ -17,6 +17,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "tokens": "node tools/build-tokens.ts",
+    "check": "node tools/check-screens.ts",
     "export": "node tools/export-tool.ts"
   },
   "dependencies": {

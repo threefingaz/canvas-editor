@@ -155,6 +155,7 @@ describe('screenEntry', () => {
       title: 'Welcome',
       width: 1440,
       file,
+      links: [],
     })
   })
 
@@ -198,7 +199,7 @@ describe('screenEntry', () => {
 describe('sortScreens', () => {
   function entry(flow: string, name: string): ScreenEntry {
     const id = flow ? `${flow}/${name}` : name
-    return { id, flow, name, title: name, width: 1440, file: `screens/${id}.tsx` }
+    return { id, flow, name, title: name, width: 1440, file: `screens/${id}.tsx`, links: [] }
   }
 
   test('sorts by flow, then by name', () => {
@@ -233,7 +234,7 @@ describe('screenList', () => {
       widths,
     )
     expect(list).toEqual([
-      { id: 'home', flow: '', name: 'home', title: 'Home', width: 390, file: 'screens/home.tsx' },
+      { id: 'home', flow: '', name: 'home', title: 'Home', width: 390, file: 'screens/home.tsx', links: [] },
       {
         id: 'onboarding/welcome',
         flow: 'onboarding',
@@ -241,8 +242,15 @@ describe('screenList', () => {
         title: 'Welcome',
         width: 1440,
         file: 'screens/onboarding/welcome.tsx',
+        links: [],
       },
     ])
+  })
+
+  test('gives the links of a file, each one time, in the order of the code', () => {
+    const code = `export const meta = { title: 'A', width: 1440 }
+export default () => <div><a href="#/b/two">x</a><a href="#/b/one">y</a><a href="#/b/two">z</a><a href="#top">t</a></div>`
+    expect(screenList([{ file: 'screens/a.tsx', code }], widths)[0].links).toEqual(['b/two', 'b/one'])
   })
 
   test('keeps a valid relation in the entry', () => {
@@ -270,6 +278,7 @@ describe('screenList', () => {
         title: 'Option',
         width: 390,
         file: 'screens/a/option-1.tsx',
+        links: [],
         relationError: "`optionOf`: no screen has the id 'a/gone'",
       },
     ])
@@ -323,6 +332,7 @@ describe('screenList', () => {
         title: 'broken',
         width: 1440,
         file: 'screens/onboarding/broken.tsx',
+        links: [],
         error: 'screens/onboarding/broken.tsx: the file does not export `meta`',
       },
     ])
@@ -333,7 +343,7 @@ describe('relationProblems', () => {
   function entry(id: string, relation: Partial<ScreenEntry> = {}): ScreenEntry {
     const slash = id.lastIndexOf('/')
     const flow = slash === -1 ? '' : id.slice(0, slash)
-    return { id, flow, name: id.slice(slash + 1), title: id, width: 1440, file: `screens/${id}.tsx`, ...relation }
+    return { id, flow, name: id.slice(slash + 1), title: id, width: 1440, file: `screens/${id}.tsx`, links: [], ...relation }
   }
 
   test('gives no problem for valid relations', () => {
@@ -410,7 +420,7 @@ describe('libraryInfo', () => {
 })
 
 describe('screensModuleCode', () => {
-  const home: ScreenEntry = { id: 'home', flow: '', name: 'home', title: 'Home', width: 390, file: 'screens/home.tsx' }
+  const home: ScreenEntry = { id: 'home', flow: '', name: 'home', title: 'Home', width: 390, file: 'screens/home.tsx', links: [] }
 
   // The values of the module text, read back as data.
   function exportsOf(code: string): Record<string, unknown> {

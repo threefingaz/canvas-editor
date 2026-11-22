@@ -10,6 +10,11 @@ describe('tabAfter', () => {
     const events: TabEvent[] = ['title', 'issues', 'pin-of-screen']
     for (const event of events) expect(tabAfter(event)).toBe('changes')
   })
+
+  test('no event of the canvas opens Project', () => {
+    const events: TabEvent[] = ['pick', 'title', 'issues', 'pin-of-screen']
+    for (const event of events) expect(tabAfter(event)).not.toBe('project')
+  })
 })
 
 describe('clearsSelection', () => {
@@ -30,9 +35,10 @@ describe('clearsSelection', () => {
 })
 
 describe('isTab', () => {
-  test('true for the two tabs and false for a different value', () => {
+  test('true for the three tabs and false for a different value', () => {
     expect(isTab('design')).toBe(true)
     expect(isTab('changes')).toBe(true)
+    expect(isTab('project')).toBe(true)
     expect(isTab('issues')).toBe(false)
     expect(isTab(null)).toBe(false)
   })

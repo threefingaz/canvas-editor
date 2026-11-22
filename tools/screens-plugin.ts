@@ -43,7 +43,7 @@ export function screenNames(folder: string): string[] {
     .map((name) => name.split(sep).join('/'))
 }
 
-function readScreenFiles(root: string, folder: string): ScreenFile[] {
+export function readScreenFiles(root: string, folder: string): ScreenFile[] {
   return screenNames(folder).map((name) => {
     const path = join(folder, name)
     return { file: relative(root, path).split(sep).join('/'), code: readFileSync(path, 'utf8') }
@@ -60,7 +60,7 @@ export function screensPlugin(pack: Pack | null): Plugin {
   // The library pack, which the Vite config reads once.
   const library: LibraryInfo = libraryInfo(pack)
 
-  const moduleCode = () => screensModuleCode(screenList(readScreenFiles(root, folder)), library)
+  const moduleCode = () => screensModuleCode(screenList(readScreenFiles(root, folder), undefined, undefined, pack?.package ?? null), library)
 
   return {
     name: 'canvas-screens',

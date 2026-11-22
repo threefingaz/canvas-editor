@@ -23,6 +23,7 @@ import { IssuesPanel } from '../issues/IssuesPanel.tsx'
 import { breadcrumb, elementOf, fiberName, siteOf, type Fiber, type Site } from '../locate/fiber.ts'
 import { ownTextNode } from '../preview/apply.ts'
 import { editAttribute } from '../preview/css.ts'
+import { Project } from '../project/Project.tsx'
 import { nodesAt, pickElement } from '../selection/pick.ts'
 import { selection, selectionKey, useSelection, type Selected } from '../selection/store.ts'
 import { selectionTarget } from '../selection/target.ts'
@@ -71,7 +72,7 @@ import { isTab, type Tab } from './tabs.ts'
 import { TokenControl } from './TokenControl.tsx'
 import { ValueRow } from './ValueRow.tsx'
 
-// The column at the right of the editor, with two tabs (`tabs.ts`). Design:
+// The column at the right of the editor, with three tabs (`tabs.ts`). Design:
 // for the selected element, its type, its component, its parents, its place
 // in the screen file, and its style values with the state of each, with the
 // full height of the column. A value of the sections in `editable` has a
@@ -95,7 +96,9 @@ import { ValueRow } from './ValueRow.tsx'
 // options panel (`CommentBubble.tsx`). While a screen has an open request to keep an
 // option, its elements take no edit (the option replaces their markup), and
 // the view of an element says why. An edit goes to the edits store, and the
-// preview shows it in the frame. With the Preview switch on, the editor does
+// preview shows it in the frame. Project: each screen of the project by flow,
+// with its counts (`project/Project.tsx`); a click on a row lists the screen
+// in Changes and fits its frame (`onOpenScreen`). With the Preview switch on, the editor does
 // not render the column (`App.tsx`), and an error of the token file shows at
 // the top of the canvas.
 
@@ -133,6 +136,9 @@ type InspectorProps = {
   // Moves the canvas to the frame of a screen: a click on a `keep` item in
   // the Changes list shows its option.
   onShowScreen: (id: string) => void
+  // Lists a screen in the Changes tab and fits its frame: a click on a row of
+  // the Project tab.
+  onOpenScreen: (id: string) => void
   // Moves the canvas to the title row of the frame of a screen when it is not
   // in the view: a panel of the screen opens next to it.
   onShowTitle: (id: string) => void
@@ -141,7 +147,16 @@ type InspectorProps = {
   onReveal: () => void
 }
 
-export function Inspector({ screenId, documents, tab, onTab, onShowScreen, onShowTitle, onReveal }: InspectorProps) {
+export function Inspector({
+  screenId,
+  documents,
+  tab,
+  onTab,
+  onShowScreen,
+  onOpenScreen,
+  onShowTitle,
+  onReveal,
+}: InspectorProps) {
   const selected = useSelection()
   const screen = screenId === null ? undefined : screens.find((entry) => entry.id === screenId)
   return (
@@ -161,6 +176,9 @@ export function Inspector({ screenId, documents, tab, onTab, onShowScreen, onSho
               <TabsTrigger value="changes" className="flex-none" data-inspector-tab="changes">
                 Changes
                 {screen && <ChangesCount screenId={screen.id} />}
+              </TabsTrigger>
+              <TabsTrigger value="project" className="flex-none" data-inspector-tab="project">
+                Project
               </TabsTrigger>
             </TabsList>
           </div>
@@ -183,6 +201,9 @@ export function Inspector({ screenId, documents, tab, onTab, onShowScreen, onSho
             ) : (
               <NoScreen />
             )}
+          </TabsContent>
+          <TabsContent value="project" className="flex min-h-0 flex-col">
+            <Project listed={screenId} onOpenScreen={onOpenScreen} />
           </TabsContent>
         </Tabs>
       </PanelSurface>
