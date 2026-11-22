@@ -1,4 +1,5 @@
 import type { TextStyle } from '../../tokens/format.ts'
+import { clamp } from '../clamp.ts'
 
 // One form for the values that the inspector compares: the computed styles of
 // the frame document and the values of `tokens.json`. Colors become RGBA,
@@ -29,10 +30,6 @@ const namedColors: Record<string, Rgba> = {
   transparent: { r: 0, g: 0, b: 0, a: 0 },
   black: { r: 0, g: 0, b: 0, a: 1 },
   white: { r: 255, g: 255, b: 255, a: 1 },
-}
-
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value))
 }
 
 function round(value: number, digits: number) {

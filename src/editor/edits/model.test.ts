@@ -6,6 +6,7 @@ import {
   editsOf,
   liveItems,
   locOf,
+  optionsAsked,
   replaceComment,
   sameComment,
   sameTarget,
@@ -409,5 +410,31 @@ describe('sameComment', () => {
     const text = edit('e1', { kind: 'text', before: 'a', after: 'b' })
     expect(sameComment(text, text)).toBe(false)
     expect(sameComment(comment('c1', 'A'), text)).toBe(false)
+  })
+})
+
+describe('optionsAsked', () => {
+  const options = (id: string, count: number, at: Target | null): Item => ({
+    edit: { id, target: at, width: 1440, change: { kind: 'options', count, note: '' } },
+  })
+  const comment: Item = { edit: { id: 'c1', target, width: 1440, change: { kind: 'comment', text: 'A table' } } }
+
+  test('no options item gives null', () => {
+    expect(optionsAsked([])).toBeNull()
+    expect(optionsAsked([comment])).toBeNull()
+  })
+
+  test('one request of the screen', () => {
+    expect(optionsAsked([comment, options('o1', 3, null)])).toEqual({ requests: 1, options: 3 })
+  })
+
+  test('the requests of the screen and of its elements add up, a stale one too', () => {
+    const stale: Item = { ...options('o3', 2, other), stale: true }
+    expect(optionsAsked([options('o1', 3, null), options('o2', 4, target), stale])).toEqual({ requests: 3, options: 9 })
+  })
+
+  test('a request with a reply of the agent is still open in the file, thus it counts', () => {
+    const replied: Item = { edit: { ...options('o1', 3, null).edit, reply: { status: 'unclear', text: 'Which part?' } } }
+    expect(optionsAsked([replied])).toEqual({ requests: 1, options: 3 })
   })
 })

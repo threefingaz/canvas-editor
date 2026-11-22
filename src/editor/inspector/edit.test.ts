@@ -6,6 +6,7 @@ import type { Site } from '../locate/fiber.ts'
 import type { Siblings } from '../selection/pick.ts'
 import {
   activeToken,
+  stepName,
   commentEdit,
   commentText,
   controlOf,
@@ -135,6 +136,27 @@ describe('activeToken', () => {
   test('null for a value with no state or no nearest token', () => {
     expect(activeToken(paddingRow(null))).toBeNull()
     expect(activeToken(paddingRow({ state: 'none', nearest: null }, '13px'))).toBeNull()
+  })
+})
+
+describe('stepName', () => {
+  const tokens = [{ name: 'spacing.1' }, { name: 'spacing.2' }, { name: 'spacing.3' }]
+
+  test('a step other than the starting one names its token', () => {
+    expect(stepName(tokens, 2, 0)).toBe('spacing.3')
+  })
+
+  test('the starting step names nothing: the line of the value names it', () => {
+    expect(stepName(tokens, 1, 1)).toBeUndefined()
+  })
+
+  test('a value with no nearest token names each step it is moved to, the first one too', () => {
+    expect(stepName(tokens, 0, null)).toBe('spacing.1')
+  })
+
+  test('no step names nothing', () => {
+    expect(stepName(tokens, null, null)).toBeUndefined()
+    expect(stepName(tokens, null, 1)).toBeUndefined()
   })
 })
 

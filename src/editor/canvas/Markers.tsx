@@ -77,7 +77,7 @@ export function Markers({ view, frames, documents, shown }: MarkersProps) {
   }
 
   return (
-    <div className="pointer-events-none absolute inset-0 overflow-hidden" data-marker-layer="">
+    <div className="pointer-events-none absolute inset-0 overflow-clip" data-marker-layer="">
       {markers.map((marker) => (
         <div
           key={marker.key}

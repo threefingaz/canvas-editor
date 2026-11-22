@@ -1,5 +1,5 @@
 import { describe, expect, test, vi } from 'vitest'
-import { createSelectionStore, sameElement, type Selected } from './store.ts'
+import { createSelectionStore, sameElement, selectionKey, type Selected } from './store.ts'
 
 // A plain object in place of a DOM node of the frame.
 const node = (name: string) => ({ name }) as unknown as Element
@@ -36,6 +36,18 @@ describe('sameElement', () => {
     expect(sameElement(null, null)).toBe(true)
     expect(sameElement(selected(), null)).toBe(false)
     expect(sameElement(null, selected())).toBe(false)
+  })
+})
+
+describe('selectionKey', () => {
+  test('the same for the same element with a different node and name', () => {
+    expect(selectionKey(selected())).toBe(selectionKey(selected({ node: node('b'), name: 'Other' })))
+  })
+
+  test('different for a different screen, place or index', () => {
+    expect(selectionKey(selected())).not.toBe(selectionKey(selected({ screenId: 'onboarding/welcome-mobile' })))
+    expect(selectionKey(selected())).not.toBe(selectionKey(selected({ loc: 'screens/onboarding/welcome.tsx:31:11' })))
+    expect(selectionKey(selected())).not.toBe(selectionKey(selected({ index: 1 })))
   })
 })
 

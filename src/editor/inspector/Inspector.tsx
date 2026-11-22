@@ -1,31 +1,32 @@
 import {
   ArrowsInCardinalIcon,
   ArrowsOutCardinalIcon,
+  ChatCircleTextIcon,
   CheckIcon,
   CopyIcon,
   CursorClickIcon,
+  ListChecksIcon,
   LinkSimpleIcon,
   MagnetIcon,
-  PlayIcon,
-  TrashIcon,
+  SquaresFourIcon,
 } from '@phosphor-icons/react'
-import { Fragment, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
-import { library, screens, type ScreenEntry } from 'virtual:canvas-screens'
+import { Fragment, useEffect, useMemo, useReducer, useState, type ReactNode } from 'react'
+import { screens, type ScreenEntry } from 'virtual:canvas-screens'
 import type { Edit, Target } from '../../requests/format.ts'
 import { messageOf } from '../../tokens/format.ts'
-import { useOperate } from '../canvas/operate.ts'
+import { bubble } from '../comments/bubble-store.ts'
 import { useCopy, type CopyState } from '../copy.ts'
 import { editBlock } from '../edits/keep.ts'
 import type { Item } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
-import { typingInActive } from '../focus.ts'
 import { frameWindowOf, inLiveFrame } from '../frame-window.ts'
 import { IssuesPanel } from '../issues/IssuesPanel.tsx'
 import { breadcrumb, elementOf, fiberName, siteOf, type Fiber, type Site } from '../locate/fiber.ts'
-import { codeText, ownTextNode } from '../preview/apply.ts'
+import { ownTextNode } from '../preview/apply.ts'
 import { editAttribute } from '../preview/css.ts'
 import { nodesAt, pickElement, siblingsOf } from '../selection/pick.ts'
-import { selection, useSelection, type Selected } from '../selection/store.ts'
+import { selection, selectionKey, useSelection, type Selected } from '../selection/store.ts'
+import { selectionTarget } from '../selection/target.ts'
 import { useTokenFile } from '../tokens/editor-tokens.ts'
 import { frameTokens } from '../tokens/frame-tokens.ts'
 import { readStyles, type ElementStyles } from '../tokens/read-styles.ts'
@@ -49,56 +50,58 @@ import {
   PanelIconButton,
   PanelSection,
   PanelSurface,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   TextInputControl,
 } from '../ui'
 import { Changes } from './Changes.tsx'
-import { CommentBox } from './CommentBox.tsx'
 import {
-  commentEdit,
   controlOf,
   isLayoutProperty,
   layoutEdit,
   movePlan,
-  optionsEdit,
   orderEdit,
-  removeEdit,
   rowAction,
   rowEdit,
-  targetOf,
   textEdit,
   textEditable,
 } from './edit.ts'
 import { LayoutControl, MoveControls, type Axes } from './LayoutControls.tsx'
 import { inspectorModel, type InspectorRow, type InspectorSection, type SectionTitle, type SidesKey } from './model.ts'
-import { OptionsBox } from './OptionsBox.tsx'
+import { isTab, type Tab } from './tabs.ts'
 import { TokenControl } from './TokenControl.tsx'
 import { ValueRow } from './ValueRow.tsx'
 
-// The column at the right of the editor. For the selected element: its type,
-// its component, its parents, its place in the screen file, and its style
-// values with the state of each. A value of the sections in `editable` has a
+// The column at the right of the editor, with two tabs (`tabs.ts`). Design:
+// for the selected element, its type, its component, its parents, its place
+// in the screen file, and its style values with the state of each, with the
+// full height of the column. A value of the sections in `editable` has a
 // control that gives a token to the value, a "Link" or "Use nearest" action
 // when it has no token link, and a row of four equal sides can be split into
 // one row for each side. The Layout section has a segmented control for the
 // direction, the wrap, the alignment and the justification of a flex or grid
 // container, and the buttons that move the element among its siblings. The
 // Content section changes the text of an element whose place gives one text.
-// The comment box below the sections adds a comment for the agent on the
-// element; with nothing selected, the box of the screen view adds a comment on
-// the whole screen. A comment has no preview. The options box below the
-// comment box asks the agent for options of the element or of the screen; it
-// is not in the view of an option (an option has no options), and it is off
-// while the screen has an open request to keep an option. While a screen has
-// an open request to keep an option, its elements take no edit and no comment
-// (the option replaces their markup), and the view of an element says why; a
-// comment on the whole screen is still possible.
-// The bin in the header (and the Delete and Backspace keys) removes the
-// element and clears the selection. An edit goes to the edits store, and the
-// preview shows it in the frame. The Changes list of the screen is at the
-// bottom; with nothing selected, the inspector shows the list of the screen of
-// the last click on a frame or its title, with the Issues list of the screen
-// above it. With the Preview switch on, nothing can be selected, and the
-// inspector says how to go back.
+// With nothing selected, Design says so. Changes: the listed screen (the
+// screen of the last click on a frame, its title or a pin), its title and
+// file, its Changes list and then its Issues list, in one column that
+// scrolls; the tab shows the count of the items of the Changes list. Its
+// header has "Comment on the screen" and "Ask for options" of the screen (not
+// for an option), as the title row of the frame has them: at a low zoom the
+// title row has no room for its buttons. They move the canvas to the title
+// row first (`onShowTitle`), where the bubble or the options panel opens. A
+// click on a row selects its element and moves the canvas to it when it is
+// not in the view (`onReveal`); the tab stays. A comment, a request for options and
+// a removal are made on the canvas: the bar of the selection
+// (`SelectionBar.tsx`), the bubble of a comment and the options panel
+// (`CommentBubble.tsx`). While a screen has an open request to keep an
+// option, its elements take no edit (the option replaces their markup), and
+// the view of an element says why. An edit goes to the edits store, and the
+// preview shows it in the frame. With the Preview switch on, the editor does
+// not render the column (`App.tsx`), and an error of the token file shows at
+// the top of the canvas.
 
 // The sections whose values have a control.
 const editable: ReadonlySet<SectionTitle> = new Set(['Color', 'Elevation', 'Typography', 'Spacing', 'Corners'])
@@ -111,29 +114,15 @@ type Build = (target: Target, width: number) => Edit | null
 type Apply = (build: Build, replaces?: readonly string[]) => void
 
 // The edits of the selected element: the target is read from the frame at the
-// time of the change (the count of copies and the text can change), and the
-// width is the width of the frame of the screen.
+// time of the change (`selectionTarget`), and the width is the width of the
+// frame of the screen.
 function applyFor(selected: Selected, site: Site): Apply {
   return (build, replaces) => {
     const width = screens.find((screen) => screen.id === selected.screenId)?.width
     if (width === undefined) return
-    const copies = nodesAt(selected.node.ownerDocument, selected.loc).length
-    const target = targetOf(
-      site,
-      selected.node.tagName.toLowerCase(),
-      Math.max(copies, 1),
-      // The text as the code renders it: a text edit of the preview does not
-      // change the label, thus the edit is found again after a reload.
-      codeText(selected.node),
-    )
-    const edit = build(target, width)
+    const edit = build(selectionTarget(selected, site), width)
     if (edit) edits.apply(selected.screenId, edit, replaces)
   }
-}
-
-// True for an option screen: an option has no options.
-function isOption(screenId: string): boolean {
-  return screens.find((screen) => screen.id === screenId)?.optionOf !== undefined
 }
 
 // The move of the element among the sibling elements of its parent, for the
@@ -163,47 +152,81 @@ function moveOf(selected: Selected, items: readonly Item[], copies: number, onEd
 }
 
 type InspectorProps = {
-  // The screen of the last click on a frame or on its title: with nothing
-  // selected, the inspector shows the Changes list of that screen.
+  // The listed screen: the screen of the last click on a frame, on its title
+  // or on a pin. The Changes tab shows it.
   screenId: string | null
   // The current document of each frame, by screen id.
   documents: ReadonlyMap<string, Document>
+  // The open tab, and the change of it by a click on a tab.
+  tab: Tab
+  onTab: (tab: Tab) => void
   // Moves the canvas to the frame of a screen: a click on a `keep` item in
   // the Changes list shows its option.
   onShowScreen: (id: string) => void
+  // Moves the canvas to the title row of the frame of a screen when it is not
+  // in the view: a panel of the screen opens next to it.
+  onShowTitle: (id: string) => void
+  // Moves the canvas to the selected element when it is not in the view: a
+  // click on a row of the Changes list or of the Issues list selected it.
+  onReveal: () => void
 }
 
-export function Inspector({ screenId, documents, onShowScreen }: InspectorProps) {
+export function Inspector({ screenId, documents, tab, onTab, onShowScreen, onShowTitle, onReveal }: InspectorProps) {
   const selected = useSelection()
-  const operating = useOperate()
-  const tokenFile = useTokenFile()
   const screen = screenId === null ? undefined : screens.find((entry) => entry.id === screenId)
   return (
     <aside className="relative h-full w-[300px] shrink-0" data-inspector="">
       <PanelSurface className="flex h-full flex-col rounded-none border-y-0 border-r-0">
-        {library !== null && tokenFile.error !== null && (
-          <div className="shrink-0 p-3" data-token-file-error="">
-            <Alert variant="destructive">
-              <AlertTitle>The tokens are not loaded</AlertTitle>
-              <AlertDescription>{tokenFile.error}</AlertDescription>
-            </Alert>
+        <Tabs
+          value={tab}
+          onValueChange={(value) => isTab(value) && onTab(value)}
+          className="min-h-0 flex-1 gap-0"
+          data-inspector-tabs={tab}
+        >
+          <div className="shrink-0 border-b border-[color:var(--border)] px-2 pt-1.5 pb-1">
+            <TabsList variant="line" className="w-full justify-start">
+              <TabsTrigger value="design" className="flex-none" data-inspector-tab="design">
+                Design
+              </TabsTrigger>
+              <TabsTrigger value="changes" className="flex-none" data-inspector-tab="changes">
+                Changes
+                {screen && <ChangesCount screenId={screen.id} />}
+              </TabsTrigger>
+            </TabsList>
           </div>
-        )}
-        {operating ? (
-          <PreviewOn />
-        ) : selected ? (
-          <ElementView
-            key={`${selected.screenId}|${selected.loc}|${selected.index}`}
-            selected={selected}
-            onShowScreen={onShowScreen}
-          />
-        ) : screen ? (
-          <ScreenView screen={screen} document={documents.get(screen.id) ?? null} onShowScreen={onShowScreen} />
-        ) : (
-          <NothingSelected />
-        )}
+          <TabsContent value="design" className="flex min-h-0 flex-col">
+            {selected ? (
+              <ElementView key={selectionKey(selected)} selected={selected} />
+            ) : (
+              <NothingSelected />
+            )}
+          </TabsContent>
+          <TabsContent value="changes" className="flex min-h-0 flex-col">
+            {screen ? (
+              <ScreenChanges
+                screen={screen}
+                document={documents.get(screen.id) ?? null}
+                onShowScreen={onShowScreen}
+                onShowTitle={onShowTitle}
+                onReveal={onReveal}
+              />
+            ) : (
+              <NoScreen />
+            )}
+          </TabsContent>
+        </Tabs>
       </PanelSurface>
     </aside>
+  )
+}
+
+// The count of the items of the Changes list of a screen, in the tab.
+function ChangesCount({ screenId }: { screenId: string }) {
+  const count = useScreenEdits(screenId).length
+  return (
+    <span className="font-normal text-[color:var(--muted-foreground)] tabular-nums" data-inspector-tab-count={count}>
+      {count}
+    </span>
   )
 }
 
@@ -221,67 +244,81 @@ function NothingSelected() {
   )
 }
 
-function PreviewOn() {
+function NoScreen() {
   return (
-    <Empty className="text-xs" data-inspector-operate="">
+    <Empty className="text-xs" data-inspector-no-screen="">
       <EmptyHeader>
         <EmptyMedia variant="icon">
-          <PlayIcon />
+          <ListChecksIcon />
         </EmptyMedia>
-        <EmptyTitle>Preview is on</EmptyTitle>
-        <EmptyDescription>
-          A click on a link in a frame goes to the frame of its screen. Turn Preview off in the toolbar to select and edit
-          elements.
-        </EmptyDescription>
+        <EmptyTitle>No screen</EmptyTitle>
+        <EmptyDescription>Click a frame or its title to see the changes and the issues of its screen.</EmptyDescription>
       </EmptyHeader>
     </Empty>
   )
 }
 
-// A screen with nothing selected: its title, its file, its Issues list, the
-// box for a comment on the screen, the options box (not for an option), and
-// its Changes list below it.
-type ScreenViewProps = { screen: ScreenEntry; document: Document | null; onShowScreen: (id: string) => void }
+// The Changes tab of a screen: its title and its file, its Changes list, and
+// its Issues list below it, in one column that scrolls.
+type ScreenChangesProps = {
+  screen: ScreenEntry
+  document: Document | null
+  onShowScreen: (id: string) => void
+  onShowTitle: (id: string) => void
+  onReveal: () => void
+}
 
-function ScreenView({ screen, document, onShowScreen }: ScreenViewProps) {
-  const items = useScreenEdits(screen.id)
+function ScreenChanges({ screen, document, onShowScreen, onShowTitle, onReveal }: ScreenChangesProps) {
+  const target = { screenId: screen.id, loc: null }
   return (
-    <>
-      <header className="flex shrink-0 flex-col gap-1 p-3" data-inspector-screen={screen.id}>
-        <h2 className="m-0 min-w-0 truncate text-sm font-semibold">{screen.title}</h2>
+    <PanelContentSurface scrollFadeMode="overflow" data-inspector-changes={screen.id}>
+      <header className="flex flex-col gap-1 px-3 pt-3" data-inspector-screen={screen.id}>
+        <div className="flex min-w-0 items-center gap-1">
+          <h2 className="m-0 min-w-0 flex-1 truncate text-sm font-semibold">{screen.title}</h2>
+          <span className="shrink-0" data-changes-comment="">
+            <PanelIconButton
+              label="Comment on the screen"
+              onClick={() => {
+                onShowTitle(screen.id)
+                bubble.send({ type: 'open-new', target })
+              }}
+            >
+              <ChatCircleTextIcon />
+            </PanelIconButton>
+          </span>
+          {screen.optionOf === undefined && (
+            <span className="shrink-0" data-changes-ask-options="">
+              <PanelIconButton
+                label="Ask for options of the screen"
+                onClick={() => {
+                  onShowTitle(screen.id)
+                  bubble.send({ type: 'open-options', target })
+                }}
+              >
+                <SquaresFourIcon />
+              </PanelIconButton>
+            </span>
+          )}
+        </div>
         <code className="min-w-0 truncate font-mono text-[11px] text-[color:var(--muted-foreground)]" title={screen.file}>
           {screen.file}
         </code>
-        <p className="m-0 text-xs text-[color:var(--muted-foreground)]">Click an element in the frame to edit it.</p>
       </header>
-      <IssuesPanel screenId={screen.id} document={document} className="flex-1" />
-      <CommentBox
-        key={screen.id}
-        name="screen"
-        submit="Add"
-        className="border-t border-[color:var(--border)] p-3"
-        onSubmit={(text) => edits.apply(screen.id, commentEdit(null, screen.width, text))}
-      />
-      {screen.optionOf === undefined && (
-        <OptionsBox
-          key={screen.id}
-          name="screen"
-          blocked={editBlock(items)}
-          className="border-t border-[color:var(--border)] p-3"
-          onSubmit={(count, note) => {
-            const edit = optionsEdit(null, screen.width, count, note)
-            if (edit) edits.apply(screen.id, edit)
-          }}
-        />
-      )}
       <Changes
         screenId={screen.id}
         document={document}
         empty="No changes in this screen."
-        className="max-h-[40%]"
         onShowScreen={onShowScreen}
+        onShowTitle={onShowTitle}
+        onReveal={onReveal}
       />
-    </>
+      <IssuesPanel
+        screenId={screen.id}
+        document={document}
+        className="border-t border-[color:var(--border)]"
+        onReveal={onReveal}
+      />
+    </PanelContentSurface>
   )
 }
 
@@ -346,27 +383,7 @@ function useTextChanges(node: Element) {
   }, [node])
 }
 
-// Calls `remove` on the Delete and Backspace keys, when no field that takes
-// text has the focus.
-function useRemoveKeys(remove: (() => void) | null) {
-  const current = useRef(remove)
-  useEffect(() => {
-    current.current = remove
-  })
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Delete' && event.key !== 'Backspace') return
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey || event.altKey) return
-      if (!current.current || typingInActive()) return
-      event.preventDefault()
-      current.current()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
-}
-
-function ElementView({ selected, onShowScreen }: { selected: Selected; onShowScreen: (id: string) => void }) {
+function ElementView({ selected }: { selected: Selected }) {
   // The element is read from the location of the selection, not from the
   // node: an element that renders no node of its own shares its node with an
   // inner element.
@@ -379,6 +396,7 @@ function ElementView({ selected, onShowScreen }: { selected: Selected; onShowScr
   // A change of the styles reads them again: a new key gives a new view.
   const changes = useStyleChanges(selected.node)
   const tag = selected.node.tagName.toLowerCase()
+  const role = site?.origin === 'host' ? 'HTML element' : `component${component ? ` ${component}` : ''}, renders <${tag}>`
   // The count of copies that the place in the code draws: an edit changes
   // each of them. It is read at each render: a change of the styles renders
   // the view again.
@@ -404,16 +422,6 @@ function ElementView({ selected, onShowScreen }: { selected: Selected; onShowScr
   const blocked = editBlock(items)
   const onEdit = site && blocked === null ? applyFor(selected, site) : null
   const move = moveOf(selected, items, copies, onEdit)
-  // The selection is cleared only when the remove edit went to the store: the
-  // preview then hides the element.
-  const remove = onEdit
-    ? () => {
-        const before = edits.get(selected.screenId)
-        onEdit((target, width) => removeEdit(target, width))
-        if (edits.get(selected.screenId) !== before) selection.clear()
-      }
-    : null
-  useRemoveKeys(remove)
 
   const selectParent = (parent: Fiber) => {
     const picked = pickElement(selected.node.ownerDocument, parent)
@@ -423,22 +431,14 @@ function ElementView({ selected, onShowScreen }: { selected: Selected; onShowScr
   return (
     <>
       <header className="flex shrink-0 flex-col gap-2 p-3" data-inspector-header="">
-        <div className="flex min-w-0 items-center gap-2">
-          <div className="flex min-w-0 flex-1 items-baseline gap-2">
-            <h2 className="m-0 min-w-0 truncate text-sm font-semibold" data-element-name="">
-              {selected.name}
-            </h2>
-            <span className="min-w-0 truncate text-xs text-[color:var(--muted-foreground)]" data-element-type="">
-              {site?.origin === 'host' ? 'HTML element' : `component${component ? ` ${component}` : ''}, renders <${tag}>`}
-            </span>
-          </div>
-          {remove && (
-            <span className="shrink-0" data-remove-element="">
-              <PanelIconButton label="Remove the element (Delete)" onClick={remove}>
-                <TrashIcon />
-              </PanelIconButton>
-            </span>
-          )}
+        {/* The name keeps its width; the role text after it is cut first. */}
+        <div className="flex min-w-0 items-baseline gap-2">
+          <h2 className="m-0 max-w-full shrink-0 truncate text-sm font-semibold" title={selected.name} data-element-name="">
+            {selected.name}
+          </h2>
+          <span className="min-w-0 truncate text-xs text-[color:var(--muted-foreground)]" title={role} data-element-type="">
+            {role}
+          </span>
         </div>
         {parents.length > 0 && (
           <Breadcrumb>
@@ -491,29 +491,6 @@ function ElementView({ selected, onShowScreen }: { selected: Selected; onShowScr
             <ContentSection text={text} onText={(next) => onEdit((target, width) => textEdit(text, next, target, width))} />
           ) : null
         }
-      />
-      {onEdit && (
-        <CommentBox
-          name="element"
-          submit="Add"
-          className="border-t border-[color:var(--border)] p-3"
-          onSubmit={(comment) => onEdit((target, width) => commentEdit(target, width, comment))}
-        />
-      )}
-      {/* `onEdit` is null while the screen is blocked (`editBlock`). */}
-      {onEdit && !isOption(selected.screenId) && (
-        <OptionsBox
-          name="element"
-          blocked={null}
-          className="border-t border-[color:var(--border)] p-3"
-          onSubmit={(count, note) => onEdit((target, width) => optionsEdit(target, width, count, note))}
-        />
-      )}
-      <Changes
-        screenId={selected.screenId}
-        document={selected.node.ownerDocument}
-        className="max-h-[40%]"
-        onShowScreen={onShowScreen}
       />
     </>
   )

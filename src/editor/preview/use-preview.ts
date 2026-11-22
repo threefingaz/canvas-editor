@@ -63,10 +63,11 @@ export function usePreviewRemeasure(remeasure: () => void, enabled: boolean) {
 }
 
 // The screen elements of each frame document, read when the screen is
-// rendered and again after a change of the document.
+// rendered and again after a change of the document. The selection reads
+// them too, to follow its element to a new place (`followPlace`).
 const elementsByDocument = new WeakMap<Document, ScreenElement[]>()
 
-function screenElementsOf(document: Document): ScreenElement[] {
+export function screenElementsOf(document: Document): ScreenElement[] {
   let elements = elementsByDocument.get(document)
   if (!elements) {
     elements = sitesIn(document).map(({ node, site }) => ({

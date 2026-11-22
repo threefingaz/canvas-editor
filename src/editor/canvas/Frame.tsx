@@ -1,44 +1,90 @@
-import { ArrowSquareOutIcon, CheckCircleIcon, CheckIcon, LinkBreakIcon, WarningCircleIcon } from '@phosphor-icons/react'
+import {
+  ArrowSquareOutIcon,
+  ChatCircleTextIcon,
+  CheckCircleIcon,
+  CheckIcon,
+  LinkBreakIcon,
+  SquaresFourIcon,
+  WarningCircleIcon,
+} from '@phosphor-icons/react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { screenHash } from '../../frame/screen-link.ts'
 import { relationOf } from '../../related/groups.ts'
 import { siteEntry } from '../../site/entry.ts'
-import { frameWindowOf } from '../frame-window.ts'
+import { bubble, openPin } from '../comments/bubble-store.ts'
+import { PinButton } from '../comments/Pins.tsx'
+import { pinsSourceOf, useFramePins, type PinsSource } from '../comments/use-pins.ts'
 import { keepView, type KeepState } from '../edits/keep.ts'
+import { optionsAsked } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
+import { frameWindowOf } from '../frame-window.ts'
 import { keepEdit } from '../inspector/edit.ts'
+import type { TabEvent } from '../inspector/tabs.ts'
 import { useIssues } from '../issues/collect.ts'
 import { useScreenIssues } from '../issues/store.ts'
 import { usePreview } from '../preview/use-preview.ts'
 import { toFramePoint } from '../selection/geometry.ts'
 import { cn } from '../ui/lib/utils.ts'
+import { frameShadow } from './edge.ts'
 import { defaultFrameHeight, measureHeight, type FrameBox } from './layout.ts'
+import { pinsWidth, presentParts, titleParts } from './title.ts'
+import { useMeasureRects } from './use-screen-rects.ts'
 import type { Point } from './viewport.ts'
 
 // One screen on the canvas: its title above, and an iframe with
 // `frame.html?screen=<id>` at the width of the screen. The height follows the
 // content of the frame document: it is measured at the least height of the
 // layout (`measureHeight` in `layout.ts`) on load, on a size change of the
-// root, and on a change of the frame document. A transparent layer covers the
-// iframe, thus the canvas gets the pointer and the wheel, and a click does not
-// operate the screen: a link does not navigate. The layer gives the pointer
-// position in frame coordinates, for the selection, and with the Preview
-// switch on (`operate.ts`) for the links. The frame keeps the preview of the
-// edits of its screen in its document (`usePreview`), and reads the Issues
-// list of the screen from it (`useIssues`). The count of issues is next to
-// the title. A click on the title or on the count shows the Issues list and
-// the Changes list of the screen in the inspector. A button in the title opens
-// the screen as a full page of the prototype site, in a new tab. A link of a
-// different frame that goes to this screen marks the frame for a short time.
-// The title of a state has the mark "State" before it, and the title of an
-// option the mark "Option"; a frame with options says how many it has. A
-// relation that breaks a rule of the list (`relationError`) has a mark with
-// its cause. The title of an option has the button "Keep this option"
-// (`keepBase`), off with the reason of `keepState`; while the base has an
-// open `keep` of the option, the button says so and the frame has a dashed
-// mark. Only the frame of an option reads the edits of its base, thus an edit
-// renders only the frames of the options of that screen again.
+// root, and on a change of the frame document.
+//
+// A transparent layer covers the iframe, thus the canvas gets the pointer and
+// the wheel, and a click does not operate the screen: a link does not
+// navigate. The layer gives the pointer position in frame coordinates, for
+// the selection, and with the Preview switch on (`operate.ts`) for the links.
+// The frame keeps the preview of the edits of its screen in its document
+// (`usePreview`), and reads the Issues list of the screen from it
+// (`useIssues`).
+//
+// The edge and the rings: a thin edge around the frame keeps one width on
+// the screen, and the marks (a kept option, the target of the last link, the
+// screen that the Changes tab shows) are rings at a distance from it
+// (`frameShadow`). A link of a different frame that goes to this screen
+// marks the frame for a short time.
+//
+// The title row: the title of a state has the mark "State" before it, and
+// the title of an option the mark "Option"; a frame with options says how
+// many it has. A relation that breaks a rule of the list (`relationError`)
+// has a mark with its cause. The count of issues is next to the title. A
+// click on the title or on the count shows the Changes tab of the screen in
+// the inspector (`tabAfter`); a double click on the title fits the frame
+// with its title in the view. The parts of the title that do not fit the
+// width of the frame on the screen go out (`titleParts`).
+//
+// The pins of the comments on the screen and of the lost comments (`pinsOf`)
+// are in the title row, after the count of issues; a child reads the edits
+// of the screen for them, as the count of issues reads the Issues list. A
+// click on one of them opens the bubble with its comments and the Changes
+// tab of the screen. The open requests for options of the screen are a mark
+// after the pins ("Options asked: 3", `optionsAsked`; not with the Preview
+// switch on), from a child that reads the edits of the screen; a click on it
+// shows the Changes tab of the screen.
+//
+// The actions: the button "Comment on the screen" opens the bubble for a new
+// comment on the screen, and the button "Ask for options" (not in the title
+// of an option) opens the options panel of the screen; neither is there with
+// the Preview switch on. A button opens the screen as a full page of the
+// prototype site, in a new tab. The title of an option has the button "Keep
+// this option" (`keepBase`), off with the reason of `keepState`; while the
+// base has an open `keep` of the option, the button says so and the frame
+// has a mark.
+//
+// The measure: a child that renders nothing measures the targets of the
+// edits of the screen for the pins and the marks of the canvas
+// (`useMeasureRects`). The frame reads the edits only in these children, and
+// the frame of an option reads the edits of its base, thus an edit renders
+// only the children of its screen and the frames of the options of that
+// screen again.
 
 // The button "Keep this option": its state (`keepState`) and the action that
 // adds the `keep` item to the edits of the base.
@@ -62,13 +108,18 @@ type FrameProps = {
   onHover: (id: string, point: Point | null) => void
   // A click on the frame.
   onPick: (id: string, point: Point) => void
-  // A click on the title of the frame.
-  onTitle: (id: string) => void
+  // A click on the title of the frame, on its count of issues, on the mark of
+  // the asked options or on a pin of its title row.
+  onTitle: (id: string, event: Exclude<TabEvent, 'pick'>) => void
+  // A double click on the title: the view fits the frame with its title.
+  onTitleFit: (id: string) => void
   // The pointer is above a link, with the Preview switch on: the cursor of a
   // link.
   overLink: boolean
   // The frame is the target of the last link: a mark around it.
   marked: boolean
+  // The Changes tab of the inspector shows this screen: a ring around it.
+  listed: boolean
   // The count of the options of this screen (`optionsOf`).
   optionCount: number
   // The base of this screen when it is an option, for the button "Keep this
@@ -88,8 +139,10 @@ export function Frame({
   onHover,
   onPick,
   onTitle,
+  onTitleFit,
   overLink,
   marked,
+  listed,
   optionCount,
   keepBase,
   operating,
@@ -173,10 +226,14 @@ export function Frame({
       width={screen.width}
       scale={scale}
       marked={marked}
+      listed={listed}
       optionCount={optionCount}
       keep={keep}
       kept={kept}
-      onTitle={() => onTitle(screen.id)}
+      pinsSource={pinsSourceOf(screen, frameDocument)}
+      operating={operating}
+      onTitle={(event) => onTitle(screen.id, event)}
+      onTitleFit={() => onTitleFit(screen.id)}
     >
       {screen.error ? (
         <div
@@ -191,6 +248,7 @@ export function Frame({
         <>
           {/* The measure sets the height (`measureHeight`); it starts at the
               least height. */}
+          <MeasureRects screenId={screen.id} document={frameDocument} enabled={!operating} />
           <iframe
             className="block w-full border-0 bg-white"
             style={{ height: defaultFrameHeight }}
@@ -218,55 +276,84 @@ type PlacedProps = {
   width: number
   scale: number
   marked: boolean
+  listed: boolean
   optionCount: number
   keep: KeepControl | null
   kept: boolean
-  onTitle: () => void
+  // The document of the frame for the pins of the title row, or 'error'.
+  pinsSource: PinsSource
+  // The Preview switch is on: no pin.
+  operating: boolean
+  onTitle: (event: Exclude<TabEvent, 'pick'>) => void
+  onTitleFit: () => void
   children: ReactNode
 }
 
 // The mark of a state or an option before the title.
 const relationMark = { state: 'State', option: 'Option' } as const
 
-// The width of the mark around a frame, and its distance from the frame, in
-// px on the screen.
-const markWidth = 3
-const markOffset = 4
-
 // The box of a frame in world coordinates, with the title above it.
-function Placed({ box, title, width, scale, marked, optionCount, keep, kept, onTitle, children }: PlacedProps) {
+function Placed({
+  box,
+  title,
+  width,
+  scale,
+  marked,
+  listed,
+  optionCount,
+  keep,
+  kept,
+  pinsSource,
+  operating,
+  onTitle,
+  onTitleFit,
+  children,
+}: PlacedProps) {
   const relation = relationOf(box.screen)
   const { relationError } = box.screen
+  // The width of the pins of the row (0: none), and whether it has a mark of
+  // the asked options: `TitlePins` and `AskedMark` report them, thus this
+  // frame does not read the edits of its screen, and renders again only when
+  // an answer changes.
+  const [pinsRoom, setPinsRoom] = useState(0)
+  const [hasAsked, setHasAsked] = useState(false)
+  const option = box.screen.optionOf !== undefined
+  // The parts of the title row that fit the width of the frame on the screen.
+  const present = presentParts({
+    related: relation !== 'base',
+    options: optionCount > 0,
+    relationError: relationError !== undefined,
+    pins: pinsRoom > 0,
+    asked: hasAsked,
+    keep: keep !== null,
+  })
+  const shown = new Set(titleParts(box.width * scale, present, { pins: pinsRoom }))
   return (
     <div
-      className="absolute shadow-sm"
+      className="absolute"
       data-frame={box.screen.id}
       data-frame-marked={marked ? '' : undefined}
       data-frame-kept={kept ? '' : undefined}
+      data-frame-listed={listed ? '' : undefined}
       style={{
         left: box.x,
         top: box.y,
         width: box.width,
         height: box.height,
-        // The mark keeps its size on the screen at each zoom. The mark of a
-        // link target wins over the mark of a kept option.
-        outline: marked
-          ? `${markWidth / scale}px solid var(--link)`
-          : kept
-            ? `${markWidth / scale}px dashed var(--accent)`
-            : undefined,
-        outlineOffset: marked || kept ? markOffset / scale : undefined,
+        // The edge and the mark keep their size on the screen at each zoom.
+        boxShadow: frameShadow({ kept, marked, listed }, scale),
       }}
     >
       {/* The title is scaled back, thus its text keeps one size at each zoom.
           The row is as wide as the frame on the screen and clips what does
           not fit, thus at a low zoom it does not cover the title of the next
-          frame; the title gets shorter first. */}
+          frame. The parts that do not fit go out (`titleParts`), and the
+          title text is cut last. */}
       <div
-        className="absolute bottom-full left-0 flex origin-bottom-left gap-2 overflow-hidden pb-1.5 text-xs whitespace-nowrap text-[color:var(--muted-foreground)]"
+        className="absolute bottom-full left-0 flex origin-bottom-left gap-2 overflow-clip pb-1.5 text-xs whitespace-nowrap text-[color:var(--muted-foreground)]"
         style={{ width: box.width * scale, transform: `scale(${1 / scale})` }}
       >
-        {relation !== 'base' && (
+        {shown.has('mark') && relation !== 'base' && (
           <span
             className="shrink-0 rounded-sm bg-[color:var(--muted)] px-1 font-medium text-[color:var(--foreground)]"
             data-frame-relation={relation}
@@ -277,18 +364,19 @@ function Placed({ box, title, width, scale, marked, optionCount, keep, kept, onT
         <button
           type="button"
           className="min-w-0 cursor-pointer truncate border-0 bg-transparent p-0 text-[color:var(--foreground)] hover:underline"
-          title="Show the issues and the changes of this screen"
-          onClick={(event) => event.button === 0 && onTitle()}
+          title="Show the issues and the changes of this screen; a double click fits the frame"
+          onClick={(event) => event.button === 0 && onTitle('title')}
+          onDoubleClick={(event) => event.button === 0 && onTitleFit()}
           data-frame-title={box.screen.id}
         >
           {title}
         </button>
-        {optionCount > 0 && (
+        {shown.has('options') && optionCount > 0 && (
           <span className="shrink-0" data-frame-options={optionCount}>
             {optionCount === 1 ? '1 option' : `${optionCount} options`}
           </span>
         )}
-        <span className="shrink-0 tabular-nums">{width}</span>
+        {shown.has('width') && <span className="shrink-0 tabular-nums">{width}</span>}
         {relationError !== undefined && (
           <span
             className="flex min-w-0 shrink items-center gap-1 text-[color:var(--attention)]"
@@ -296,25 +384,90 @@ function Placed({ box, title, width, scale, marked, optionCount, keep, kept, onT
             data-frame-relation-error=""
           >
             <LinkBreakIcon className="size-3.5 shrink-0" aria-hidden />
-            <span className="truncate">{relationError}</span>
+            {/* The icon stays when the text does not fit. */}
+            <span className={shown.has('relation') ? 'truncate' : 'sr-only'}>{relationError}</span>
           </span>
         )}
-        <IssueCount screenId={box.screen.id} onClick={onTitle} />
-        {keep && <KeepButton {...keep} />}
-        <a
-          className="flex shrink-0 items-center text-inherit hover:text-[color:var(--foreground)]"
-          href={`/${siteEntry}${screenHash(box.screen.id)}`}
-          target="_blank"
-          rel="noreferrer"
-          title="Open as a full page"
-          aria-label="Open as a full page"
-          data-frame-open={box.screen.id}
-        >
-          <ArrowSquareOutIcon className="size-3.5" aria-hidden />
-        </a>
+        {shown.has('issues') && <IssueCount screenId={box.screen.id} onClick={() => onTitle('issues')} />}
+        <TitlePins
+          screenId={box.screen.id}
+          source={pinsSource}
+          enabled={!operating}
+          visible={shown.has('pins')}
+          onRoom={setPinsRoom}
+          onOpen={() => onTitle('pin-of-screen')}
+        />
+        <AskedMark
+          screenId={box.screen.id}
+          enabled={!operating}
+          visible={shown.has('asked')}
+          onPresent={setHasAsked}
+          onClick={() => onTitle('title')}
+        />
+        {shown.has('keep') && keep && <KeepButton {...keep} />}
+        {shown.has('actions') && !operating && (
+          <TitleAction
+            label="Comment on the screen"
+            onClick={() => bubble.send({ type: 'open-new', target: { screenId: box.screen.id, loc: null } })}
+            data-frame-comment={box.screen.id}
+          >
+            <ChatCircleTextIcon className="size-3.5" aria-hidden />
+          </TitleAction>
+        )}
+        {shown.has('actions') && !operating && !option && (
+          <TitleAction
+            label="Ask for options of the screen"
+            onClick={() => bubble.send({ type: 'open-options', target: { screenId: box.screen.id, loc: null } })}
+            data-frame-ask-options={box.screen.id}
+          >
+            <SquaresFourIcon className="size-3.5" aria-hidden />
+          </TitleAction>
+        )}
+        {shown.has('actions') && (
+          <a
+            className="flex shrink-0 items-center text-inherit hover:text-[color:var(--foreground)]"
+            href={`/${siteEntry}${screenHash(box.screen.id)}`}
+            target="_blank"
+            rel="noreferrer"
+            title="Open as a full page"
+            aria-label="Open as a full page"
+            data-frame-open={box.screen.id}
+          >
+            <ArrowSquareOutIcon className="size-3.5" aria-hidden />
+          </a>
+        )}
       </div>
       {children}
     </div>
+  )
+}
+
+// A button with an icon in the title row of a frame: an action on the whole
+// screen. Only the main button acts. The data attribute names the action, for
+// a check from the console.
+function TitleAction({
+  label,
+  onClick,
+  children,
+  ...data
+}: {
+  label: string
+  onClick: () => void
+  children: ReactNode
+  'data-frame-comment'?: string
+  'data-frame-ask-options'?: string
+}) {
+  return (
+    <button
+      type="button"
+      className="flex shrink-0 cursor-pointer items-center border-0 bg-transparent p-0 text-inherit hover:text-[color:var(--foreground)]"
+      title={label}
+      aria-label={label}
+      onClick={(event) => event.button === 0 && onClick()}
+      {...data}
+    >
+      {children}
+    </button>
   )
 }
 
@@ -377,6 +530,99 @@ function IssueCount({ screenId, onClick }: { screenId: string; onClick: () => vo
     >
       {count > 0 ? <WarningCircleIcon className="size-3.5" aria-hidden /> : <CheckCircleIcon className="size-3.5" aria-hidden />}
       {count}
+    </button>
+  )
+}
+
+// The measure of the targets of the edits of the screen (`useMeasureRects`),
+// in a child that renders nothing, thus the frame does not read the edits.
+function MeasureRects({ screenId, document, enabled }: { screenId: string; document: Document | null; enabled: boolean }) {
+  useMeasureRects(screenId, document, enabled)
+  return null
+}
+
+// The pins of the title row: the comments on the screen and the lost
+// comments (a stale item, an element that is not found or that the preview
+// hides). The child is always mounted, also when the row has no room for the
+// pins (`visible` false), thus it reports to the row the room that its pins
+// take (`pinsWidth`; 0 with none). While the pins are not known (a reload of
+// the frame) it reports nothing, thus the row keeps its parts.
+function TitlePins({
+  screenId,
+  source,
+  enabled,
+  visible,
+  onRoom,
+  onOpen,
+}: {
+  screenId: string
+  source: PinsSource
+  enabled: boolean
+  visible: boolean
+  onRoom: (width: number) => void
+  // Before the bubble opens: the Changes tab shows the screen.
+  onOpen: () => void
+}) {
+  // Only null or not null counts here for the rectangle.
+  const pins = useFramePins(screenId, source, enabled)
+  const inTitle = (pins ?? []).filter((pin) => pin.rect === null)
+  const room = pins === null ? null : pinsWidth(inTitle.map((pin) => ({ number: pin.number, count: pin.ids.length })))
+  useEffect(() => {
+    if (room !== null) onRoom(room)
+  }, [room, onRoom])
+  if (!visible || inTitle.length === 0) return null
+  return (
+    <span className="flex shrink-0 items-center gap-1" data-frame-pins={screenId}>
+      {inTitle.map((pin) => (
+        <PinButton
+          key={pin.key}
+          pin={pin}
+          screenId={screenId}
+          className="h-4 min-w-4"
+          onClick={() => {
+            // The selection first: a change of it closes an open bubble.
+            onOpen()
+            openPin(screenId, pin)
+          }}
+        />
+      ))}
+    </span>
+  )
+}
+
+// The mark of the open requests for options of a screen (`optionsAsked`), in
+// the title row after the pins; none with the Preview switch on (`enabled`
+// false). As `TitlePins`, the child is always mounted and reports to the row
+// whether it has a mark. A click shows the Changes list of the screen, where
+// the requests are.
+function AskedMark({
+  screenId,
+  enabled,
+  visible,
+  onPresent,
+  onClick,
+}: {
+  screenId: string
+  enabled: boolean
+  visible: boolean
+  onPresent: (present: boolean) => void
+  onClick: () => void
+}) {
+  const open = optionsAsked(useScreenEdits(screenId))
+  const asked = enabled ? open : null
+  const present = asked !== null
+  useEffect(() => onPresent(present), [present, onPresent])
+  if (!visible || !asked) return null
+  const requests = asked.requests === 1 ? '1 open request' : `${asked.requests} open requests`
+  return (
+    <button
+      type="button"
+      className="shrink-0 cursor-pointer rounded-sm border-0 bg-[color:var(--muted)] px-1 font-medium text-[color:var(--foreground)] hover:underline"
+      title={`${requests} for options: the agent writes ${asked.options} option screens. Show the changes of this screen`}
+      onClick={(event) => event.button === 0 && onClick()}
+      data-frame-asked={asked.options}
+    >
+      Options asked: {asked.options}
     </button>
   )
 }

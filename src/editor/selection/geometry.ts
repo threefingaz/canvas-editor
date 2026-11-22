@@ -7,7 +7,7 @@
 // editor can be those of the window (a pointer event) or of the canvas (the
 // selection layer); the two functions do not depend on which.
 
-import type { Point, Rect } from '../canvas/viewport.ts'
+import { toScreen, type Point, type Rect, type View } from '../canvas/viewport.ts'
 
 // `frameRect` is the place of a frame in the editor: only its top left corner
 // is used, thus a point or a rectangle fits.
@@ -22,4 +22,11 @@ export function toEditorRect(nodeRect: Rect, frameRect: Point, scale: number): R
     width: nodeRect.width * scale,
     height: nodeRect.height * scale,
   }
+}
+
+// The rectangle of a node of a frame in canvas coordinates: `box` is the top
+// left corner of the frame in world coordinates, and `nodeRect` the rectangle
+// of the node in the frame document.
+export function canvasRectOf(view: View, box: Point, nodeRect: Rect): Rect {
+  return toEditorRect(nodeRect, toScreen(view, box), view.scale)
 }

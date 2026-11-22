@@ -18,10 +18,13 @@ import type { EditorTheme } from '../theme.ts'
 import { maxScale, minScale } from './viewport.ts'
 
 // The floating bar at the bottom center of the canvas: the Preview switch
-// (`operate.ts`), undo and redo of the edits of all screens, the count of the
-// changes with the sentence for the agent, an error of the save of the request
+// (`operate.ts`), which says next to it that Preview is on, undo and redo of
+// the edits of all screens, the button "Copy for the agent" with the count of
+// the changes as a badge, an error of the save of the request
 // files, the switch of the markers of the elements that are not from the
-// library, the zoom, and the theme of the editor.
+// library, the zoom, and the theme of the editor. The zoom keeps the
+// selection in the view when it is there; the titles of the buttons name
+// their keys.
 
 type ToolbarProps = {
   operate: boolean
@@ -30,7 +33,7 @@ type ToolbarProps = {
   onZoomOut: () => void
   onZoomIn: () => void
   onZoomReset: () => void
-  onCenter: () => void
+  onFitAll: () => void
   markers: boolean
   onToggleMarkers: () => void
   theme: EditorTheme
@@ -44,7 +47,7 @@ export function Toolbar({
   onZoomOut,
   onZoomIn,
   onZoomReset,
-  onCenter,
+  onFitAll,
   markers,
   onToggleMarkers,
   theme,
@@ -78,6 +81,11 @@ export function Toolbar({
             : 'Turn Preview on: a click on a link goes to the frame of its screen'}
         </TooltipContent>
       </Tooltip>
+      {operate && (
+        <span className="px-1.5 text-xs whitespace-nowrap text-[color:var(--muted-foreground)]" data-operate-state="" role="status">
+          Preview is on
+        </span>
+      )}
       <Separator className="mx-1 h-4" orientation="vertical" />
       <span data-undo="">
         <PanelIconButton label="Undo" disabled={!canUndo} onClick={edits.undo}>
@@ -119,12 +127,12 @@ export function Toolbar({
         >
           {Math.round(scale * 100)}%
         </TooltipTrigger>
-        <TooltipContent side="top">Zoom to 100%</TooltipContent>
+        <TooltipContent side="top">Zoom to 100% (Shift+0)</TooltipContent>
       </Tooltip>
       <PanelIconButton label="Zoom in" disabled={scale >= maxScale} onClick={onZoomIn}>
         <PlusIcon />
       </PanelIconButton>
-      <PanelIconButton label="Center" onClick={onCenter}>
+      <PanelIconButton label="Fit all frames (Shift+1)" onClick={onFitAll}>
         <FrameCornersIcon />
       </PanelIconButton>
       <Separator className="mx-1 h-4" orientation="vertical" />

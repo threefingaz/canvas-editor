@@ -62,6 +62,9 @@ export type Anchor = { status: 'ok' } | { status: 'moved'; line: number; column:
 // A line and a column in a screen file.
 type LineColumn = { line: number; column: number }
 
+// What the check reads of a target: its place, its tag name and its label.
+type Look = Place & Pick<Target, 'tag' | 'label'>
+
 const comparePlaces = (a: LineColumn, b: LineColumn) => a.line - b.line || a.column - b.column
 
 // One element for each place in `file` with a label, by its tag and label;
@@ -97,7 +100,7 @@ function landmarksOf(file: string, previous: readonly ScreenElement[], elements:
 
 // The element at the target: the same place, the same tag name, and the same
 // label (an empty label of the target needs only the tag).
-const isAt = (element: ScreenElement, target: Target) =>
+const isAt = (element: ScreenElement, target: Look) =>
   sameTarget(element, target) && element.tag === target.tag && (target.label === '' || element.label === target.label)
 
 // The elements of `file` after `from` and before `to` (no limit for an
@@ -210,7 +213,7 @@ function sureMatches(
 // the landmarks can change places with no change of the sequence, thus one of
 // them is enough to give null. The labels of the other elements between the
 // landmarks can differ: an applied text edit changes them.
-function shiftOf(target: Target, previous: readonly ScreenElement[], elements: readonly ScreenElement[]): number | null {
+function shiftOf(target: Look, previous: readonly ScreenElement[], elements: readonly ScreenElement[]): number | null {
   const landmarks = landmarksOf(target.file, previous, elements)
   // A landmark at the target itself is not a neighbor.
   const before = landmarks.findLast((landmark) => comparePlaces(landmark, target) < 0)
@@ -237,6 +240,56 @@ function shiftOf(target: Target, previous: readonly ScreenElement[], elements: r
   const moved = { ...target, line: target.line + lines }
   if (!now.some((element) => isAt(element, moved))) return null
   return samePlace(sure.get(placeKey(target)), moved) ? lines : null
+}
+
+// The place in `elements` of the element at `loc` in `previous`, after a
+// change of the screen file: where an edit of that element moves
+// (`shiftOf`). Null when the element is not in `previous` or its new place is
+// not certain. The selection follows its element with it, thus an open
+// comment bubble and the draft of its place follow too.
+export function placeAfter(
+  loc: string,
+  previous: readonly ScreenElement[],
+  elements: readonly ScreenElement[],
+): string | null {
+  const element = previous.find((entry) => locOf(entry) === loc)
+  const lines = element ? shiftOf(element, previous, elements) : null
+  return element && lines !== null ? locOf({ ...element, line: element.line + lines }) : null
+}
+
+// The place in `elements` of the selected element, the copy `index` of the
+// place `loc` in `previous`, after a change of the screen file: the place that
+// `placeAfter` gives. When that is not certain, the old place, but only when
+// the change moved no element of the file (the same places with the same tags
+// in the two documents) and the copy there has the tag of the selected one:
+// with its label, or with a new label (the agent changed its text) when the
+// old label is at no other place of the file now (two elements that traded
+// their texts are not certain). Else null. Siblings often share a column,
+// thus after the agent added or removed lines above, a different element can
+// be at the old place: it is never taken.
+export function followPlace(
+  loc: string,
+  index: number,
+  previous: readonly ScreenElement[],
+  elements: readonly ScreenElement[],
+): string | null {
+  const moved = placeAfter(loc, previous, elements)
+  if (moved !== null) return moved
+  const before = previous.filter((entry) => locOf(entry) === loc)[index]
+  const now = elements.filter((entry) => locOf(entry) === loc)[index]
+  if (!before || !now || now.tag !== before.tag) return null
+  const old = placesOf(previous, before.file)
+  const current = placesOf(elements, before.file)
+  const unmoved =
+    old.length === current.length &&
+    old.every((place, at) => comparePlaces(place, current[at]) === 0 && place.tag === current[at].tag)
+  if (!unmoved) return null
+  if (before.label === '' || now.label === before.label) return loc
+  const elsewhere = elements.some(
+    (entry) =>
+      entry.file === before.file && entry.tag === before.tag && entry.label === before.label && locOf(entry) !== loc,
+  )
+  return elsewhere ? null : loc
 }
 
 // The document whose places a target is in (see the top of the file).

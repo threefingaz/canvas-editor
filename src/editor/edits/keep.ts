@@ -3,6 +3,7 @@ import { isPlaced, type Item } from './model.ts'
 
 // The rules of a `keep` item: when a base screen can take one, what an open
 // one stops, and the state of the button "Keep this option" of an option.
+// Also the rules of the options panel: when it takes a request for options.
 
 // The open `keep` item of a screen, or null. A stale or replied item is open
 // too: it is in the file until the user discards it or the agent applies it.
@@ -68,4 +69,18 @@ export function keepView(option: string, base: readonly Item[] | null, operating
 // list of screens (the file is gone): it can only be discarded.
 export function staleKeep(edit: Edit, options: readonly string[]): boolean {
   return edit.change.kind === 'keep' && !options.includes(edit.change.option)
+}
+
+// The reasons why the options panel takes no request, in this order.
+export const optionHasNoOptions = 'An option has no options.'
+export const noElementForOptions = 'The element is not found in the frame, thus it takes no request for options.'
+
+// The reason why the options panel takes no request, or null when it takes
+// one: the screen is an option, then the element of the panel is not found
+// (`element` false; true for the whole screen), then the reason why the
+// screen takes no edit (`block`, an open `keep`).
+export function optionsBlock(state: { option: boolean; element: boolean; block: string | null }): string | null {
+  if (state.option) return optionHasNoOptions
+  if (!state.element) return noElementForOptions
+  return state.block
 }

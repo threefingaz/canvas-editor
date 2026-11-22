@@ -149,10 +149,21 @@ export type Refind =
 // What the selection does when the document of its frame changes, or when the
 // frame document changes inside: a reload of the frame gives a new document,
 // and a hot update of the library can render the screen again with new nodes.
-export function refind(selected: Found, document: FrameDocument): Refind {
+// `placeOf` gives the place of the element in the new document: the same
+// place for a new render of the same document; after a change of the screen
+// file, the place that the anchor pass gives it (`followPlace`), or null when
+// it is not certain. The old place is never tried on its own: after the agent
+// changed lines above the element, a sibling can be there. The element is
+// selected at its place (`picked.loc`), or the selection clears.
+export function refind(
+  selected: Found,
+  document: FrameDocument,
+  placeOf: (loc: string) => string | null = (loc) => loc,
+): Refind {
   if (selected.node.ownerDocument === document && selected.node.isConnected) return { action: 'keep' }
   if (!screenRendered(document)) return { action: 'wait' }
-  const picked = findAgain(document, selected.loc, selected.index)
+  const place = placeOf(selected.loc)
+  const picked = place === null ? null : findAgain(document, place, selected.index)
   return picked ? { action: 'select', picked } : { action: 'clear' }
 }
 

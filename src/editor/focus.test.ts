@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { historyKey, submitKey, typingIn } from './focus.ts'
+import { barKey, escapeAction, historyKey, submitKey, typingIn, viewKey } from './focus.ts'
 
 describe('typingIn', () => {
   test('true for an input, a text area, a select, and an element that can be edited', () => {
@@ -60,5 +60,113 @@ describe('submitKey', () => {
     expect(submitKey(key('Enter'))).toBe(false)
     expect(submitKey(key('Enter', { meta: true, alt: true }))).toBe(false)
     expect(submitKey(key('a', { meta: true }))).toBe(false)
+  })
+})
+
+describe('viewKey', () => {
+  const key = (code: string, keys: { ctrl?: boolean; meta?: boolean; shift?: boolean; alt?: boolean } = {}) => ({
+    code,
+    ctrlKey: keys.ctrl ?? false,
+    metaKey: keys.meta ?? false,
+    shiftKey: keys.shift ?? false,
+    altKey: keys.alt ?? false,
+  })
+
+  test('Shift with 1, 2 and 0 fit all, fit the frame and zoom to 100%', () => {
+    expect(viewKey(key('Digit1', { shift: true }))).toBe('fit-all')
+    expect(viewKey(key('Digit2', { shift: true }))).toBe('fit-frame')
+    expect(viewKey(key('Digit0', { shift: true }))).toBe('actual')
+  })
+
+  test('C is no key of the view: it is a key of the bar', () => {
+    expect(viewKey(key('KeyC'))).toBeNull()
+    expect(viewKey(key('KeyC', { shift: true }))).toBeNull()
+  })
+
+  test('the digits with no Shift are no key of the view', () => {
+    expect(viewKey(key('Digit1'))).toBeNull()
+    expect(viewKey(key('Digit2'))).toBeNull()
+    expect(viewKey(key('Digit0'))).toBeNull()
+  })
+
+  test('Ctrl, Cmd or Alt makes each key no key of the view', () => {
+    for (const modifier of [{ ctrl: true }, { meta: true }, { alt: true }]) {
+      expect(viewKey(key('Digit1', { shift: true, ...modifier }))).toBeNull()
+      expect(viewKey(key('Digit2', { shift: true, ...modifier }))).toBeNull()
+      expect(viewKey(key('Digit0', { shift: true, ...modifier }))).toBeNull()
+    }
+  })
+
+  test('the code counts, not the key: a layout where Shift with 1 gives a different key', () => {
+    // The key of Shift with 1 is `!` on one layout and `%` on a different
+    // one; the code is Digit1 on each.
+    expect(viewKey({ ...key('Digit1', { shift: true }), key: '%' } as Parameters<typeof viewKey>[0])).toBe('fit-all')
+    expect(viewKey(key('Numpad1', { shift: true }))).toBeNull()
+  })
+
+  test('a different key, and a code of the prototype of an object, are no key of the view', () => {
+    expect(viewKey(key('KeyX'))).toBeNull()
+    expect(viewKey(key('toString', { shift: true }))).toBeNull()
+  })
+})
+
+describe('escapeAction', () => {
+  const none = { floating: false, operating: false, selected: false }
+
+  test('nothing to do gives null', () => {
+    expect(escapeAction(none)).toBeNull()
+  })
+
+  test('each state alone gives its action', () => {
+    expect(escapeAction({ ...none, floating: true })).toBe('close-floating')
+    expect(escapeAction({ ...none, operating: true })).toBe('operate-off')
+    expect(escapeAction({ ...none, selected: true })).toBe('clear-selection')
+  })
+
+  test('the floating panel first, then Preview, then the selection', () => {
+    const all = { floating: true, operating: true, selected: true }
+    expect(escapeAction(all)).toBe('close-floating')
+    expect(escapeAction({ ...all, floating: false })).toBe('operate-off')
+    expect(escapeAction({ ...all, floating: false, operating: false })).toBe('clear-selection')
+  })
+})
+
+describe('barKey', () => {
+  const key = (
+    name: string,
+    code: string,
+    keys: { ctrl?: boolean; meta?: boolean; shift?: boolean; alt?: boolean } = {},
+  ) => ({
+    key: name,
+    code,
+    ctrlKey: keys.ctrl ?? false,
+    metaKey: keys.meta ?? false,
+    shiftKey: keys.shift ?? false,
+    altKey: keys.alt ?? false,
+  })
+
+  test('Delete and Backspace remove, also with Shift', () => {
+    expect(barKey(key('Delete', 'Delete'))).toBe('remove')
+    expect(barKey(key('Backspace', 'Backspace'))).toBe('remove')
+    expect(barKey(key('Backspace', 'Backspace', { shift: true }))).toBe('remove')
+  })
+
+  test('C with no Shift opens the comment, by its code', () => {
+    expect(barKey(key('c', 'KeyC'))).toBe('comment')
+    expect(barKey(key('с', 'KeyC'))).toBe('comment')
+    expect(barKey(key('C', 'KeyC', { shift: true }))).toBeNull()
+  })
+
+  test('Ctrl, Cmd or Alt makes each key no key of the bar', () => {
+    for (const modifier of [{ ctrl: true }, { meta: true }, { alt: true }]) {
+      expect(barKey(key('Delete', 'Delete', modifier))).toBeNull()
+      expect(barKey(key('Backspace', 'Backspace', modifier))).toBeNull()
+      expect(barKey(key('c', 'KeyC', modifier))).toBeNull()
+    }
+  })
+
+  test('a different key is no key of the bar', () => {
+    expect(barKey(key('x', 'KeyX'))).toBeNull()
+    expect(barKey(key('!', 'Digit1', { shift: true }))).toBeNull()
   })
 })

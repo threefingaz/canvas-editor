@@ -1,11 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent, type ReactNode } from 'react'
 import { CanvasDotPattern } from '../ui'
-import { pan, wheelDelta, wheelZoomFactor, zoomAt, type Size, type View } from './viewport.ts'
+import { canScroll, pan, wheelDelta, wheelZoomFactor, zoomAt, type Size, type View } from './viewport.ts'
 
 // The canvas fills its parent. The world layer has the content (the frames)
 // and moves with a CSS transform. The wheel moves the canvas; Ctrl or Cmd with
 // the wheel, or a trackpad pinch, changes the zoom at the pointer; Space and
-// drag, or a drag with the middle button, moves the canvas.
+// drag, or a drag with the middle button, moves the canvas; Space in a field
+// that takes text, and on a control that has the focus from the keyboard (a
+// button, a link), is left to it.
+// A wheel with no Ctrl or Cmd inside an element with `data-canvas-scroll`
+// (the list and the text areas of the comment bubble, the note of the options
+// panel) scrolls that element while it can scroll in that direction.
 
 type CanvasProps = {
   view: View
@@ -52,10 +57,12 @@ export function Canvas({ view, onViewChange, onResize, children, overlay }: Canv
     const root = rootRef.current
     if (!root) return
     const onWheel = (event: WheelEvent) => {
+      const zoom = event.ctrlKey || event.metaKey
+      if (!zoom && scrollsInside(event.target, root, event.deltaX, event.deltaY)) return
       event.preventDefault()
       const dx = wheelDelta(event.deltaX, event.deltaMode, root.clientWidth)
       const dy = wheelDelta(event.deltaY, event.deltaMode, root.clientHeight)
-      if (event.ctrlKey || event.metaKey) {
+      if (zoom) {
         const rect = root.getBoundingClientRect()
         const point = { x: event.clientX - rect.left, y: event.clientY - rect.top }
         callbacks.current.onViewChange((current) => zoomAt(current, wheelZoomFactor(dy), point))
@@ -69,7 +76,7 @@ export function Canvas({ view, onViewChange, onResize, children, overlay }: Canv
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || isTextTarget(event.target)) return
+      if (event.code !== 'Space' || takesSpace(event.target)) return
       event.preventDefault()
       setSpaceDown(true)
     }
@@ -113,10 +120,14 @@ export function Canvas({ view, onViewChange, onResize, children, overlay }: Canv
 
   const cursor = dragging ? 'cursor-grabbing' : spaceDown ? 'cursor-grab' : ''
 
+  // `overflow: clip`, not `hidden`: a box with `hidden` is still a scroll
+  // container, and a focus on a button outside the view (the title row of a
+  // frame, reached with Tab) scrolls it. The view then moves with no change
+  // of `view`. The layers in `overlay` clip in the same way.
   return (
     <div
       ref={rootRef}
-      className={`relative size-full touch-none overflow-hidden bg-[color:var(--background)] select-none ${cursor}`}
+      className={`relative size-full touch-none overflow-clip bg-[color:var(--background)] select-none ${cursor}`}
       data-canvas=""
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -141,7 +152,28 @@ export function Canvas({ view, onViewChange, onResize, children, overlay }: Canv
   )
 }
 
-function isTextTarget(target: EventTarget | null): boolean {
+// True when an element with `data-canvas-scroll` between the target of a
+// wheel event and the root of the canvas can scroll in its direction.
+function scrollsInside(target: EventTarget | null, root: Element, dx: number, dy: number): boolean {
+  let box = target instanceof Element ? target.closest('[data-canvas-scroll]') : null
+  while (box && root.contains(box) && box !== root) {
+    if (canScroll(box, dx, dy)) return true
+    box = box.parentElement?.closest('[data-canvas-scroll]') ?? null
+  }
+  return false
+}
+
+// The controls that Space presses.
+const spaceControls =
+  'button, a[href], summary, [role="button"], [role="checkbox"], [role="switch"], [role="tab"], [role="radio"], [role="menuitem"]'
+
+// True for a target that uses Space itself: a field that takes text, and a
+// control that Space presses when it has the focus from the keyboard (it
+// shows its focus ring, `:focus-visible`). A control that has the focus from
+// a click (a button of the toolbar) leaves Space to the canvas, thus Space
+// and drag still move it.
+function takesSpace(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false
-  return target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)
+  if (target.isContentEditable || target.closest('input, textarea, select') !== null) return true
+  return target.matches(':focus-visible') && target.closest(spaceControls) !== null
 }

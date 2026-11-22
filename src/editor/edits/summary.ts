@@ -1,4 +1,4 @@
-import type { Edit, EditValue } from '../../requests/format.ts'
+import type { Edit, EditValue, Reply } from '../../requests/format.ts'
 import { corners, sides } from '../tokens/declarations.ts'
 
 // One line of text for an edit, for the Changes list:
@@ -59,6 +59,13 @@ function rowName(properties: readonly string[]): string {
 // The token name of a value, or the value.
 function valueText(value: EditValue): string {
   return value.token?.name ?? value.value
+}
+
+// The name of the status of a reply of the agent, before its text.
+export const replyText: Record<Reply['status'], string> = {
+  conflict: 'Conflict',
+  'needs-library-change': 'Needs a library change',
+  unclear: 'Unclear',
 }
 
 // The most characters of a text in a summary.

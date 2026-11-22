@@ -3,36 +3,80 @@ import { library, screens } from 'virtual:canvas-screens'
 import { linkAt, type LinkTarget } from '../frame/screen-link.ts'
 import { optionTotals } from '../related/groups.ts'
 import { Canvas } from './canvas/Canvas.tsx'
+import { EditMarks } from './canvas/EditMarks.tsx'
 import { Frame, type KeepBase } from './canvas/Frame.tsx'
 import { keepKeys, layoutFrames } from './canvas/layout.ts'
 import { readMarkersShown, writeMarkersShown } from './canvas/markers.ts'
 import { Markers } from './canvas/Markers.tsx'
 import { NoLibrary } from './canvas/NoLibrary.tsx'
 import { followLink, operate, useOperate } from './canvas/operate.ts'
+import { titleRowHeight } from './canvas/title.ts'
 import { Toolbar } from './canvas/Toolbar.tsx'
-import { centerOn, zoomAt, zoomStep, type Point, type Size, type View } from './canvas/viewport.ts'
+import {
+  centerOn,
+  overlayStrips,
+  resized,
+  revealView,
+  titleRowRect,
+  toolbarStrip,
+  zoomAnchor,
+  zoomAt,
+  zoomStep,
+  type Point,
+  type Rect,
+  type Size,
+  type Strips,
+  type View,
+} from './canvas/viewport.ts'
+import { bubble } from './comments/bubble-store.ts'
+import { CommentBubble } from './comments/CommentBubble.tsx'
+import { Pins } from './comments/Pins.tsx'
 import { edits } from './edits/store.ts'
-import { historyKey, typingInActive } from './focus.ts'
+import { escapeAction, historyKey, typingInActive, viewKey } from './focus.ts'
+import { inLiveFrame } from './frame-window.ts'
+import { useWindowKeys } from './hooks.ts'
 import { Inspector } from './inspector/Inspector.tsx'
+import { clearsSelection, tabAfter, type Tab, type TabEvent } from './inspector/tabs.ts'
 import { useMediaQuery } from './media-query.ts'
 import { hiddenIn } from './preview/css.ts'
 import { useRequestSync } from './requests/sync.ts'
+import { canvasRectOf } from './selection/geometry.ts'
 import { hitAt, pickAt, type Hovered } from './selection/pick.ts'
 import { SelectionOverlay } from './selection/SelectionOverlay.tsx'
 import { selection } from './selection/store.ts'
 import { useEditorTheme } from './theme.ts'
-import { PanelSurface } from './ui'
+import { useTokenFile } from './tokens/editor-tokens.ts'
+import { Alert, AlertDescription, AlertTitle, PanelSurface } from './ui'
 
 // The editor: the canvas with the frames of the screens, the markers of the
-// elements that are not from the library, the selection, and the toolbar, and
+// elements that are not from the library, the pins of the comments, the
+// selection with its bar, the bubble of the comments, and the toolbar, and
 // the inspector in a column at the right. With the Preview switch on
 // (`operate.ts`), a click on a link in a frame moves the view to the frame of
-// its screen in place of a selection. The list of screens comes from the
-// virtual module; a new screen file updates it with no reload of the editor.
-// With no library pack, the canvas shows a message with the sentence for the
-// agent. The editor imports nothing from a pack. The title of an option frame
-// has the button "Keep this option": it adds a `keep` item to the edits of
-// the base, and the kept frame has a mark while the item is open.
+// its screen in place of a selection, and the inspector is closed: the canvas
+// has the full width, and a new size keeps the middle of the view. The list
+// of screens comes from the virtual module; a new screen file updates it with
+// no reload of the editor. With no library pack, the canvas shows a message
+// with the sentence for the agent. The editor imports nothing from a pack.
+// The title of an option frame has the button "Keep this option": it adds a
+// `keep` item to the edits of the base, and the kept frame has a mark while
+// the item is open.
+
+// An error of the token file, at the top of the canvas: it shows with the
+// Preview switch on and off, while the inspector is closed too. A child of
+// its own, thus a new token file does not render the editor again.
+function TokenFileError() {
+  const { error } = useTokenFile()
+  if (error === null) return null
+  return (
+    <PanelSurface className="max-w-md rounded-lg shadow-lg" data-token-file-error="">
+      <Alert variant="destructive">
+        <AlertTitle>The tokens are not loaded</AlertTitle>
+        <AlertDescription>{error}</AlertDescription>
+      </Alert>
+    </PanelSurface>
+  )
+}
 
 // The edits store on the window for a check from the console, in the dev
 // server only.
@@ -81,6 +125,19 @@ const noticeDuration = 4000
 
 // The least width of the editor window; a narrower window shows a message.
 const minEditorWidth = 1024
+
+// The strips of the canvas that a fit leaves free, in px on the screen: the
+// title row above a frame (it keeps its size at each zoom) and the toolbar at
+// the bottom with its distance from the edge.
+const fitStrips: Strips = { top: titleRowHeight, bottom: toolbarStrip }
+// The least distance of the middle of an element from the edges of the free
+// part of the canvas (the canvas less the notice and the toolbar) for a click
+// on a row of a list: closer, the view moves to the element.
+const revealMargin = 48
+// The largest width of the part of the title row of a frame that a panel of
+// the screen needs in the view, in px on the screen; its height is the strip
+// of the title row (`fitStrips.top`).
+const titleRowWidth = 320
 const narrowQuery = `(max-width: ${minEditorWidth - 1}px)`
 
 export default function App() {
@@ -88,6 +145,9 @@ export default function App() {
   const narrow = useMediaQuery(narrowQuery)
   const [view, setView] = useState<View>({ x: 0, y: 0, scale: 1 })
   const size = useRef<Size | null>(null)
+  // The last size of the canvas that is not empty: a new size keeps the
+  // middle of the view against it, also after a time with no room.
+  const shownSize = useRef<Size | null>(null)
   // True after the first view that centers the content on a canvas with a size.
   const centered = useRef(false)
   // The measured height of each frame, by screen id.
@@ -96,9 +156,11 @@ export default function App() {
   // frame gives a new document.
   const [documents, setDocuments] = useState<ReadonlyMap<string, Document>>(() => new Map())
   const [hover, setHover] = useState<Hovered | null>(null)
-  // The screen of the last click on a frame or on its title: the inspector
-  // shows its Changes list when nothing is selected.
+  // The screen of the last click on a frame, on its title or on a pin: the
+  // Changes tab of the inspector shows it. The open tab of the inspector
+  // follows the clicks on the canvas (`tabAfter`).
   const [listed, setListed] = useState<string | null>(null)
+  const [tab, setTab] = useState<Tab>('design')
   // The markers of the elements that are not from the library show or hide.
   const [markers, setMarkers] = useState(() => readMarkersShown())
   // The Preview switch, the frame whose link is below the pointer, the frame
@@ -125,6 +187,9 @@ export default function App() {
   // screen id drop the entries of removed screens at their next change, and
   // the documents of other screens are not used.
   const ids = new Set(screens.map((screen) => screen.id))
+  // The listed screen when it is still in the list: the Changes tab shows it,
+  // and its frame has a ring.
+  const listedId = listed !== null && ids.has(listed) ? listed : null
   const live = new Set(screens.filter((screen) => !screen.error).map((screen) => screen.id))
   const frameDocuments = keepKeys(documents, live)
 
@@ -170,21 +235,83 @@ export default function App() {
   const follow = (id: string, point: Point) => {
     const action = followLink(linkUnder(id, point), layout.frames)
     if (action?.kind === 'move' && size.current) {
-      setView(centerOn(action.box, size.current))
+      setView(centerOn(action.box, size.current, fitStrips))
       mark(action.box.screen.id)
     } else if (action?.kind === 'notice') {
       showNotice(action.text)
     }
   }
 
+  // The frame of a screen in the layout.
+  const boxOf = (id: string) => layout.frames.find((frame) => frame.screen.id === id)
+
+  // Fits the frame of the screen with its title row: a double click on the
+  // title, and Shift with 2. True when the view moved.
+  const fitFrame = (id: string): boolean => {
+    const box = boxOf(id)
+    if (!box || !size.current) return false
+    setView(centerOn(box, size.current, fitStrips))
+    return true
+  }
+
   // Moves the view to the frame of the screen and marks it: a click on a
   // `keep` item in the Changes list shows its option.
   const showScreen = (id: string) => {
-    const box = layout.frames.find((frame) => frame.screen.id === id)
-    if (!box || !size.current) return
-    setView(centerOn(box, size.current))
-    mark(id)
+    if (fitFrame(id)) mark(id)
   }
+
+  const fitAll = () => {
+    if (size.current) setView(centerOn(bounds, size.current, fitStrips))
+  }
+
+  // The rectangle of the selected node in the frame document and the place
+  // of its frame, read at the moment of a zoom; null with no selection, or
+  // when the node is not in the current document of its frame. The editor
+  // does not subscribe to the selection: it reads the store.
+  const selectedPlace = (): { box: Point; nodeRect: Rect } | null => {
+    const selected = selection.get()
+    if (!selected || !inLiveFrame(selected.node)) return null
+    if (selected.node.ownerDocument !== frameDocuments.get(selected.screenId)) return null
+    const box = boxOf(selected.screenId)
+    return box ? { box, nodeRect: selected.node.getBoundingClientRect() } : null
+  }
+
+  // A zoom of the toolbar or of a key keeps the selection in its place when
+  // it is in the view, else the middle of the canvas (`zoomAnchor`).
+  const zoomBy = (zoom: (current: View, anchor: Point) => View) => {
+    const place = selectedPlace()
+    const canvas = size.current ?? { width: 0, height: 0 }
+    setView((current) =>
+      zoom(current, zoomAnchor(canvas, place ? canvasRectOf(current, place.box, place.nodeRect) : null)),
+    )
+  }
+  // Moves the view to the selected element when its middle is not in the
+  // free part of the canvas, at least `revealMargin` px from each edge; the
+  // scale stays. A click on a row of a list in the inspector selected it.
+  const reveal = () => {
+    const place = selectedPlace()
+    const canvas = size.current
+    if (!place || !canvas) return
+    setView((current) =>
+      revealView(current, canvasRectOf(current, place.box, place.nodeRect), canvas, revealMargin, overlayStrips),
+    )
+  }
+
+  // Moves the view to the title row of the frame of a screen when it is not
+  // in the view, as `reveal` does: a panel of the screen (a bubble, the
+  // options panel) opens from the Changes tab next to that row.
+  const showTitle = (id: string) => {
+    const box = boxOf(id)
+    const canvas = size.current
+    if (!box || !canvas) return
+    setView((current) =>
+      revealView(current, titleRowRect(current, box, fitStrips.top, titleRowWidth), canvas, revealMargin, overlayStrips),
+    )
+  }
+
+  const zoomIn = () => zoomBy((current, anchor) => zoomStep(current, 1, anchor))
+  const zoomOut = () => zoomBy((current, anchor) => zoomStep(current, -1, anchor))
+  const zoomReset = () => zoomBy((current, anchor) => zoomAt(current, 1 / current.scale, anchor))
 
   // The base of an option, for the button "Keep this option" of its frame;
   // null for a screen that is not an option. The frame reads the edits of
@@ -202,23 +329,34 @@ export default function App() {
     const document = frameDocuments.get(id)
     const picked = document ? pickAt(document, point, hiddenOf(id)) : null
     setListed(id)
+    setTab(tabAfter('pick'))
     if (picked) selection.select({ ...picked, screenId: id })
     else selection.clear()
   }
 
-  // A click on the title of a frame shows the Changes list of its screen.
-  const onTitle = (id: string) => {
+  // A click on the title of a frame, on its count of issues, on its mark of
+  // the asked options or on a pin of its title row shows the Changes tab of
+  // its screen, and clears the selection, except for a pin of the title row
+  // with a selection in its screen (`clearsSelection`).
+  const onTitle = (id: string, event: Exclude<TabEvent, 'pick'>) => {
     setListed(id)
-    selection.clear()
+    setTab(tabAfter(event))
+    if (clearsSelection(event, selection.get()?.screenId ?? null, id)) selection.clear()
   }
 
   const onResize = useCallback(
     (next: Size) => {
       size.current = next
-      // Center the content when the canvas gets its first size that is not empty.
-      if (!centered.current && next.width > 0 && next.height > 0) {
+      if (next.width <= 0 || next.height <= 0) return
+      const before = shownSize.current
+      shownSize.current = next
+      // Center the content when the canvas gets its first size that is not
+      // empty; after that a new size keeps the middle of the view.
+      if (!centered.current) {
         centered.current = true
-        setView(centerOn(bounds, next))
+        setView(centerOn(bounds, next, fitStrips))
+      } else if (before) {
+        setView((current) => resized(current, before, next))
       }
     },
     [bounds],
@@ -229,15 +367,48 @@ export default function App() {
     writeMarkersShown(!markers)
   }
 
-  // The selection and the outline go away when the Preview switch turns on.
+  // The selection, the outline and the bubble go away when the Preview switch
+  // turns on.
   const toggleOperate = () => {
     operate.toggle()
     selection.clear()
+    bubble.send({ type: 'close' })
     setHover(null)
     setLinkFrame(null)
   }
 
-  const middle = () => ({ x: (size.current?.width ?? 0) / 2, y: (size.current?.height ?? 0) / 2 })
+  // The one Escape of the editor (`escapeAction`): it closes the comment
+  // bubble or the options panel and keeps the selection, else turns the
+  // Preview switch off, else clears the selection. A field that uses Escape
+  // for its own work prevents the default. The keys of the view (`viewKey`)
+  // do nothing while a field that takes text has the focus. The keys of the
+  // bar of the selection (C, Delete) are its own (`SelectionBar.tsx`).
+  useWindowKeys((event) => {
+    if (event.defaultPrevented) return
+    if (event.key === 'Escape') {
+      const action = escapeAction({
+        floating: bubble.get().kind !== 'closed',
+        operating,
+        selected: selection.get() !== null,
+      })
+      if (action === null) return
+      event.preventDefault()
+      if (action === 'close-floating') bubble.send({ type: 'close' })
+      else if (action === 'operate-off') toggleOperate()
+      else if (action === 'clear-selection') selection.clear()
+      return
+    }
+    const key = viewKey(event)
+    if (key === null || typingInActive()) return
+    if (key === 'fit-all') fitAll()
+    else if (key === 'actual') zoomReset()
+    else {
+      const id = selection.get()?.screenId ?? listedId
+      if (id === null) return
+      fitFrame(id)
+    }
+    event.preventDefault()
+  })
 
   return (
     <main className="relative flex h-full">
@@ -249,6 +420,14 @@ export default function App() {
           overlay={
             <>
               <Markers view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
+              <EditMarks view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
+              <Pins
+                view={view}
+                frames={layout.frames}
+                documents={frameDocuments}
+                shown={!operating}
+                onList={setListed}
+              />
               <SelectionOverlay
                 view={view}
                 frames={layout.frames}
@@ -256,8 +435,10 @@ export default function App() {
                 hover={hover}
                 shown={!operating}
               />
+              <CommentBubble view={view} frames={layout.frames} documents={frameDocuments} shown={!operating} />
               {library === null && <NoLibrary />}
-              <div className="pointer-events-none absolute inset-x-4 top-4 flex justify-center" role="status">
+              <div className="pointer-events-none absolute inset-x-4 top-4 flex flex-col items-center gap-2" role="status">
+                {library !== null && <TokenFileError />}
                 {notice && (
                   <PanelSurface className="rounded-lg px-3 py-2 text-xs shadow-lg" data-operate-notice="">
                     {notice}
@@ -268,10 +449,10 @@ export default function App() {
                 operate={operating}
                 onToggleOperate={toggleOperate}
                 scale={view.scale}
-                onZoomOut={() => setView((current) => zoomStep(current, -1, middle()))}
-                onZoomIn={() => setView((current) => zoomStep(current, 1, middle()))}
-                onZoomReset={() => setView((current) => zoomAt(current, 1 / current.scale, middle()))}
-                onCenter={() => size.current && setView(centerOn(bounds, size.current))}
+                onZoomOut={zoomOut}
+                onZoomIn={zoomIn}
+                onZoomReset={zoomReset}
+                onFitAll={fitAll}
                 markers={markers}
                 onToggleMarkers={toggleMarkers}
                 theme={theme}
@@ -291,8 +472,10 @@ export default function App() {
               onHover={onHover}
               onPick={onPick}
               onTitle={onTitle}
+              onTitleFit={fitFrame}
               overLink={operating && linkFrame === box.screen.id}
               marked={marked === box.screen.id}
+              listed={!operating && listedId === box.screen.id}
               optionCount={totals.get(box.screen.id) ?? 0}
               keepBase={keepBaseOf(box.screen)}
               operating={operating}
@@ -300,11 +483,17 @@ export default function App() {
           ))}
         </Canvas>
       </div>
-      <Inspector
-        screenId={listed !== null && ids.has(listed) ? listed : null}
-        documents={frameDocuments}
-        onShowScreen={showScreen}
-      />
+      {!operating && (
+        <Inspector
+          screenId={listedId}
+          documents={frameDocuments}
+          tab={tab}
+          onTab={setTab}
+          onShowScreen={showScreen}
+          onShowTitle={showTitle}
+          onReveal={reveal}
+        />
+      )}
       {narrow && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--background)] p-6 text-center text-sm">
           The editor needs a window that is {minEditorWidth}px wide or more.

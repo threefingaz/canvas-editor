@@ -42,7 +42,12 @@ export function locOf(place: Place): string {
 // reads the items through this filter, thus it never sees a task or the
 // target null.
 export function liveItems(items: readonly Item[]): PreviewItem[] {
-  return items.filter((item): item is PreviewItem => !item.stale && !item.edit.reply && !isTask(item.edit.change))
+  return items.filter(isLive)
+}
+
+// One item of `liveItems`.
+export function isLive(item: Item): item is PreviewItem {
+  return !item.stale && !item.edit.reply && !isTask(item.edit.change)
 }
 
 // The same value and the same token id. A value that gets a token is a change.
@@ -152,6 +157,21 @@ export function discard(list: Item[], id: string): Item[] {
 // The items of a target; with null, the comments on the screen.
 export function editsOf(target: Target | null, list: Item[]): Item[] {
   return list.filter((item) => sameTarget(item.edit.target, target))
+}
+
+// The open requests for options of a screen, for the mark of its title row:
+// the count of `options` items and the count of options that they ask for in
+// all. A stale item and an item with a reply of the agent count too: each is
+// still open in the request file. Null when the screen has none.
+export function optionsAsked(list: readonly Item[]): { requests: number; options: number } | null {
+  let requests = 0
+  let options = 0
+  for (const { edit } of list) {
+    if (edit.change.kind !== 'options') continue
+    requests++
+    options += edit.change.count
+  }
+  return requests === 0 ? null : { requests, options }
 }
 
 // True when two versions of an edit have the same comment text and the same

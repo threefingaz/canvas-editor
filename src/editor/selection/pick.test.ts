@@ -288,6 +288,47 @@ describe('refind', () => {
     const { nodes } = screen()
     expect(refind({ node: ownNode({}, true), loc: chipLoc, index: 3 }, frameDocument(nodes, null))).toEqual({ action: 'clear' })
   })
+
+  test('selects the element at the place that placeOf gives after a change of the screen file', () => {
+    const { nodes, chips } = screen()
+    const old = 'screens/a.tsx:9:9'
+    const placeOf = (loc: string) => (loc === old ? chipLoc : null)
+    expect(refind({ node: ownNode({}, true), loc: old, index: 2 }, frameDocument(nodes, null), placeOf)).toEqual({
+      action: 'select',
+      picked: { node: chips[2].div, loc: chipLoc, index: 2, name: 'Chip' },
+    })
+  })
+
+  test('clears when the new place is not certain or has no such element', () => {
+    const { nodes } = screen()
+    const document = frameDocument(nodes, null)
+    const old = 'screens/a.tsx:9:9'
+    expect(refind({ node: ownNode({}, true), loc: old, index: 0 }, document, () => null)).toEqual({ action: 'clear' })
+    expect(refind({ node: ownNode({}, true), loc: old, index: 3 }, document, () => chipLoc)).toEqual({ action: 'clear' })
+  })
+
+  test('never takes the element at the old place when placeOf gives no place: a sibling can be there now', () => {
+    // The agent added lines above: a Chip is at the old place of the selected
+    // element, whose new place is not certain.
+    const { nodes } = screen()
+    const asked: string[] = []
+    const placeOf = (loc: string) => {
+      asked.push(loc)
+      return null
+    }
+    expect(refind({ node: ownNode({}, true), loc: chipLoc, index: 1 }, frameDocument(nodes, null), placeOf)).toEqual({
+      action: 'clear',
+    })
+    expect(asked).toEqual([chipLoc])
+  })
+
+  test('takes the new place over the old one when the two have an element', () => {
+    const { nodes, stackDiv } = screen()
+    const placeOf = (loc: string) => (loc === chipLoc ? stackLoc : null)
+    const result = refind({ node: ownNode({}, true), loc: chipLoc, index: 0 }, frameDocument(nodes, null), placeOf)
+    expect(result).toMatchObject({ action: 'select', picked: { loc: stackLoc, index: 0 } })
+    expect(result.action === 'select' && result.picked.node).toBe(stackDiv)
+  })
 })
 
 describe('screenRendered', () => {

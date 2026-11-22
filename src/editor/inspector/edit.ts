@@ -40,6 +40,15 @@ export function activeToken(row: InspectorRow): Token | null {
   return state.state === 'none' ? state.nearest : state.token
 }
 
+// The name next to the step control of a row: the name of the token at
+// `index` while the thumb is moved to a step other than `start` (the step of
+// the token of the value, null for a value with no nearest token, whose
+// thumb stands at the first step); none at the starting step, because the
+// line of the value names that token. None for no step.
+export function stepName(tokens: readonly Pick<Token, 'name'>[], index: number | null, start: number | null): string | undefined {
+  return index !== null && index !== start ? tokens[index]?.name : undefined
+}
+
 // The control of a row: a step control for spacing, radius and shadow (with
 // two tokens or more), a select for color and for the text style. Null for a
 // row that stays read-only: no tokens, no state, a negative value, or a layout

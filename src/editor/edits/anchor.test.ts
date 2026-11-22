@@ -1,6 +1,16 @@
 import { describe, expect, test } from 'vitest'
 import type { Change, Edit, Target } from '../../requests/format.ts'
-import { anchor, anchorScreen, anchorWrites, baseOf, nextReading, type Reading, type ScreenElement } from './anchor.ts'
+import {
+  anchor,
+  anchorScreen,
+  anchorWrites,
+  baseOf,
+  nextReading,
+  followPlace,
+  placeAfter,
+  type Reading,
+  type ScreenElement,
+} from './anchor.ts'
 import type { Item, PlacedEdit } from './model.ts'
 import { createEditsStore } from './store.ts'
 
@@ -727,5 +737,116 @@ describe('anchorScreen', () => {
     const result = anchorScreen(store, screen, items, last, {}, [])
     expect(result).toEqual({ ready: true, reading: last })
     expect(store.get(screen)).toBe(items)
+  })
+})
+
+describe('placeAfter', () => {
+  const before = [
+    element(8, 3, 'Stack', 'Welcome Plan your week Start'),
+    element(10, 5, 'Typography', 'Welcome'),
+    element(12, 7, 'Typography', 'Plan your week'),
+    element(14, 7, 'Button', 'Start'),
+  ]
+  const loc = `${file}:12:7`
+
+  test('gives the new place of an element when the agent added lines above it', () => {
+    const after = before.map((entry) => (entry.line > 8 ? { ...entry, line: entry.line + 3 } : entry))
+    expect(placeAfter(loc, before, after)).toBe(`${file}:15:7`)
+  })
+
+  test('gives the same place when nothing moved', () => {
+    expect(placeAfter(loc, before, before)).toBe(loc)
+  })
+
+  test('gives null for a place that the document before does not have', () => {
+    expect(placeAfter(`${file}:30:7`, before, before)).toBeNull()
+  })
+
+  test('gives null when the element is gone', () => {
+    const after = before.filter((entry) => entry.line !== 12).map((entry) => (entry.line > 12 ? { ...entry, line: entry.line - 2 } : entry))
+    expect(placeAfter(loc, before, after)).toBeNull()
+  })
+})
+
+describe('followPlace', () => {
+  const before = [
+    element(8, 3, 'Stack', 'Welcome Plan your week Start'),
+    element(10, 5, 'Typography', 'Welcome'),
+    element(12, 5, 'Typography', 'Plan your week'),
+    element(14, 5, 'Button', 'Start'),
+  ]
+  const at = (line: number, column = 5) => `${file}:${line}:${column}`
+  const shifted = (entries: ScreenElement[], from: number, lines: number) =>
+    entries.map((entry) => (entry.line >= from ? { ...entry, line: entry.line + lines } : entry))
+
+  test('gives the new place when the agent added lines above, not the sibling that is at the old place now', () => {
+    const after = shifted(before, 8, 2)
+    // The Typography "Plan your week" is at 14:5 now, the old place of the Button.
+    expect(followPlace(at(14), 0, before, after)).toBe(at(16))
+  })
+
+  test('gives the same place when nothing moved', () => {
+    expect(followPlace(at(12), 0, before, before)).toBe(at(12))
+  })
+
+  test('gives null when the element is gone and a sibling took its place', () => {
+    // The Typography "Welcome" is removed; "Plan your week" is at 10:5 now.
+    const after = shifted(
+      before.filter((entry) => entry.line !== 10),
+      12,
+      -2,
+    )
+    expect(followPlace(at(10), 0, before, after)).toBeNull()
+    // The Typography "Plan your week" is removed; the Button is at 12:5 now.
+    const other = shifted(
+      before.filter((entry) => entry.line !== 12),
+      14,
+      -2,
+    )
+    expect(followPlace(at(12), 0, before, other)).toBeNull()
+  })
+
+  test('the same place when the agent changed only the text of the element (and so the label of its parent)', () => {
+    const relabel = (entries: ScreenElement[]) =>
+      entries.map((entry) =>
+        entry.line === 14 ? { ...entry, label: 'Begin' } : entry.line === 8 ? { ...entry, label: 'Welcome Plan your week Begin' } : entry,
+      )
+    const after = relabel(before)
+    expect(placeAfter(at(14), before, after)).toBeNull()
+    expect(followPlace(at(14), 0, before, after)).toBe(at(14))
+    expect(followPlace(at(8, 3), 0, before, after)).toBe(at(8, 3))
+  })
+
+  test('null when two elements with the same tag traded their texts: the old text is at a different place now', () => {
+    const traded = before.map((entry) =>
+      entry.line === 10 ? { ...entry, label: 'Plan your week' } : entry.line === 12 ? { ...entry, label: 'Welcome' } : entry,
+    )
+    expect(followPlace(at(10), 0, before, traded)).toBeNull()
+    expect(followPlace(at(12), 0, before, traded)).toBeNull()
+  })
+
+  test('null for a new text when the change also moved elements', () => {
+    const after = shifted(before, 8, 2).map((entry) => (entry.line === 16 ? { ...entry, label: 'Begin' } : entry))
+    expect(followPlace(at(14), 0, before, after)).toBeNull()
+  })
+
+  describe('two siblings with the same tag and no label, where the anchor pass is not certain', () => {
+    const lines = [
+      element(8, 3, 'Stack', 'Welcome Start'),
+      element(9, 5, 'Typography', 'Welcome'),
+      element(10, 5, 'Divider', ''),
+      element(12, 5, 'Divider', ''),
+      element(14, 5, 'Button', 'Start'),
+    ]
+
+    test('the old place when the change moved no element', () => {
+      expect(placeAfter(at(12), lines, lines)).toBeNull()
+      expect(followPlace(at(12), 0, lines, lines)).toBe(at(12))
+    })
+
+    test('null when the change moved the elements: the other Divider is at the old place now', () => {
+      const after = shifted(lines, 8, 2)
+      expect(followPlace(at(12), 0, lines, after)).toBeNull()
+    })
   })
 })

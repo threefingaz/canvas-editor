@@ -1,16 +1,17 @@
 import { WarningCircleIcon, XIcon } from '@phosphor-icons/react'
-import { useState } from 'react'
 import { screens } from 'virtual:canvas-screens'
 import { optionsOf } from '../../related/groups.ts'
-import type { Edit, Reply, Target } from '../../requests/format.ts'
+import type { Reply, Target } from '../../requests/format.ts'
+import { openPin } from '../comments/bubble-store.ts'
+import { lostPin, pinOfComment, screenPin } from '../comments/pins.ts'
+import { pinsSourceOf, useFramePins } from '../comments/use-pins.ts'
 import { staleKeep } from '../edits/keep.ts'
-import { isPlaced, locOf, sameComment, type Item } from '../edits/model.ts'
+import { isPlaced, locOf, type Item } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
-import { summaryOf } from '../edits/summary.ts'
+import { replyText, summaryOf } from '../edits/summary.ts'
 import { useSelection } from '../selection/store.ts'
 import { PanelIconButton } from '../ui'
 import { cn } from '../ui/lib/utils.ts'
-import { CommentBox } from './CommentBox.tsx'
 import { ListHeader } from './ListHeader.tsx'
 import { selectPlace } from './select-place.ts'
 
@@ -23,10 +24,12 @@ import { selectPlace } from './select-place.ts'
 // longer at its place in the code, and no other element matches it, see
 // `anchor`) has a warning and no preview; it cannot be selected, only
 // discarded. A request for options shows its note. A comment shows its text; a
-// click on it opens the text for a change (Save or Ctrl/Cmd+Enter keeps it,
-// Cancel or Escape puts it back) and does not select the element. The reply of
-// the agent stays shown above the open text. A new text or a new reply of the
-// comment from the file closes the open text, thus Save never writes over them.
+// click on it selects its element when the frame shows it and opens the
+// bubble of its pin on the canvas (`CommentBubble.tsx`), where its text
+// changes. A click that selects an element moves the canvas to it when it is
+// not in the view (`onReveal`); a comment on the screen and a lost comment
+// move the canvas to the title row of the frame (`onShowTitle`), where their
+// bubble opens.
 // A comment on the screen has no element: its item has the name "Screen". A
 // click on a `keep` item moves the canvas to the frame of its option; a `keep`
 // whose option is not an option of the screen in the list (the file is gone)
@@ -36,17 +39,16 @@ type ChangesProps = {
   screenId: string
   // The current frame document of the screen; null when it has none.
   document: Document | null
-  // Shown when the screen has no edits; with no text the list is not shown.
-  empty?: string
-  className?: string
+  // Shown when the screen has no edits.
+  empty: string
   // Moves the canvas to the frame of a screen.
   onShowScreen: (id: string) => void
-}
-
-const replyText: Record<Reply['status'], string> = {
-  conflict: 'Conflict',
-  'needs-library-change': 'Needs a library change',
-  unclear: 'Unclear',
+  // Moves the canvas to the title row of the frame of a screen when it is
+  // not in the view: the bubble of a pin of the row opens there.
+  onShowTitle: (id: string) => void
+  // Moves the canvas to the selected element when it is not in the view: a
+  // click on an item selected it.
+  onReveal: () => void
 }
 
 // The reply of the agent on an item.
@@ -119,55 +121,35 @@ function ItemButton({ item, title, clickable, onClick, comment, warning }: ItemB
 }
 
 type CommentItemProps = {
-  screenId: string
   item: Item
   text: string
-  // True while the text is open for a change.
-  open: boolean
+  // Opens the bubble of the pin of the comment.
   onOpen: () => void
-  onClose: () => void
 }
 
-// A comment: a click opens its text for a change, with the reply of the agent
-// above the box.
-function CommentItem({ screenId, item, text, open, onOpen, onClose }: CommentItemProps) {
+// A comment: a click opens the bubble of its pin on the canvas, where its
+// text changes.
+function CommentItem({ item, text, onOpen }: CommentItemProps) {
   const { edit } = item
-  if (!open) {
-    const title = `${placeOf(edit.target)}: ${summaryOf(edit)}: ${text}. Click to change the text.`
-    return <ItemButton item={item} title={title} clickable onClick={onOpen} comment={text} />
-  }
-  return (
-    <div className="flex min-w-0 flex-1 flex-col gap-1 px-1.5 py-1">
-      {edit.reply && <ReplyLine reply={edit.reply} />}
-      <CommentBox
-        name="change"
-        submit="Save"
-        initial={text}
-        autoFocus
-        onSubmit={(next) => {
-          edits.changeComment(screenId, edit.id, next)
-          onClose()
-        }}
-        onCancel={onClose}
-      />
-    </div>
-  )
+  const title = `${placeOf(edit.target)}: ${summaryOf(edit)}: ${text}. Click to open its pin.`
+  return <ItemButton item={item} title={title} clickable onClick={onOpen} comment={text} />
 }
 
 type EditItemProps = {
   screenId: string
   item: Item
   document: Document | null
+  onReveal: () => void
 }
 
 // An edit with a preview, or a request for options: a click selects its
 // element when it is visible. A request for options shows its full note below
 // the summary.
-function EditItem({ screenId, item, document }: EditItemProps) {
+function EditItem({ screenId, item, document, onReveal }: EditItemProps) {
   const { edit } = item
   const clickable = isPlaced(edit) && !item.stale
   const select = () => {
-    if (document && clickable) selectPlace(screenId, document, locOf(edit.target))
+    if (document && clickable && selectPlace(screenId, document, locOf(edit.target))) onReveal()
   }
   const note = edit.change.kind === 'options' && edit.change.note !== '' ? edit.change.note : undefined
   const title = `${placeOf(edit.target)}: ${summaryOf(edit)}`
@@ -198,24 +180,32 @@ function KeepItem({ screenId, item, onShowScreen }: KeepItemProps) {
   )
 }
 
-export function Changes({ screenId, document, empty, className, onShowScreen }: ChangesProps) {
+export function Changes({ screenId, document, empty, onShowScreen, onShowTitle, onReveal }: ChangesProps) {
   const items = useScreenEdits(screenId)
   const selected = useSelection()
-  // The comment whose text is open for a change, as it was when it opened.
-  const [editing, setEditing] = useState<Edit | null>(null)
-  if (items.length === 0 && empty === undefined) return null
+  // The pins of the screen, as the canvas has them: a click on a comment opens
+  // the bubble of its pin. Only null or not null counts for the rectangle.
+  const screen = screens.find((entry) => entry.id === screenId)
+  const pins = useFramePins(screenId, screen ? pinsSourceOf(screen, document) : document, true)
   const selectedLoc = selected?.screenId === screenId ? selected.loc : null
 
+  // A comment on an element that the frame shows selects the element first
+  // (a new element closes an open bubble), then the bubble opens. The pins of
+  // the title row (the screen, the lost comments) show the title row first.
+  const openComment = (item: Item) => {
+    const pin = pinOfComment(pins, item)
+    if (pin.key === screenPin || pin.key === lostPin) onShowTitle(screenId)
+    else if (document && selectPlace(screenId, document, pin.key)) onReveal()
+    openPin(screenId, pin)
+  }
+
   return (
-    <section
-      className={cn('flex min-h-0 flex-col border-t border-[color:var(--border)]', className)}
-      data-changes={screenId}
-    >
+    <section className="flex flex-col" data-changes={screenId}>
       <ListHeader title="Changes" name="changes" count={items.length} />
       {items.length === 0 ? (
         <p className="m-0 px-3 pb-3 text-xs text-[color:var(--muted-foreground)]">{empty}</p>
       ) : (
-        <ul className="m-0 min-h-0 list-none overflow-y-auto p-0 pb-2">
+        <ul className="m-0 list-none p-0 pb-2">
           {items.map((item) => {
             const { edit } = item
             const mine = selectedLoc !== null && isPlaced(edit) && locOf(edit.target) === selectedLoc
@@ -224,20 +214,14 @@ export function Changes({ screenId, document, empty, className, onShowScreen }: 
                 key={edit.id}
                 className={cn('flex items-start gap-1 px-1.5', mine && 'bg-[color:var(--muted)] shadow-[inset_2px_0_0_var(--accent)]')}
                 data-change={edit.id}
+                data-change-mine={mine ? '' : undefined}
               >
                 {edit.change.kind === 'comment' ? (
-                  <CommentItem
-                    screenId={screenId}
-                    item={item}
-                    text={edit.change.text}
-                    open={editing?.id === edit.id && sameComment(editing, edit)}
-                    onOpen={() => setEditing(edit)}
-                    onClose={() => setEditing(null)}
-                  />
+                  <CommentItem item={item} text={edit.change.text} onOpen={() => openComment(item)} />
                 ) : edit.change.kind === 'keep' ? (
                   <KeepItem screenId={screenId} item={item} onShowScreen={onShowScreen} />
                 ) : (
-                  <EditItem screenId={screenId} item={item} document={document} />
+                  <EditItem screenId={screenId} item={item} document={document} onReveal={onReveal} />
                 )}
                 <span className="shrink-0" data-change-discard="">
                   <PanelIconButton label="Discard the change" onClick={() => edits.discard(screenId, edit.id)}>

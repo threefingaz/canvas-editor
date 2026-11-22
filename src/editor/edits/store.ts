@@ -24,8 +24,9 @@ export type EditsStore = {
   canRedo: () => boolean
   // `replaces`: the ids of the edits that the new edit replaces (a sequence
   // edit replaces the sequence edit of a sibling); they go out in the same
-  // history record.
-  apply: (screenId: string, edit: Edit, replaces?: readonly string[]) => void
+  // history record. True when the list of the screen changed: false when the
+  // edit gave the same list (an edit that merged into the same item).
+  apply: (screenId: string, edit: Edit, replaces?: readonly string[]) => boolean
   discard: (screenId: string, id: string) => void
   // A new text for a comment (`replaceComment`); an empty text discards it.
   changeComment: (screenId: string, id: string, text: string) => void
@@ -83,12 +84,14 @@ export function createEditsStore(): EditsStore {
     for (const listener of listeners) listener()
   }
 
-  // A new version from a change of the list of one screen.
-  const change = (screenId: string, next: (list: Item[]) => Item[]) => {
+  // A new version from a change of the list of one screen; true when the
+  // list changed.
+  const change = (screenId: string, next: (list: Item[]) => Item[]): boolean => {
     const list = get(screenId)
     const changed = next(list)
-    if (changed === list) return
+    if (changed === list) return false
     set(record(history, withScreen(history.present, screenId, changed)))
+    return true
   }
 
   // A change of one item in each version, with no record.
@@ -112,8 +115,12 @@ export function createEditsStore(): EditsStore {
     canRedo: () => canRedo(history),
     apply: (screenId, edit, replaces = []) =>
       change(screenId, (list) => addEdit(replaces.reduce(discard, list), edit)),
-    discard: (screenId, id) => change(screenId, (list) => discard(list, id)),
-    changeComment: (screenId, id, text) => change(screenId, (list) => replaceComment(list, id, text)),
+    discard: (screenId, id) => {
+      change(screenId, (list) => discard(list, id))
+    },
+    changeComment: (screenId, id, text) => {
+      change(screenId, (list) => replaceComment(list, id, text))
+    },
     undo: () => set(undo(history)),
     redo: () => set(redo(history)),
     replace: (screenId, edits) => {

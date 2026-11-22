@@ -22,6 +22,12 @@ export function sameElement(a: Selected | null, b: Selected | null): boolean {
   return a.screenId === b.screenId && a.loc === b.loc && a.index === b.index
 }
 
+// The React key of the selected element: the same for the same element
+// (`sameElement`), thus a part keyed with it starts again for a new element.
+export function selectionKey(selected: Pick<Selected, 'screenId' | 'loc' | 'index'>): string {
+  return `${selected.screenId}|${selected.loc}|${selected.index}`
+}
+
 export type SelectionStore = {
   get: () => Selected | null
   // The same element with the same node keeps the current value.

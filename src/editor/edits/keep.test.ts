@@ -1,6 +1,16 @@
 import { describe, expect, test } from 'vitest'
 import type { Edit, Target } from '../../requests/format.ts'
-import { editBlock, keepBlock, keepState, keepView, openKeep, staleKeep } from './keep.ts'
+import {
+  editBlock,
+  keepBlock,
+  keepState,
+  keepView,
+  noElementForOptions,
+  openKeep,
+  optionHasNoOptions,
+  optionsBlock,
+  staleKeep,
+} from './keep.ts'
 import type { Item } from './model.ts'
 
 const target: Target = {
@@ -141,5 +151,23 @@ describe('staleKeep', () => {
 
   test('false for a different kind', () => {
     expect(staleKeep(comment('c1', 'A note', null), [])).toBe(false)
+  })
+})
+
+describe('optionsBlock', () => {
+  test('a found element or the screen of a base screen with no keep takes a request', () => {
+    expect(optionsBlock({ option: false, element: true, block: null })).toBeNull()
+  })
+
+  test('an option says so first, also with a lost element and a block', () => {
+    expect(optionsBlock({ option: true, element: false, block: 'blocked' })).toBe(optionHasNoOptions)
+  })
+
+  test('a lost element comes before the block of an open keep', () => {
+    expect(optionsBlock({ option: false, element: false, block: 'blocked' })).toBe(noElementForOptions)
+  })
+
+  test('an open keep blocks a found element and the screen', () => {
+    expect(optionsBlock({ option: false, element: true, block: 'blocked' })).toBe('blocked')
   })
 })
