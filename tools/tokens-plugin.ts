@@ -40,7 +40,9 @@ export function tokensPlugin(pack: Pack | null): Plugin {
 
   const start = (finish: (result: RunResult) => void) => {
     let output = ''
-    const child = spawn(process.execPath, [script], { cwd: root })
+    // The flag lets Node before 22.18 run a TypeScript file; a later Node
+    // takes it and needs it no more.
+    const child = spawn(process.execPath, ['--experimental-strip-types', script], { cwd: root })
     child.stdout.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
     child.stderr.on('data', (chunk: Buffer) => (output += chunk.toString('utf8')))
     child.on('error', (error) => finish({ error: error.message, output }))

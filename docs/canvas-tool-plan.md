@@ -729,13 +729,28 @@ The score above named what was left. Five of these parts did not need the work e
 | 3. Changes with no typed or spoken prompt | 9 | Twenty-three quick requests, with the states and the mobile width by one click. | `code chat` and the prompt files in Copilot. A new screen needs its task in words; a change with a value that only the user knows (a brand color) is a typed comment. |
 | 4. Certainty about the design system | 9 | A deviation is one value, named on the canvas; the check finds a number of pixels. | That `scaleKeys` and the token entry of the real library are right, and that each counted deviation is a true one there. |
 
+### The test at work (2026-11-23)
+
+The user ran the checklist below in the work environment, with GitHub Copilot in VS Code and the design system of the company.
+
+| Step | Result | What changed here |
+|---|---|---|
+| 1. Connect the library | It worked. The agent asked questions that were too specific ("the library has no shadows or border widths: are those groups empty?"). The scripts did not run on Node 22.16, and Copilot changed the code for it. | The setup skill asks at most three things and decides the details itself, each as a line of its report. The npm scripts and the token plugin pass `--experimental-strip-types`, and the tool needs Node 22.6 or later. |
+| 2. Create a screen | It worked with the skill `canvas-screen-design`. The prompt file `/canvas-screen` was not found. | The three entries are skills now: `canvas-screen`, `canvas-apply`, `canvas-check`. |
+| 3. The deviations of the new screens | No deviation on any screen that Copilot wrote. | None. |
+| 4. A deviation by hand | The check and the marker found it. A wrong value on a component is hard to write at all: the types of the design system refuse it. A deviation is thus expected where components are put together (a plain element, a raw value in a layout), not on a component. | None. It is the reason why the check and the markers look at the composition. |
+| 5. Send to the agent | The button does not open the chat: only copy and paste works. `/canvas-apply` was not found. | The skill `canvas-apply` has the fixed sentence in its description. Why the command does not start is not known yet: the button names the reason. |
+| 6 to 8 | They worked. | None. |
+
+The score after this test: need 1 is 9 (Copilot wrote screens with the real design system, with no deviation); need 2 is 9; need 3 is 8 ("Send to the agent" does not work at work, thus each round is one paste); need 4 is 9, now with the real library. Not tested here: the tool on Node 22.16 itself (this machine has a later Node; the flag is the documented way).
+
 ### The checklist for the work environment (ten minutes)
 
 1. `npm install`, then give Copilot: `Connect a library as the skill canvas-library-setup says.` When it is done: does `pack.json` have `"scaleKeys"`, and does the editor show a sample screen with the look of the design system? (This step takes longer than ten minutes the first time; the others do not.)
-2. In the chat of Copilot: `/canvas-screen`, and one task in a sentence. Does it read the skills first, and does `npm run check` find nothing in the new screens?
+2. In the chat of Copilot: ask for a screen with one task in a sentence (the skill `canvas-screen` is the entry; `/canvas-screen` where prompt files are on). Does it read the skills first, and does `npm run check` find nothing in the new screens?
 3. In the editor: is each count of deviations 0 on those screens, and does the group "Defaults of the library" have only values that you cannot change in a screen file?
 4. Write `'13px'` into one screen by hand. Does `npm run check` exit with 1, and does the canvas show a marker with the value?
-5. Click an element, then **Comment**, then a quick request. Click **Send to the agent**. Does the chat of Copilot open in the window of the project with the sentence? If the button says "Copied: paste it in the chat", the command `code` is not on the path: use `/canvas-apply`, or paste.
+5. Click an element, then **Comment**, then a quick request. Click **Send to the agent**. Does the chat of Copilot open in the window of the project with the sentence? If the button says "Copied: paste it in the chat", the command did not start (its title says why): paste the sentence.
 6. Does Copilot apply the request, remove it from the list, and does the frame change?
 7. On a screen: **Add the error state** and **Mobile width (390 px)**, then send. Are the new frames next to their screen, with an arrow from the control that leads to them?
 8. Click the title of a frame at the zoom that shows all frames. Are its links clear?

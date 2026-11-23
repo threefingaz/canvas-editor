@@ -23,17 +23,23 @@ The tool was developed with a pack for a sample library: a theme object in `libr
 
 A library is connected when: `packs/` has one folder with a valid `pack.json`; `npm install` installed the packages of its `package.json`; `library/provider.tsx` exports `LibraryProvider`; `library/tokens.ts` exports `tokens()`, and `npm run tokens` writes `tokens.json` with no error; the pack has `AGENTS.md` and the skill `skills/canvas-library-<name>/SKILL.md`; and the editor shows the screens with no message "No library is connected".
 
-## 1. Ask the user
+## 1. Ask the user only what you cannot find
 
-Ask these before you read code; an agent cannot find the answers:
+Look first, ask second. The package of the library, its version, its theme, its tokens and its guidance are in `package.json`, in `node_modules` and in the files of the project: read them. A question about a detail of the tokens ("this library has no shadows: is the group empty?") is not a question for the user: decide it as this skill says, and name the decision in your report.
 
-1. Which package is the library, and which version? Is it in the internal registry?
-2. Is there a separate package or file of design tokens? Does the product use a theme of its own, or the default of the library?
-3. Does the library come with guidance for agents or developers: a skill, an instruction file, a guide? Where?
-4. For a token group that the library does not have (shadows; strokes, which are the widths of borders): is it empty, or does it come from somewhere else?
-5. For a scale that takes each number (spacing, corner radius): which steps does the product use? If the user does not know, choose the steps of the documentation of the library, and name them in your report.
-6. Does the library need more packages for a screen: a font, icons? May you install them? With no font package, a screen shows the next font of the list; say so in your report.
-7. May you copy guidance of the library into the pack, if you find some?
+Ask at most these three things, in one message, and only the ones that you could not find:
+
+1. Which package is the library? Only when the user did not name it and the project does not show it.
+2. May you install the packages that a screen needs (the library itself, a font, icons)? The project permits few dependencies.
+3. If the library has guidance of its own (a skill, a guide), may you copy it into the pack? Ask only when you found some.
+
+Decide the rest yourself. Each of these is a line in your report, thus the user can change it:
+
+- **The theme:** the theme that the product uses when the project has one, else the default of the library.
+- **A token group that the library does not have** (shadows; strokes, which are the widths of borders): the group is empty. Do not make tokens for it.
+- **The steps of a scale that takes each number** (spacing, corner radius): the steps that the components of the library use themselves and that its documentation names. Name them.
+- **A font or an icon package that is not installed:** a screen shows the next font of the list, and has no icons. Say so.
+- **A company file of design tokens outside the library:** use it only when the user named it.
 
 ## 2. Find the guidance that exists
 
@@ -48,7 +54,7 @@ In short: keep the guidance of the library whole and unchanged in `packs/<name>/
 - Write `packs/<name>/pack.json`: `{ "name": "<name>", "package": "<npm package>" }`. The tool marks an element as "from the library" when it is imported from `package` or from a path below it.
 - Add `"scaleKeys"` to `pack.json` when you know the override of the library (step 5 finds it; come back to this item then): the list of the keys of its style object, and of the props with the same name, whose **number** is a step of a scale of the theme and not a count of pixels. The tool knows these keys of a size: `fontSize`, `letterSpacing`, `borderRadius` and its four corners, `borderWidth`, `padding` and `margin` with `Top`, `Right`, `Bottom`, `Left`, `Inline`, `Block`, `X`, `Y`, and `gap`, `rowGap`, `columnGap`. For each of them, find what the library does with a number: read its documentation or its source, or write the key with a number in the override and read the value on the page; with no browser, render one element with that override to a text in Node, with the theme of the pack, and read the CSS. Use only the keys of this list, each side by its long name. Put the key into the list when the number is a step of a scale (`padding: 2` gives two steps of the spacing); leave it out when the number is a count of pixels (`fontSize: 14` gives 14 px). `npm run check` then reports a number under a key that is not in the list as a raw value, and the editor marks its element. A library that takes no number as a step gets an empty list, `[]`. With no `"scaleKeys"` the check finds no number of pixels: say so to the user. A short key of the library alone (`p`, `mx`) is not needed in the list.
 - Write `packs/<name>/package.json`: `"name": "canvas-pack-<name>"`, `"private": true`, `"version": "0.0.0"`, `"type": "module"` (with no `type`, Node prints a warning when it loads the token entry, and the dev server shows it in place of the token count), and the packages of the library in `dependencies`, with the version or the range that the user gave. The root `package.json` already has `"workspaces": ["packs/*"]`; do not add the packages there.
-- Ask the user before you add a package; the project permits few dependencies. Then run `npm install` in the project root, from the registry that the project uses. npm puts the packages into the root `node_modules`, thus a screen in `screens/` can import them.
+- Add only the packages that the user named or permitted in step 1; the project permits few dependencies. They need no second question. Then run `npm install` in the project root, from the registry that the project uses. npm puts the packages into the root `node_modules`, thus a screen in `screens/` can import them.
 - The dev server reads the pack when it starts. A running dev server restarts by itself when the pack is complete: `pack.json` and `library/provider.tsx` (step 4) both exist. Until the provider is written, its output says that the pack has no `library/provider.tsx` yet; when the server restarts, it says "the library pack changed", and the open editor reloads. A change, a removal or a move of `pack.json` restarts it too. If the server was not running, start it with `npm run dev`. If the editor still says "No library is connected" after the two files are written, stop the dev server and run `npm run dev` again.
 - If the library needs more than one package for its components, tell the user: `pack.json` has one `package`, and the others would show as "not from the library".
 - **A library with no React package** (a stylesheet with classes and CSS variables, with its React form not available): with the user's permission, the pack itself is the package. Copy the stylesheet into `library/`, unchanged, when its licence permits it (keep the licence text next to it, as [Existing guidance](./references/existing-guidance.md) says for a copy), and record where it came from; leave out files that it loads which the pack does not have (fonts), and say so. Write thin components in `components/index.tsx` that render the markup of the documentation of the library, with one prop for each token group, each prop value a class that points at the token variable (`gap="xs"` gives a class with `gap: var(--lib-gap-xs)`). Give no `className` and no `style` prop: the editor reads each value from a rule. These components are the library, not a wrapper in a screen; the rules of a screen file stay as they are. The library then has no override at the place of use: the library skill says so in section 2 of the contract, and an edit that no prop can carry gets `needs-library-change`. In `package.json`, set `"exports": { ".": "./components/index.tsx" }`; in `pack.json`, `package` is `canvas-pack-<name>`; a screen imports from `canvas-pack-<name>`. Tell the user that the screens use this wrapper and not the components of the product, and that the wrapper is replaced when the React package is available.

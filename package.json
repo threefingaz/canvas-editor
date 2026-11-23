@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": ">=22.18"
+    "node": ">=22.6"
   },
   "workspaces": [
     "packs/*"
@@ -16,9 +16,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest",
-    "tokens": "node tools/build-tokens.ts",
-    "check": "node tools/check-screens.ts",
-    "export": "node tools/export-tool.ts"
+    "tokens": "node --experimental-strip-types tools/build-tokens.ts",
+    "check": "node --experimental-strip-types tools/check-screens.ts",
+    "export": "node --experimental-strip-types tools/export-tool.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",

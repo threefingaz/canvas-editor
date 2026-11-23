@@ -56,7 +56,7 @@ For the first two jobs you do not need "Stack", "Layout", "Current state" and "C
 
 ## Stack
 
-Node 22.18 or later: Node runs `tools/build-tokens.ts` directly and strips the types. Vite 8, React 19, TypeScript 7, Tailwind CSS 4 (editor only). The packages of the component library are in its pack: `packs/<name>/package.json` is an npm workspace (the root `package.json` has `"workspaces": ["packs/*"]`), and `packs/<name>/AGENTS.md` names them. With no pack, the install has no library. The editor UI in `src/editor/ui/` uses Base UI (`@base-ui/react`), `@phosphor-icons/react`, `class-variance-authority`, `clsx` and `tailwind-merge`. The build step uses `parseSync` and `Visitor` from `vite` and the dev dependency `magic-string`.
+Node 22.6 or later: Node runs the scripts in `tools/` directly and strips the types. The npm scripts and the token plugin pass `--experimental-strip-types`, which Node before 22.18 needs; when you run a script of `tools/` by hand, pass it too. Vite 8, React 19, TypeScript 7, Tailwind CSS 4 (editor only). The packages of the component library are in its pack: `packs/<name>/package.json` is an npm workspace (the root `package.json` has `"workspaces": ["packs/*"]`), and `packs/<name>/AGENTS.md` names them. With no pack, the install has no library. The editor UI in `src/editor/ui/` uses Base UI (`@base-ui/react`), `@phosphor-icons/react`, `class-variance-authority`, `clsx` and `tailwind-merge`. The build step uses `parseSync` and `Visitor` from `vite` and the dev dependency `magic-string`.
 
 Testing: unit tests use Vitest in the `node` environment, in `*.test.ts` files next to the code (`src/`, `tools/`, `packs/`). Keep logic in pure functions with tests; components read the DOM and call them. Tests use plain objects in place of DOM nodes and React records, not a DOM library. Check interface changes in the browser pane: `.claude/launch.json` starts the dev server with the pack (`canvas-editor`, port 5173) and with `CANVAS_NO_PACK=1` (`canvas-editor-no-pack`, port 5174) for the "no library" state, and `npm run preview` (`canvas-site`, port 4173) for the built site; run `npm run build` before it.
 
@@ -128,7 +128,7 @@ Folders:
 - `tokens.json`: written by `npm run tokens`. It is not committed yet; the user decides when. The editor builds and runs with no file and then shows a message. With no pack, no file is written. The dev server writes it again after each change of a code file in `packs/<name>/library/` (`tools/tokens-plugin.ts`), and the editor gets the new tokens with no reload; with no dev server, run `npm run tokens` after a change there.
 - `dist/`: written by `npm run build`, ignored by Git: the prototype site, ready for a static host.
 - `.claude/launch.json`: starts the dev server and the server of the built site for the browser pane. Browser checks need a visible pane: a hidden pane does not render the frames, and `ResizeObserver` in a frame does not report, thus frame heights and selection rectangles do not update.
-- `.github/prompts/`: three prompt files for GitHub Copilot in VS Code, which the user runs in the chat with `/` and the name: `canvas-apply` (the fixed sentence, for a user whose "Send to the agent" does not start), `canvas-screen` (a new screen or flow, with the task as its input) and `canvas-check` (run the check and fix what it finds). Each only sends the agent to this file. A test checks their head and that `canvas-apply` has the fixed sentence.
+- `.github/prompts/`: three prompt files for GitHub Copilot in VS Code (`canvas-apply`, `canvas-screen`, `canvas-check`), for a setup where prompt files are on: the user runs one in the chat with `/` and its name. At work they were not found (2026-11-23); the skills of the same names in `.github/skills/` are the entry that works there. A test checks their head and that `canvas-apply` has the fixed sentence.
 
 ## Current state (2026-11-22)
 
@@ -160,7 +160,7 @@ This section describes the working branch of this repository. In a folder writte
 - Relative imports in `tools/`, `packs/<name>/library/`, `src/tokens/`, `src/frame/library-setup.ts` and `canvas.config.ts` carry the file extension (`.ts`, `.tsx`), because Node imports these files directly.
 - Editor code that reads a frame gets `getComputedStyle`, `ResizeObserver`, `MutationObserver` and `matchMedia` from the window of the frame document (`frameWindowOf` in `src/editor/frame-window.ts`), and never uses `instanceof` with the classes of the editor window (see `src/editor/tokens/read-styles.ts`, `src/editor/tokens/declarations.ts`, `src/editor/selection/pick.ts`).
 - A node that the editor keeps (the selection, a target) can outlive its frame: after a reload of the frame it stays connected to its old document, which has no window. `isConnected` is then true, and a read of its styles fails. Check `inLiveFrame` (`src/editor/frame-window.ts`) before you read a kept node.
-- A script that Node runs (`npm run tokens`, `npm run export`) does its work when it loads, thus a test cannot import it (Node 22.18 has no `import.meta.main`). Keep such a script thin, and put its decisions in a pure module with tests: `build-tokens.ts` with `token-state.ts`, `export-tool.ts` with `export.ts`, `check-screens.ts` with `check.ts`.
+- A script that Node runs (`npm run tokens`, `npm run export`) does its work when it loads, thus a test cannot import it (Node 22 has no `import.meta.main`). Keep such a script thin, and put its decisions in a pure module with tests: `build-tokens.ts` with `token-state.ts`, `export-tool.ts` with `export.ts`, `check-screens.ts` with `check.ts`.
 - The type check of `tools/` (`tsconfig.node.json`) has no DOM library. A test in `tools/` that imports editor code with DOM types needs `/// <reference lib="dom" />` (see `tools/source-location.test.ts`).
 - `src/editor/ui/` is copied code with a different style (double quotes, semicolons). Do not reformat it. Lint ignores it. Change it only when the editor needs the change.
 - The editor and the screens have separate styles. Only `src/editor/editor.css` imports Tailwind and the editor theme, and it makes classes from `src/editor/` only. A screen gets only the styles of the library. Do not import editor styles into a frame or a screen.
@@ -376,6 +376,9 @@ Who decides what:
 
 | Skill | Read it when |
 |---|---|
+| `canvas-screen` | the user asks for a new screen, a flow, a state or a second width: the entry, with the sequence of the work |
+| `canvas-apply` | the user gives the fixed sentence, or asks to apply the changes of the editor: the entry to "Requests" |
+| `canvas-check` | the user asks to check the screens or to fix deviations: `npm run check`, what to fix and what to leave |
 | `canvas-screen-design` | you create or change a screen in `screens/` |
 | `canvas-information-display` | the screen has a chart, a diagram, a map, a plan to scale, key numbers, numbers to compare, results of a survey or a report, or a comparison of two or more things |
 | the library skill `canvas-library-<name>`, in `packs/<name>/skills/` | you write a screen, or apply a canvas request: step 3 above. `packs/<name>/AGENTS.md` links it |
@@ -399,4 +402,4 @@ A screen is now a picture of one state: it has no state and no handlers, and eac
 
 - `canvas-library-setup`: how to connect a library as a pack: the questions to the user, the guidance that the library already has, the search for the tokens, the files of the pack, the library skill, and the proof. With no library connected, an agent does not create a screen.
 
-Two more skills are planned and do not exist yet: for the screen files and for the requests. Until then, the sections "Screen files" and "Requests" of this file are their content.
+The three entry skills (`canvas-screen`, `canvas-apply`, `canvas-check`) are short: each has the sequence of one job and sends the agent to the sections "Screen files" and "Requests" of this file, which stay the full guide. They exist because the agent at work loads skills, and did not load the prompt files (the test at work of 2026-11-23). A test checks that each skill has the name of its folder, and that `canvas-apply` has the fixed sentence in its description.

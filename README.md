@@ -14,7 +14,7 @@ All that is specific to the component library is in one folder, its pack: `packs
 
 ## Start
 
-Needs Node 22.18 or later: Node runs `tools/build-tokens.ts` directly and strips the types.
+Needs Node 22.6 or later: Node runs the scripts in `tools/` directly and strips the types. Before Node 22.18 that needs the flag `--experimental-strip-types`; the npm scripts pass it.
 
 ```sh
 npm install
@@ -61,7 +61,7 @@ When the agent has written the pack (its `pack.json` and its provider), the runn
   Apply the canvas requests in .canvas/requests/ as AGENTS.md says.
   ```
 
-  In the chat of GitHub Copilot, `/canvas-apply` gives the same sentence (a prompt file in `.github/prompts/`); `/canvas-screen` starts a new screen or flow and asks for the task, and `/canvas-check` runs the check of the screens and fixes what it finds. Set `agent` to `null` in `canvas.config.ts` to turn "Send to the agent" off, or change its command for a different code editor.
+  The agent finds the rest by itself: the skill `canvas-apply` in `.github/skills/` has the fixed sentence in its description, `canvas-screen` is the entry for a new screen or flow, and `canvas-check` runs the check of the screens and fixes what it finds. Ask in plain words ("create the screens for …", "check the screens"). Where the prompt files of GitHub Copilot are on, `/canvas-apply`, `/canvas-screen` and `/canvas-check` in the chat do the same. Set `agent` to `null` in `canvas.config.ts` to turn "Send to the agent" off, or change its command for a different code editor.
 
   The agent applies the edits to the code, does the comments, writes the asked options as screen files, writes a kept option into its screen, and removes each applied item from the file. The frames reload, and the applied previews go away. An item that the agent did not apply stays, with its reply in the Changes tab, and for a comment on its pin. The editor can stay open while the agent works.
 

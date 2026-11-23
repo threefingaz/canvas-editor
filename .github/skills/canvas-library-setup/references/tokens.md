@@ -19,12 +19,12 @@ Thus "where are the tokens" is three questions. Answer each one for each group.
 
 ## Question 1: where are the values?
 
-Look in this sequence, and stop at the first that exists. Ask the user to confirm that it is the source that the product uses.
+Look in this sequence, and stop at the first that exists. Name the source in your report; do not ask the user to confirm it.
 
 1. **A theme object** that the library exports or takes (the case of the sample library).
 2. **A tokens package or file**: JSON, a module with constants, a file of style variables.
 3. **CSS variables in the stylesheet of the library**: read the rules of `:root` and of the theme classes.
-4. **A design tokens file of the company**, outside the library. Ask the user for it; it can be the real source.
+4. **A design tokens file of the company**, outside the library, when the user named one; it can be the real source.
 5. **The documentation**, as the last source, copied by hand.
 
 If the library has more than one theme or mode (light and dark, brands), ask which one the screens use. The tool reads one set of values.
@@ -62,7 +62,7 @@ Find also the sequence for an edit: a prop that the component has for the change
 
 ## Which values are tokens
 
-- A scale that takes each number (a spacing factor): offer only the steps that the product uses (question 5 of step 1 in `SKILL.md`).
+- A scale that takes each number (a spacing factor): offer only the steps that the product uses (step 1 of `SKILL.md`: the steps that the components of the library use).
 - Internal values of single components are not tokens.
 - A value that is a part of other values (the channels of a color) is not a token.
 - A level that means "none" (a shadow of level 0) is not a token.

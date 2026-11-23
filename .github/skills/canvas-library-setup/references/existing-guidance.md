@@ -29,7 +29,7 @@ For each copy, write into the library skill: where it came from (the repository 
 
 ## Before you copy
 
-- **The user permits it.** Ask before you copy (question 7 of step 1 in `SKILL.md`). With no permission, the library skill points to where the guidance is and has what the contract needs, in your own words.
+- **The user permits it.** Ask before you copy (question 3 of step 1 in `SKILL.md`). With no permission, the library skill points to where the guidance is and has what the contract needs, in your own words.
 - **The version.** Copy the guidance of the version that is installed (its tag), not the newest state of the repository.
 
 - **The licence.** Copy only what its licence permits, and keep the licence text next to the copy: a `LICENSE` file in the copied folder. That file is not a change of the guidance. If there is no licence, or you cannot tell, ask the user and copy nothing.
