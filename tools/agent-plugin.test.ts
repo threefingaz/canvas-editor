@@ -14,8 +14,8 @@ type Started = { command: string; args: string[]; options: SpawnOptions; unref: 
 // A stand-in for the start of a process: it records each start, and `then`
 // says what the process does after the listeners are set.
 function setup(
-  then: (child: EventEmitter) => void,
-  options: { agent?: AgentConfig; platform?: string; wait?: number } = {},
+  then: (child: EventEmitter, command: string) => void,
+  options: { agent?: AgentConfig; platform?: string; wait?: number; env?: Record<string, string>; exists?: (path: string) => boolean } = {},
 ) {
   const starts: Started[] = []
   const deps: AgentDeps = {
@@ -24,6 +24,8 @@ function setup(
     sentence,
     platform: options.platform ?? 'darwin',
     wait: options.wait ?? 5,
+    env: () => options.env ?? {},
+    exists: options.exists ?? (() => false),
     spawn(command, args, spawnOptions) {
       const started: Started = { command, args, options: spawnOptions, unref: 0 }
       starts.push(started)
@@ -32,7 +34,7 @@ function setup(
           started.unref += 1
         },
       })
-      queueMicrotask(() => then(child))
+      queueMicrotask(() => then(child, command))
       return child as unknown as AgentProcess
     },
   }
@@ -145,7 +147,25 @@ describe('createAgentHandler', () => {
     })
     const answer = await call(handle, 'POST', agentAddress)
     expect(answer.status).toBe(200)
-    expect(JSON.parse(answer.body)).toEqual({ started: false, reason: 'the command "code" was not found' })
+    expect(JSON.parse(answer.body)).toEqual({
+      started: false,
+      reason: 'the command "code" was not found, also not in the folder of VS Code; write its full path as `command` of `agent` in canvas.config.ts',
+    })
+  })
+
+  test('a command that is not on the path is found in the folder of VS Code', async () => {
+    const place = '/Applications/Visual Studio Code.app/Contents/Resources/app/bin/code'
+    const { handle, starts } = setup(
+      (child, command) => {
+        if (command === 'code') child.emit('error', Object.assign(new Error('spawn code ENOENT'), { code: 'ENOENT' }))
+        else child.emit('spawn')
+      },
+      { exists: (path) => path === place },
+    )
+    const answer = await call(handle, 'POST', agentAddress)
+    expect(JSON.parse(answer.body)).toEqual({ started: true })
+    expect(starts.map((start) => start.command)).toEqual(['code', place])
+    expect(starts[1].args.at(-1)).toBe(sentence)
   })
 
   test('a command that ends with an error code within the wait', async () => {

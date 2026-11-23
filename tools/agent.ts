@@ -15,7 +15,7 @@ export type AgentCommand = { command: string; args: string[]; shell: boolean }
 export const agentOff = 'Send to the agent is turned off in canvas.config.ts'
 
 // A character that a shell line reads as more than text, also in double
-// quotes: the end of the quotes, a variable, a second command, a redirect.
+// quotes (in the sentence, and in the path of the command): the end of the quotes, a variable, a second command, a redirect.
 const unsafe = /["%&|<>^`$!\r\n]/
 
 // The command with the sentence as its last argument. On Windows the command
@@ -26,9 +26,58 @@ const unsafe = /["%&|<>^`$!\r\n]/
 // argument as it is.
 export function agentCommand(agent: NonNullable<AgentConfig>, sentence: string, platform: string): AgentCommand {
   if (platform !== 'win32') return { command: agent.command, args: [...agent.args, sentence], shell: false }
-  const found = unsafe.exec(sentence)
-  if (found) throw new Error(`the sentence has the character ${JSON.stringify(found[0])}, which is not safe in a shell line`)
-  return { command: agent.command, args: [...agent.args, `"${sentence}"`], shell: true }
+  const found = unsafe.exec(sentence) ?? unsafe.exec(agent.command)
+  if (found) throw new Error(`the command line has the character ${JSON.stringify(found[0])}, which is not safe in a shell line`)
+  // A path with a space is one word of the shell line only in quotes.
+  const command = agent.command.includes(' ') ? `"${agent.command}"` : agent.command
+  return { command, args: [...agent.args, `"${sentence}"`], shell: true }
+}
+
+// The name of the command line of VS Code. When the config has this name and
+// no path, the tool also looks for the command where VS Code keeps it: many
+// machines do not have it on the path.
+export const codeCommand = 'code'
+
+// The command line of the VS Code whose terminal runs the dev server. VS Code
+// gives each of its terminals the path of a script inside its own folder
+// (`VSCODE_GIT_ASKPASS_MAIN`, `…/resources/app/extensions/git/…`); the command
+// is in the same installation. Null when the path has a different form.
+export function codeOfTerminal(askpass: string | undefined, platform: string): string | null {
+  const match = askpass === undefined ? null : /^(.*?)[\\/]resources[\\/]app[\\/]extensions[\\/]/i.exec(askpass)
+  if (!match) return null
+  const root = match[1]
+  if (platform === 'win32') return `${root}\\bin\\code.cmd`
+  // In the application of macOS the command is below `Resources/app`.
+  return platform === 'darwin' ? `${root}/Resources/app/bin/code` : `${root}/bin/code`
+}
+
+// The usual places of the command line of VS Code on a platform.
+export function codePlaces(env: Readonly<Record<string, string | undefined>>, platform: string): string[] {
+  if (platform === 'win32') {
+    return [env.LOCALAPPDATA && `${env.LOCALAPPDATA}\\Programs\\Microsoft VS Code\\bin\\code.cmd`, env.ProgramFiles && `${env.ProgramFiles}\\Microsoft VS Code\\bin\\code.cmd`].filter(
+      (path): path is string => typeof path === 'string' && path !== '',
+    )
+  }
+  const app = 'Visual Studio Code.app/Contents/Resources/app/bin/code'
+  if (platform === 'darwin') return [`/Applications/${app}`, ...(env.HOME ? [`${env.HOME}/Applications/${app}`] : [])]
+  return ['/usr/share/code/bin/code', '/usr/bin/code', '/snap/bin/code']
+}
+
+// The commands to try, in this sequence, for the command of the config. A
+// command with a path, and a command of a different code editor, is tried as
+// it is. For `code`: first the VS Code of the terminal that runs the dev
+// server, then `code` of the path, then the usual places; a place counts only
+// when its file is there (`exists`).
+export function agentCommands(
+  agent: NonNullable<AgentConfig>,
+  env: Readonly<Record<string, string | undefined>>,
+  platform: string,
+  exists: (path: string) => boolean,
+): string[] {
+  if (agent.command !== codeCommand) return [agent.command]
+  const terminal = codeOfTerminal(env.VSCODE_GIT_ASKPASS_MAIN, platform)
+  const found = [terminal, ...codePlaces(env, platform)].filter((path): path is string => path !== null && exists(path))
+  return [...new Set([...found.slice(0, terminal !== null && found[0] === terminal ? 1 : 0), agent.command, ...found])]
 }
 
 // How a start ended: the process runs (or ended with the code 0), the system

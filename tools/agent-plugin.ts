@@ -14,13 +14,14 @@
 // in the code, thus a page cannot make the server run a different thing.
 
 import { spawn as spawnProcess } from 'node:child_process'
+import { existsSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { normalizePath, type Plugin } from 'vite'
 import { config } from '../canvas.config.ts'
 import { agentSentence } from '../src/editor/requests/agent-sentence.ts'
 import { agentAddress, type AgentAnswer } from '../src/requests/api.ts'
 import { messageOf } from '../src/tokens/format.ts'
-import { agentCommand, agentOff, startResult, type AgentConfig, type StartEvent } from './agent.ts'
+import { agentCommand, agentCommands, agentOff, codeCommand, startResult, type AgentConfig, type StartEvent } from './agent.ts'
 import { sameOrigin } from './requests.ts'
 
 // How long the handler waits for an error code of the command, in ms. The
@@ -60,6 +61,10 @@ export type AgentDeps = {
   spawn: Spawn
   // The wait for an error code, in ms.
   wait?: number
+  // The environment of the dev server and a test for a file, to find the
+  // command of the code editor when it is not on the path.
+  env?: () => Readonly<Record<string, string | undefined>>
+  exists?: (path: string) => boolean
 }
 
 export type AgentHandler = (req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>
@@ -77,7 +82,7 @@ function sendAnswer(res: ServerResponse, answer: AgentAnswer) {
 // Starts the process and says how the start ended: an error of the system, an
 // end within the wait, or a process that still runs after it. The process is
 // detached with no streams, thus it lives on when the dev server stops.
-function start(deps: AgentDeps, agent: NonNullable<AgentConfig>): Promise<AgentAnswer> {
+function startOne(deps: AgentDeps, agent: NonNullable<AgentConfig>): Promise<AgentAnswer> {
   const { command, args, shell } = agentCommand(agent, deps.sentence, deps.platform)
   return new Promise((resolve) => {
     let timer: ReturnType<typeof setTimeout> | undefined
@@ -99,6 +104,31 @@ function start(deps: AgentDeps, agent: NonNullable<AgentConfig>): Promise<AgentA
       timer = setTimeout(() => done({ kind: 'running' }), deps.wait ?? startWait)
     })
   })
+}
+
+// Tries each place of the command (`agentCommands`) until one starts. With
+// none, the answer is the reason of the command of the config, which is the
+// name that the user knows.
+async function start(deps: AgentDeps, agent: NonNullable<AgentConfig>): Promise<AgentAnswer> {
+  const commands = agentCommands(agent, deps.env?.() ?? {}, deps.platform, deps.exists ?? (() => false))
+  let first: AgentAnswer | null = null
+  for (const command of commands) {
+    let answer: AgentAnswer
+    try {
+      answer = await startOne(deps, { ...agent, command })
+    } catch (error) {
+      answer = { started: false, reason: messageOf(error) }
+    }
+    if (answer.started) return answer
+    if (command === agent.command || first === null) first = answer
+  }
+  const answer = first ?? { started: false as const, reason: `the command "${agent.command}" was not found` }
+  // The next step for the user, when VS Code is at a place that the tool does
+  // not know.
+  if (!answer.started && agent.command === codeCommand && answer.reason.endsWith('was not found')) {
+    return { started: false, reason: `${answer.reason}, also not in the folder of VS Code; write its full path as \`command\` of \`agent\` in canvas.config.ts` }
+  }
+  return answer
 }
 
 // The middleware. The checks of a call come in this sequence: the address
@@ -142,6 +172,8 @@ export function agentPlugin(): Plugin {
     sentence: agentSentence,
     platform: process.platform,
     spawn: (command, args, options) => spawnProcess(command, args, options),
+    env: () => process.env,
+    exists: existsSync,
   })
 
   return {
