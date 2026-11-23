@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { agentAddress } from '../../requests/api.ts'
-import { answerOf, idle, noAnswer, sendLabel, sendStatus, sendText, sendToAgent, stateAfter, type Fetch } from './send.ts'
+import { agentWay, answerOf, clipboardWay, copyLabel, copyStatus, copyText, idle, noAnswer, sendLabel, sendStatus, sendText, sendToAgent, stateAfter, wayOf, type Fetch } from './send.ts'
 
 const sentence = 'Apply the requests.'
 
@@ -60,7 +60,7 @@ describe('the texts of the button', () => {
 
   test('a sent sentence says where the chat opens', () => {
     expect(sendLabel({ kind: 'sent' }, 'idle', sentence)).toBe(
-      'Sent to the agent. The chat of the agent opens in the code editor.',
+      'Sent to the agent. The chat of the agent opens with the sentence.',
     )
   })
 
@@ -81,5 +81,41 @@ describe('the texts of the button', () => {
     expect(sendStatus({ kind: 'sending' }, 'idle', sentence)).toBe('')
     expect(sendStatus({ kind: 'sent' }, 'idle', sentence)).toBe(sendLabel({ kind: 'sent' }, 'idle', sentence))
     expect(sendStatus(failed, 'copied', sentence)).toBe(sendLabel(failed, 'copied', sentence))
+  })
+})
+
+describe('the way', () => {
+  test('wayOf reads the two answers, and a different form is the clipboard', () => {
+    expect(wayOf({ way: 'command', preset: 'vscode' })).toEqual({ way: 'command', preset: 'vscode' })
+    expect(wayOf({ way: 'command', preset: null })).toEqual({ way: 'command', preset: null })
+    expect(wayOf({ way: 'command' })).toEqual({ way: 'command', preset: null })
+    expect(wayOf({ way: 'clipboard' })).toEqual(clipboardWay)
+    for (const value of [null, 'command', 1, {}, { way: 'other' }]) expect(wayOf(value)).toEqual(clipboardWay)
+  })
+
+  test('agentWay is a GET with no content; an error is the clipboard', async () => {
+    const calls: unknown[] = []
+    const fetch: Fetch = async (address, init) => {
+      calls.push([address, init])
+      return { ok: true, status: 200, json: async () => ({ way: 'command', preset: 'vscode' }) }
+    }
+    expect(await agentWay(fetch)).toEqual({ way: 'command', preset: 'vscode' })
+    expect(calls).toEqual([[agentAddress, { method: 'GET' }]])
+    expect(await agentWay(async () => ({ ok: false, status: 404, json: async () => ({ way: 'command' }) }))).toEqual(clipboardWay)
+    expect(await agentWay(() => Promise.reject(new TypeError('Failed to fetch')))).toEqual(clipboardWay)
+  })
+
+  test('the idle label names the preset, or the command of the config', () => {
+    expect(sendLabel(idle, 'idle', sentence, 'vscode')).toBe('Open the chat of the agent with the sentence for the agent, by the preset vscode')
+    expect(sendLabel(idle, 'idle', sentence)).toBe('Open the chat of the agent with the sentence for the agent, by the command of canvas.config.ts')
+  })
+
+  test('the texts of the one button of the clipboard', () => {
+    expect(copyText('idle')).toBe('Copy for the agent')
+    expect(copyText('copied')).toBe('Copied: paste it in the chat of the agent')
+    expect(copyText('failed')).toBe('Not copied')
+    expect(copyLabel('failed', sentence)).toBe(`Cannot copy to the clipboard. Give the agent: ${sentence}`)
+    expect(copyStatus('idle', sentence)).toBe('')
+    expect(copyStatus('copied', sentence)).toBe(copyLabel('copied', sentence))
   })
 })

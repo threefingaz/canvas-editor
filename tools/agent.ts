@@ -1,18 +1,73 @@
-// The pure parts of "Send to the agent" (`agent-plugin.ts`): the command line
-// that opens the chat of the agent in the code editor with the fixed
-// sentence, and the texts for the user when the command did not start.
+// The pure parts of "Send to the agent" (`agent-plugin.ts`): the way that
+// the setting `agent` of the config gives (`agentOf`), the command line that
+// opens the chat of the agent with the fixed sentence, and the texts for the
+// user when the command did not start.
 
-import type { CanvasConfig } from '../canvas.config.ts'
+import type { AgentPreset, AgentSetting } from '../canvas.config.ts'
 
-// The field `agent` of the config: the command and its first arguments, or
-// null when "Send to the agent" is off.
-export type AgentConfig = CanvasConfig['agent']
+// The setting as the tool uses it: `null` of an older config is read as
+// `'clipboard'` one time, when the settings are read (`project-config.ts`).
+export type AgentChoice = Exclude<AgentSetting, null>
+
+// A command and its first arguments; the sentence comes after them.
+export type AgentLine = { command: string; args: readonly string[] }
+
+// The command line of the preset `vscode`: the command line of VS Code, which
+// opens the chat of its agent. The tool looks for its command where VS Code
+// keeps it (`agentCommands`).
+export const vscodeLine: AgentLine = { command: 'code', args: ['chat', '--mode', 'agent', '--reuse-window'] }
+
+export function isPreset(value: unknown): value is AgentPreset {
+  return value === 'vscode'
+}
+
+// The setting of a config: `null` (an older config) is the clipboard.
+export function choiceOf(setting: AgentSetting): AgentChoice {
+  return setting ?? 'clipboard'
+}
+
+// The way that holds: the clipboard (the one button "Copy for the agent"), or
+// a command that the dev server starts, with the name of its preset or null
+// for a command of the user.
+export type AgentWay = { kind: 'clipboard' } | { kind: 'command'; line: AgentLine; preset: AgentPreset | null }
+
+export type Env = Readonly<Record<string, string | undefined>>
+
+// The dev server runs in a terminal of VS Code: VS Code gives each of its
+// terminals `TERM_PROGRAM=vscode` and the path of its Git helper.
+export function inCodeTerminal(env: Env): boolean {
+  return env.TERM_PROGRAM === 'vscode' || (env.VSCODE_GIT_ASKPASS_MAIN ?? '') !== ''
+}
+
+// The way of a setting in the environment of the dev server. `'auto'` takes
+// the preset `vscode` in a terminal of VS Code, else the clipboard.
+export function agentOf(setting: AgentChoice, env: Env): AgentWay {
+  const vscode: AgentWay = { kind: 'command', line: vscodeLine, preset: 'vscode' }
+  if (setting === 'clipboard') return { kind: 'clipboard' }
+  if (setting === 'auto') return inCodeTerminal(env) ? vscode : { kind: 'clipboard' }
+  if (setting === 'vscode') return vscode
+  return { kind: 'command', line: setting, preset: null }
+}
+
+// The way in words, for `canvas status`.
+export function wayText(way: AgentWay): string {
+  if (way.kind === 'clipboard') return 'the clipboard: Copy for the agent copies the sentence'
+  const line = [way.line.command, ...way.line.args].join(' ')
+  return way.preset === null ? `the command ${line}` : `the preset ${way.preset}, ${line}`
+}
+
+// The setting in the form of the config, for `canvas status`.
+export function settingText(setting: AgentChoice): string {
+  if (typeof setting === 'string') return `'${setting}'`
+  return '{ command, args }'
+}
 
 // What the dev server starts.
 export type AgentCommand = { command: string; args: string[]; shell: boolean }
 
-// The reason for the user when the config has no command.
-export const agentOff = 'Send to the agent is turned off in canvas.config.ts'
+// The reason when the way is the clipboard and the editor asks for a start
+// all the same.
+export const noCommand = 'canvas.config.ts sets no command for the agent: Copy for the agent copies the sentence'
 
 // A character that a shell line reads as more than text, also in double
 // quotes (in the sentence, and in the path of the command): the end of the quotes, a variable, a second command, a redirect.
@@ -24,7 +79,7 @@ const unsafe = /["%&|<>^`$!\r\n]/
 // with a character that the shell reads in a different way is refused, not
 // changed. On the other platforms no shell runs, and the sentence is one
 // argument as it is.
-export function agentCommand(agent: NonNullable<AgentConfig>, sentence: string, platform: string): AgentCommand {
+export function agentCommand(agent: AgentLine, sentence: string, platform: string): AgentCommand {
   if (platform !== 'win32') return { command: agent.command, args: [...agent.args, sentence], shell: false }
   const found = unsafe.exec(sentence) ?? unsafe.exec(agent.command)
   if (found) throw new Error(`the command line has the character ${JSON.stringify(found[0])}, which is not safe in a shell line`)
@@ -33,10 +88,12 @@ export function agentCommand(agent: NonNullable<AgentConfig>, sentence: string, 
   return { command, args: [...agent.args, `"${sentence}"`], shell: true }
 }
 
-// The name of the command line of VS Code. When the config has this name and
-// no path, the tool also looks for the command where VS Code keeps it: many
-// machines do not have it on the path.
-export const codeCommand = 'code'
+// The name of the command line of VS Code, the command of the preset
+// `vscode`. With this name and no path, the tool also looks for the command
+// where VS Code keeps it: many machines do not have it on the path. A
+// `{ command, args }` with this name gets the search too, as before the
+// presets.
+export const codeCommand = vscodeLine.command
 
 // The command line of the VS Code whose terminal runs the dev server. VS Code
 // gives each of its terminals the path of a script inside its own folder
@@ -52,7 +109,7 @@ export function codeOfTerminal(askpass: string | undefined, platform: string): s
 }
 
 // The usual places of the command line of VS Code on a platform.
-export function codePlaces(env: Readonly<Record<string, string | undefined>>, platform: string): string[] {
+export function codePlaces(env: Env, platform: string): string[] {
   if (platform === 'win32') {
     return [env.LOCALAPPDATA && `${env.LOCALAPPDATA}\\Programs\\Microsoft VS Code\\bin\\code.cmd`, env.ProgramFiles && `${env.ProgramFiles}\\Microsoft VS Code\\bin\\code.cmd`].filter(
       (path): path is string => typeof path === 'string' && path !== '',
@@ -69,8 +126,8 @@ export function codePlaces(env: Readonly<Record<string, string | undefined>>, pl
 // server, then `code` of the path, then the usual places; a place counts only
 // when its file is there (`exists`).
 export function agentCommands(
-  agent: NonNullable<AgentConfig>,
-  env: Readonly<Record<string, string | undefined>>,
+  agent: AgentLine,
+  env: Env,
   platform: string,
   exists: (path: string) => boolean,
 ): string[] {
@@ -105,4 +162,16 @@ export function startResult(event: StartEvent, command: string): StartResult {
         ? `the command "${command}" was stopped`
         : `the command "${command}" ended with the code ${event.code}`,
   }
+}
+
+// The reason for the user when no place of the command started. It names
+// the preset that is in use and its next step; for a command of the user it
+// names no code editor, only the setting.
+export function failedReason(way: Extract<AgentWay, { kind: 'command' }>, reason: string): string {
+  const notFound = reason.endsWith('was not found')
+  if (way.preset === null) return notFound ? `${reason}; write its full path as \`command\` of \`agent\` in canvas.config.ts` : reason
+  const text = `the preset ${way.preset}: ${reason}`
+  if (!notFound) return text
+  const searched = way.line.command === codeCommand ? ', also not in the folder of VS Code' : ''
+  return `${text}${searched}; set \`agent\` in canvas.config.ts to \`{ command, args }\` with the full path of the command, or to 'clipboard'`
 }

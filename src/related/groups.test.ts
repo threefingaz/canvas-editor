@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { optionTotals, optionsOf, relationOf, screenGroups, type RelatedScreen, type ScreenGroup } from './groups.ts'
+import { groupMembers, optionTotals, optionsOf, relationOf, screenGroups, type RelatedScreen, type ScreenGroup } from './groups.ts'
 
 // A plain screen: the flow is the path before the last `/`.
 function screen(id: string, relation: { stateOf?: string; optionOf?: string } = {}): RelatedScreen {
@@ -35,6 +35,21 @@ describe('optionsOf', () => {
     expect(optionsOf(screens, 'a/welcome').map((s) => s.id)).toEqual(['a/welcome-option-2', 'a/welcome-option-1'])
     expect(optionsOf(screens, 'a/error').map((s) => s.id)).toEqual(['a/error-option-1'])
     expect(optionsOf(screens, 'a/workspace')).toEqual([])
+  })
+})
+
+describe('groupMembers', () => {
+  test('gives the states, then the options of the screen and of its states', () => {
+    const list: RelatedScreen[] = [
+      { id: 'a', flow: 'f' },
+      { id: 'a-option-1', flow: 'f', optionOf: 'a' },
+      { id: 'a-error', flow: 'f', stateOf: 'a' },
+      { id: 'a-error-option-1', flow: 'f', optionOf: 'a-error' },
+      { id: 'b', flow: 'f' },
+      { id: 'b-option-1', flow: 'f', optionOf: 'b' },
+    ]
+    expect(groupMembers(list, 'a').map((screen) => screen.id)).toEqual(['a-error', 'a-option-1', 'a-error-option-1'])
+    expect(groupMembers(list, 'a-option-1')).toEqual([])
   })
 })
 

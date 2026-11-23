@@ -1,0 +1,9 @@
+import type { ReactNode } from 'react'
+{{imports}}
+// The wrapper of a screen in a frame. `canvas init` wrote it: it renders the
+// screen{{stylesheetNote}}. Complete it from the entry of the host
+// application (the theme provider, the base styles, the fonts), as the skill
+// canvas-library-setup says.
+export function LibraryProvider({ children }: { children: ReactNode }) {
+  return <>{children}</>
+}

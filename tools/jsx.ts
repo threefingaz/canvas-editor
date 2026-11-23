@@ -3,6 +3,7 @@
 // share: the place of an offset, the names of `Fragment`, the module of each
 // import, and the origin of a tag.
 
+import { posix } from 'node:path'
 import type { parseSync } from 'vite'
 import type { Origin } from '../src/requests/format.ts'
 
@@ -62,11 +63,33 @@ export function isHostTag(tag: string): boolean {
   return !tag.includes('.') && (/^[a-z]/.test(tag) || tag.includes('-') || tag.includes(':'))
 }
 
-// The origin of a tag, from the imports of the file. With no library package
-// (no library is connected), no component is from the library.
-export function originOf(tag: string, imports: ReadonlyMap<string, string>, libraryPackage: string | null): Origin {
+// The sources of the library (`sources` of the manifest of the pack,
+// `librarySources` in `pack.ts`): the npm packages, and the folders of code
+// of the host, relative to the project root with `/` between the parts
+// (`../src/ui`).
+export type LibrarySources = { packages: readonly string[]; folders: readonly string[] }
+
+// True when the module of an import is a source of the library: a package of
+// the list or a path below it (`@lib/core/Button`), or a relative import whose
+// path is a folder of the list or a path in it. `file` is the screen file,
+// relative to the project root. An alias of the bundler of the host
+// (`@/components`) is not read.
+export function isLibrarySource(source: string, file: string, library: LibrarySources): boolean {
+  if (library.packages.some((name) => source === name || source.startsWith(`${name}/`))) return true
+  if (!source.startsWith('./') && !source.startsWith('../')) return false
+  const path = posix.normalize(posix.join(posix.dirname(file.replaceAll('\\', '/')), source))
+  return library.folders.some((folder) => {
+    const base = posix.normalize(folder)
+    return path === base || path.startsWith(`${base}/`)
+  })
+}
+
+// The origin of a tag, from the imports of the file. With no library (no
+// library is connected), no component is from the library. `file` is the
+// screen file, relative to the project root, for an import of a folder.
+export function originOf(tag: string, imports: ReadonlyMap<string, string>, library: LibrarySources | null, file: string): Origin {
   if (isHostTag(tag)) return 'host'
   const source = imports.get(tag.split('.')[0])
-  if (source === undefined || libraryPackage === null) return 'local'
-  return source === libraryPackage || source.startsWith(`${libraryPackage}/`) ? 'library' : 'local'
+  if (source === undefined || library === null) return 'local'
+  return isLibrarySource(source, file, library) ? 'library' : 'local'
 }

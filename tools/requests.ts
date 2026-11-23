@@ -8,7 +8,15 @@
 
 import { createHash } from 'node:crypto'
 import { config } from '../canvas.config.ts'
-import { apiPrefix, fileKinds, hashOfHeader, type FileKind } from '../src/requests/api.ts'
+import {
+  apiPrefix,
+  fileKinds,
+  hashOfHeader,
+  screensAddress,
+  trashAddress,
+  type FileKind,
+  type ScreenAction,
+} from '../src/requests/api.ts'
 import {
   fileText,
   formatRequest,
@@ -125,4 +133,59 @@ export function emptyRequest(id: string, screens: string = config.screens): stri
 export function requestIdOf(path: string, folder: string): string | null {
   const id = idInFolder(path, folder, '.json')
   return id === '' ? null : id
+}
+
+// The call of a screen action (`POST` on `screensAddress`) or of the list of
+// the trash (`GET` on `trashAddress`), or null for each other address and
+// method.
+export function screensRouteOf(method: string | undefined, url: string | undefined): 'action' | 'trash' | null {
+  const path = url?.split(/[?#]/, 1)[0]
+  if (method === 'POST' && path === screensAddress) return 'action'
+  if (method === 'GET' && path === trashAddress) return 'trash'
+  return null
+}
+
+const actionNames: readonly string[] = ['reorder', 'title', 'rename', 'delete', 'restore']
+
+function field(data: Record<string, unknown>, key: string, kind: 'string' | 'number'): string | number {
+  const value = data[key]
+  if (kind === 'number' ? !Number.isInteger(value) || (value as number) < 0 : typeof value !== 'string') {
+    throw new Error(`\`${key}\` must be ${kind === 'number' ? 'a whole number from 0' : 'a text'}`)
+  }
+  return value as string | number
+}
+
+// Checks the body of a screen action and gives the action, or the error text
+// for the answer. Only the fields of the action are taken.
+export function parseScreenAction(text: string): ScreenAction | { error: string } {
+  let data: unknown
+  try {
+    data = JSON.parse(text)
+  } catch (error) {
+    return { error: `the content is not JSON: ${messageOf(error)}` }
+  }
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return { error: 'the content must be an object' }
+  const body = data as Record<string, unknown>
+  try {
+    const action = body.action
+    if (typeof action !== 'string' || !actionNames.includes(action)) {
+      return { error: '`action` must be reorder, title, rename, delete or restore' }
+    }
+    if (action === 'restore') return { action, folder: field(body, 'folder', 'string') as string }
+    const screen = field(body, 'screen', 'string') as string
+    if (screen === '') return { error: '`screen` is empty' }
+    switch (action) {
+      case 'reorder':
+        return { action, screen, to: field(body, 'to', 'number') as number }
+      case 'title':
+        return { action, screen, title: field(body, 'title', 'string') as string }
+      case 'rename':
+        return { action, screen, flow: field(body, 'flow', 'string') as string, name: field(body, 'name', 'string') as string }
+      case 'delete':
+        return { action, screen }
+    }
+    return { error: '`action` must be reorder, title, rename, delete or restore' }
+  } catch (error) {
+    return { error: messageOf(error) }
+  }
 }

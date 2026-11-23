@@ -4,6 +4,9 @@ import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
 import {
   choosePack,
+  isFolderSource,
+  levelOf,
+  librarySources,
   noProviderMessage,
   packChange,
   packLibraryFolder,
@@ -31,7 +34,7 @@ describe('choosePack', () => {
   test('one valid manifest gives that pack', () => {
     expect(choosePack([{ folder: 'mui', text: mui }])).toEqual({
       kind: 'one',
-      pack: { name: 'mui', package: '@mui/material', folder: 'packs/mui' },
+      pack: { name: 'mui', sources: ['@mui/material'], folder: 'packs/mui' },
     })
   })
 
@@ -47,9 +50,32 @@ describe('choosePack', () => {
     expect(message).toContain('packs/mui, packs/other')
   })
 
-  test('a manifest with no package is an error', () => {
+  test('a manifest with no package and no sources is an error', () => {
     const text = JSON.stringify({ name: 'mui' })
-    expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json has no "package"')
+    expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json has no "sources"')
+    const empty = JSON.stringify({ name: 'mui', sources: [] })
+    expect(errorOf(choosePack([{ folder: 'mui', text: empty }]))).toBe('packs/mui/pack.json has no "sources"')
+  })
+
+  test('reads the sources: packages and folders of the host', () => {
+    const text = JSON.stringify({ name: 'kit', sources: ['@acme/kit', '@acme/icons', './src/design-system'] })
+    expect(choosePack([{ folder: 'kit', text }])).toEqual({
+      kind: 'one',
+      pack: { name: 'kit', sources: ['@acme/kit', '@acme/icons', './src/design-system'], folder: 'packs/kit' },
+    })
+  })
+
+  test('the older "package" is a list of one, and goes first with "sources"', () => {
+    const both = JSON.stringify({ name: 'mui', package: '@mui/material', sources: ['@mui/lab', '@mui/material'] })
+    const state = choosePack([{ folder: 'mui', text: both }])
+    expect(state.kind === 'one' && state.pack.sources).toEqual(['@mui/material', '@mui/lab'])
+  })
+
+  test('sources that are not a list of texts are an error', () => {
+    for (const sources of ['@mui/material', [1], ['']]) {
+      const text = JSON.stringify({ name: 'mui', sources })
+      expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json: "sources" must be a list of npm packages and folders')
+    }
   })
 
   test('reads the keys of the scales, and takes a manifest with no list', () => {
@@ -69,7 +95,7 @@ describe('choosePack', () => {
 
   test('an empty package is an error', () => {
     const text = JSON.stringify({ name: 'mui', package: '' })
-    expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json has no "package"')
+    expect(errorOf(choosePack([{ folder: 'mui', text }]))).toBe('packs/mui/pack.json: "package" must be the name of an npm package')
   })
 
   test('a manifest with no name is an error', () => {
@@ -129,8 +155,15 @@ describe('readPackState', () => {
     writePack('mui', mui)
     expect(readPackState(root, {})).toEqual({
       kind: 'one',
-      pack: { name: 'mui', package: '@mui/material', folder: 'packs/mui' },
+      pack: { name: 'mui', sources: ['@mui/material'], folder: 'packs/mui' },
     })
+  })
+
+  test('a pack with no package.json is valid: the library is installed by the host', () => {
+    writePack('mui', mui)
+    mkdirSync(join(root, 'packs', 'mui', 'library'))
+    writeFileSync(join(root, 'packs', 'mui', 'library', 'provider.tsx'), 'export {}')
+    expect(readPackState(root, {}).kind).toBe('one')
   })
 
   test('a folder with no manifest is not a pack', () => {
@@ -153,7 +186,7 @@ describe('readPackState', () => {
     symlinkSync(outside, join(root, 'packs', 'mui'), 'dir')
     expect(readPackState(root, {})).toEqual({
       kind: 'one',
-      pack: { name: 'mui', package: '@mui/material', folder: 'packs/mui' },
+      pack: { name: 'mui', sources: ['@mui/material'], folder: 'packs/mui' },
     })
   })
 
@@ -181,7 +214,7 @@ describe('readPackState', () => {
   })
 })
 
-const pack = { name: 'mui', package: '@mui/material', folder: 'packs/mui' }
+const pack = { name: 'mui', sources: ['@mui/material'], folder: 'packs/mui' }
 
 describe('packOf', () => {
   test('gives the pack of one pack and null with no pack', () => {
@@ -256,9 +289,9 @@ describe('packChange', () => {
   test('a pack that came, went or changed restarts the server', () => {
     expect(change(null, { kind: 'one', pack })).toEqual({ kind: 'restart' })
     expect(change(pack, { kind: 'none' })).toEqual({ kind: 'restart' })
-    expect(change(pack, { kind: 'one', pack: { ...pack, package: '@mui/joy' } })).toEqual({ kind: 'restart' })
+    expect(change(pack, { kind: 'one', pack: { ...pack, sources: ['@mui/joy'] } })).toEqual({ kind: 'restart' })
     expect(change(pack, { kind: 'one', pack: { ...pack, scaleKeys: ['gap'] } })).toEqual({ kind: 'restart' })
-    const other = { name: 'kit', package: '@acme/kit', folder: 'packs/kit' }
+    const other = { name: 'kit', sources: ['@acme/kit'], folder: 'packs/kit' }
     expect(change(pack, { kind: 'one', pack: other })).toEqual({ kind: 'restart' })
   })
 
@@ -286,5 +319,49 @@ describe('packChange', () => {
     const none = () => false
     expect(packChange(pack, { kind: 'one', pack }, root, none)).toEqual({ kind: 'same' })
     expect(packChange(pack, { kind: 'none' }, root, none)).toEqual({ kind: 'restart' })
+  })
+})
+
+describe('librarySources', () => {
+  const kit = { name: 'kit', sources: ['@acme/kit', './src/design-system', '../shared/ui', '/opt/ui'], folder: 'packs/kit' }
+
+  test('a folder of the manifest is relative to the host, and the result relative to the project', () => {
+    expect(librarySources(kit, '/host/canvas', '/host')).toEqual({
+      packages: ['@acme/kit'],
+      folders: ['../src/design-system', '../../shared/ui', '../../opt/ui'],
+    })
+  })
+
+  test('in standalone the host is the project', () => {
+    expect(librarySources(kit, '/repo', '/repo').folders).toEqual(['src/design-system', '../shared/ui', '../opt/ui'])
+  })
+
+  test('a pack of packages only has no folder', () => {
+    expect(librarySources(pack, '/repo', '/repo')).toEqual({ packages: ['@mui/material'], folders: [] })
+  })
+
+  test('a folder starts with ./, ../ or /; a package name does not', () => {
+    expect(['./ui', '../ui', '/ui', '@acme/ui', 'ui'].map(isFolderSource)).toEqual([true, true, true, false, false])
+    // An absolute folder of Windows.
+    expect(['C:/ui', 'C:\\ui', 'c:ui'].map(isFolderSource)).toEqual([true, true, false])
+  })
+})
+
+describe('levelOf', () => {
+  test('no pack is the level none', () => {
+    expect(levelOf(null, 0)).toBe('none')
+    expect(levelOf(null, null)).toBe('none')
+  })
+
+  test('a pack with an empty token file is connected', () => {
+    expect(levelOf(pack, 0)).toBe('connected')
+  })
+
+  test('a pack with tokens is ready', () => {
+    expect(levelOf(pack, 1)).toBe('ready')
+  })
+
+  test('a pack with no token file, or one that is not valid, is ready: the editor shows the error of the file', () => {
+    expect(levelOf(pack, null)).toBe('ready')
   })
 })

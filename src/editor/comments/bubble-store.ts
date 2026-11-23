@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import { sameElement, selection, type SelectionStore } from '../selection/store.ts'
-import { bubbleAfter, closedBubble, draftKey, joinDrafts, pinEvent, type Bubble, type BubbleEvent } from './bubble.ts'
+import { bubbleAfter, closedBubble, draftKey, draftScreen, joinDrafts, pinEvent, type Bubble, type BubbleEvent } from './bubble.ts'
 import type { Pin } from './pins.ts'
 
 // The store of the comment bubble (`bubble.ts`) and of the drafts of new
@@ -23,6 +23,9 @@ export type BubbleStore = {
   draft: (key: string) => string
   // An empty text removes the draft.
   setDraft: (key: string, text: string) => void
+  // Removes each draft of a screen, after a screen action gave it a new id or
+  // deleted it.
+  dropDrafts: (screenId: string) => void
   // Runs `change`, a change of the selection that follows a change of the
   // screen file and not the user; the bubble or options panel that is open
   // stays open (the values of the selection during `change` close nothing).
@@ -62,6 +65,11 @@ export function createBubbleStore(): BubbleStore {
     setDraft: (key, text) => {
       if (text === '') drafts.delete(key)
       else drafts.set(key, text)
+    },
+    dropDrafts: (screenId) => {
+      for (const key of [...drafts.keys()]) {
+        if (draftScreen(key) === screenId) drafts.delete(key)
+      }
     },
     keepOpen: (change) => {
       const outer = holding

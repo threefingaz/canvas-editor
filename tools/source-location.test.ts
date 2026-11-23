@@ -5,20 +5,21 @@
 
 import { describe, expect, test } from 'vitest'
 import { locationPrefix, parseLoc, setMark } from '../src/editor/locate/fiber.ts'
+import type { LibrarySources } from './jsx.ts'
 import { addSourceLocations, locationPrefix as buildPrefix, screenModuleFile, setMark as buildMark } from './source-location.ts'
 
 const file = 'screens/onboarding/welcome.tsx'
-const library = '@mui/material'
+const library: LibrarySources = { packages: ['@mui/material'], folders: [] }
 
 // The code after the step, or a failure when the step gives no change.
-function changed(code: string, relativeFile = file, libraryPackage: string | null = library) {
+function changed(code: string, relativeFile = file, libraryPackage: LibrarySources | null = library) {
   const result = addSourceLocations(code, relativeFile, libraryPackage)
   if (!result) throw new Error('expected a change')
   return result.code
 }
 
 // The values of the location attributes of the code after the step.
-function values(code: string, libraryPackage: string | null = library): string[] {
+function values(code: string, libraryPackage: LibrarySources | null = library): string[] {
   return [...changed(code, file, libraryPackage).matchAll(/data-loc-\d+-\d+=\{("[^"]*")\}/g)].map((match) => JSON.parse(match[1]) as string)
 }
 
@@ -202,6 +203,27 @@ describe('addSourceLocations: tag and origin', () => {
   test('the tag of a member name with spaces has no spaces', () => {
     const code = "import { Card } from '@mui/material'\nconst a = <Card . Header />"
     expect(values(code)[0]).toBe(`${file}:2:11 Card.Header library`)
+  })
+
+  test('each package of the sources and a folder of the host give `library`', () => {
+    const sources: LibrarySources = { packages: ['@acme/kit', '@acme/icons'], folders: ['../src/ui'] }
+    const code = [
+      "import { Button } from '@acme/kit'",
+      "import { StarIcon } from '@acme/icons/star'",
+      "import { Card } from '../../../src/ui/card'",
+      "import { Panel } from '../../../src/ui-old/panel'",
+      "import { Row } from '../../parts/row'",
+      'const a = <><Button /><StarIcon /><Card /><Panel /><Row /></>',
+    ].join('\n')
+    // The screen is `screens/onboarding/welcome.tsx` of a project in
+    // `canvas/` of the host, thus `../../../src/ui` is `src/ui` of the host.
+    expect(values(code, sources).map((value) => value.split(' ').slice(1).join(' '))).toEqual([
+      'Button library',
+      'StarIcon library',
+      'Card library',
+      'Panel local',
+      'Row local',
+    ])
   })
 
   test('with no library package, an import from any package is `local`', () => {

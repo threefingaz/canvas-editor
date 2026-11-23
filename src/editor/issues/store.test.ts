@@ -73,6 +73,20 @@ describe('createIssuesStore', () => {
     expect(listener).toHaveBeenCalledTimes(1)
   })
 
+  test('drop takes the issues of a screen out and calls the subscribers; an unknown screen changes nothing', () => {
+    const store = createIssuesStore()
+    store.set('a', [])
+    store.set('b', [])
+    const listener = vi.fn()
+    store.subscribe(listener)
+    store.drop('a')
+    expect(store.get('a')).toBeUndefined()
+    expect(Object.keys(store.screens())).toEqual(['b'])
+    expect(listener).toHaveBeenCalledTimes(1)
+    store.drop('missing')
+    expect(listener).toHaveBeenCalledTimes(1)
+  })
+
   test('a subscriber that unsubscribes gets no more calls', () => {
     const store = createIssuesStore()
     const listener = vi.fn()

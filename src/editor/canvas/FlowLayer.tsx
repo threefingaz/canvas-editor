@@ -1,3 +1,4 @@
+import { WarningCircleIcon } from '@phosphor-icons/react'
 import { useSyncExternalStore } from 'react'
 import type { LinkPair } from '../../related/links.ts'
 import { rowGap } from './layout.ts'
@@ -13,7 +14,10 @@ import type { View } from './viewport.ts'
 // layer nor a part of it gets the pointer, thus a click goes to the frame or
 // the title below it. The arrows show with the Preview switch on too: they
 // help to review a flow. The switch of the toolbar hides them (`arrows`
-// false); the names always show.
+// false); the names always show. The name of a flow whose `flow.json` is not
+// valid has a mark with the error; the row then has the sequence by name.
+// The mark is the one part of the layer that takes the pointer, for the
+// title with the error.
 //
 // An arrow starts at the link element of its link: a dot at the middle of
 // the element and a thin stem from it to the arc. The layer reads the
@@ -50,9 +54,11 @@ type FlowLayerProps = {
   arrows: boolean
   // The screen of the Changes tab, or null: its arrows are strong.
   listed: string | null
+  // The error of the `flow.json` of a flow, by flow.
+  flowErrors: ReadonlyMap<string, string>
 }
 
-export function FlowLayer({ view, frames, pairs, arrows, listed }: FlowLayerProps) {
+export function FlowLayer({ view, frames, pairs, arrows, listed, flowErrors }: FlowLayerProps) {
   const rects = useSyncExternalStore(linkRects.subscribe, linkRects.get, linkRects.get)
   const placed = flowFrames(frames, view)
   // The room for the arcs above a row: the space between two rows less the
@@ -97,6 +103,16 @@ export function FlowLayer({ view, frames, pairs, arrows, listed }: FlowLayerProp
           style={{ left: label.x, top: label.y, height: titleRowHeight }}
           data-flow-label={label.flow}
         >
+          {flowErrors.has(label.flow) && (
+            <span
+              className="pointer-events-auto mr-1 flex items-center text-[color:var(--attention)]"
+              title={`The row is by name: ${flowErrors.get(label.flow)}`}
+              aria-label={`The flow file is not valid: ${flowErrors.get(label.flow)}`}
+              data-flow-error={label.flow}
+            >
+              <WarningCircleIcon className="size-3.5" aria-hidden />
+            </span>
+          )}
           {label.flow}
         </span>
       ))}

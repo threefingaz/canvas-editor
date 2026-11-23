@@ -1,36 +1,40 @@
-// Checks the screen files: `npm run check`, or `npm run check -- <screen>…`
-// with ids or paths of screens. Node runs this file directly. It prints the
+// Checks the screen files: `canvas check`, or `canvas check -- <screen>…`
+// with ids or paths of screens. The command (`tools/cli.ts`) loads this file
+// through the module runner of Vite. It prints the
 // findings and exits with 1 when there is one. With no library pack it says
 // so, and has no finding of the kind `not-library`. Its decisions are in
-// `check.ts`.
+// `check.ts`. The screens, the pack and the widths are those of the project
+// (`project.ts`, `project-config.ts`); each path is relative to the project.
 
 import { existsSync } from 'node:fs'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { config } from '../canvas.config.ts'
-import { checkReport, checkScreens, screenArgument } from './check.ts'
-import { packOf, readPackState } from './pack.ts'
-import { readScreenFiles } from './screens-plugin.ts'
-import { screenList } from './screens.ts'
+import { messageOf } from '../src/tokens/format.ts'
+import { checkProject, checkReport, readProjectScreens, screenArgument } from './check.ts'
+import type { LibrarySources } from './jsx.ts'
+import { librarySources, packOf, readPackState } from './pack.ts'
+import { readProjectSettings } from './project-config.ts'
+import { currentProject, hostRoot, slashes } from './project.ts'
 
-const root = fileURLToPath(new URL('..', import.meta.url)).replaceAll('\\', '/')
+const root = currentProject()
 
-let libraryPackage: string | null = null
+let library: LibrarySources | null = null
 let scaleKeys: string[] | null = null
+let widths: readonly number[] = config.widths
 try {
   const pack = packOf(readPackState(root))
-  libraryPackage = pack?.package ?? null
+  library = pack === null ? null : librarySources(pack, root, hostRoot(root, existsSync))
   scaleKeys = pack?.scaleKeys ?? null
+  widths = (await readProjectSettings(root)).widths
 } catch (error) {
-  console.error(error instanceof Error ? error.message : String(error))
+  console.error(messageOf(error))
   process.exit(1)
 }
 
-const files = readScreenFiles(root, join(root, config.screens))
-const entries = screenList(files)
+const screens = readProjectScreens(root, config.screens, widths)
+const entries = screens.entries
 const only: string[] = []
 for (const argument of process.argv.slice(2)) {
-  const id = screenArgument(argument, entries)
+  const id = screenArgument(argument, entries, { cwd: slashes(process.cwd()), project: slashes(root) })
   if (id === null) {
     console.error(`No screen has the id or the file '${argument}'.`)
     process.exit(1)
@@ -38,11 +42,10 @@ for (const argument of process.argv.slice(2)) {
   only.push(id)
 }
 
-if (libraryPackage === null) {
+if (library === null) {
   console.log('No library is connected: the check cannot tell an element of the library from a different one. It has no finding of the kind not-library.')
 }
-const isComponent = (path: string) => ['.tsx', '.jsx', '/index.tsx', '/index.jsx'].some((end) => existsSync(join(root, path + end)))
-const result = checkScreens(files, { libraryPackage, scaleKeys, only, isComponent })
+const result = checkProject(root, screens, { library, scaleKeys, only, widths })
 console.log(checkReport(result))
 // Not `process.exit`: it can cut a long report that goes through a pipe.
 process.exitCode = result.findings.length > 0 ? 1 : 0

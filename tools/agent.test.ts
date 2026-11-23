@@ -1,9 +1,85 @@
 import { describe, expect, test } from 'vitest'
 import { config } from '../canvas.config.ts'
-import { agentSentence } from '../src/editor/requests/agent-sentence.ts'
-import { agentCommand, agentCommands, codeOfTerminal, codePlaces, startResult } from './agent.ts'
+import { agentSentence, guidePath } from '../src/editor/requests/agent-sentence.ts'
+import { agentCommand, agentCommands, agentOf, vscodeLine, codeOfTerminal, codePlaces, failedReason, inCodeTerminal, isPreset, settingText, startResult, wayText } from './agent.ts'
 
 const agent = { command: 'code', args: ['chat', '--mode', 'agent'] }
+
+const vscode = { kind: 'command', line: vscodeLine, preset: 'vscode' } as const
+const askpass = '/Applications/Visual Studio Code.app/Contents/Resources/app/extensions/git/dist/askpass-main.js'
+
+describe('agentOf', () => {
+  test("'auto' takes the preset vscode in a terminal of VS Code", () => {
+    expect(agentOf('auto', { TERM_PROGRAM: 'vscode' })).toEqual(vscode)
+    expect(agentOf('auto', { VSCODE_GIT_ASKPASS_MAIN: askpass })).toEqual(vscode)
+  })
+
+  test("'auto' takes the clipboard in each other terminal", () => {
+    expect(agentOf('auto', {})).toEqual({ kind: 'clipboard' })
+    expect(agentOf('auto', { TERM_PROGRAM: 'Apple_Terminal', VSCODE_GIT_ASKPASS_MAIN: '' })).toEqual({ kind: 'clipboard' })
+  })
+
+  test("'clipboard' is the clipboard in each terminal", () => {
+    for (const env of [{}, { TERM_PROGRAM: 'vscode' }]) {
+      expect(agentOf('clipboard', env)).toEqual({ kind: 'clipboard' })
+    }
+  })
+
+  test('a preset is its command line in each terminal', () => {
+    expect(agentOf('vscode', {})).toEqual(vscode)
+    expect(vscodeLine).toEqual({ command: 'code', args: ['chat', '--mode', 'agent', '--reuse-window'] })
+  })
+
+  test('a command of the user is used as it is, with no preset', () => {
+    expect(agentOf(agent, { TERM_PROGRAM: 'vscode' })).toEqual({ kind: 'command', line: agent, preset: null })
+  })
+
+  test('an object equal to a preset is a command of the user, with no preset', () => {
+    expect(agentOf({ ...vscodeLine }, {})).toEqual({ kind: 'command', line: vscodeLine, preset: null })
+  })
+
+  // The user can write each value in `canvas.config.ts` (a full path at work),
+  // thus no test asserts the value itself: only that the tool takes it.
+  test('the value of the config gives a way', () => {
+    expect(['command', 'clipboard']).toContain(agentOf(config.agent, {}).kind)
+  })
+
+  test('the names of the presets', () => {
+    expect(isPreset('vscode')).toBe(true)
+    for (const value of ['auto', 'clipboard', 'toString', 'code', 3, null]) expect(isPreset(value)).toBe(false)
+    expect(inCodeTerminal({})).toBe(false)
+  })
+
+  test('the texts of the way and of the setting', () => {
+    expect(wayText({ kind: 'clipboard' })).toBe('the clipboard: Copy for the agent copies the sentence')
+    expect(wayText(vscode)).toBe('the preset vscode, code chat --mode agent --reuse-window')
+    expect(wayText({ kind: 'command', line: agent, preset: null })).toBe('the command code chat --mode agent')
+    expect(['auto', 'clipboard', 'vscode', agent].map((setting) => settingText(setting as never))).toEqual([
+      "'auto'",
+      "'clipboard'",
+      "'vscode'",
+      '{ command, args }',
+    ])
+  })
+})
+
+describe('failedReason', () => {
+  const notFound = 'the command "code" was not found'
+
+  test('with a preset, the reason names the preset and the next step', () => {
+    expect(failedReason(vscode, notFound)).toBe(
+      "the preset vscode: the command \"code\" was not found, also not in the folder of VS Code; set `agent` in canvas.config.ts to `{ command, args }` with the full path of the command, or to 'clipboard'",
+    )
+    expect(failedReason(vscode, 'the command "code" ended with the code 1')).toBe('the preset vscode: the command "code" ended with the code 1')
+  })
+
+  test('with a command of the user, the reason names no code editor', () => {
+    const own = { kind: 'command', line: { command: 'code', args: [] }, preset: null } as const
+    expect(failedReason(own, notFound)).toBe('the command "code" was not found; write its full path as `command` of `agent` in canvas.config.ts')
+    expect(failedReason(own, notFound)).not.toContain('VS Code')
+    expect(failedReason(own, 'the command "code" was stopped')).toBe('the command "code" was stopped')
+  })
+})
 
 describe('agentCommand', () => {
   test('with no shell, the sentence is the last argument as it is', () => {
@@ -29,13 +105,13 @@ describe('agentCommand', () => {
     }
   })
 
-  test('the fixed sentence and the command of the config pass on each platform', () => {
-    expect(config.agent).not.toBeNull()
+  test('the fixed sentence and the command of the preset pass on each platform', () => {
+    const line = vscodeLine
     for (const platform of ['win32', 'darwin', 'linux']) {
-      const command = agentCommand(config.agent, agentSentence, platform)
-      expect(command.command).toBe(config.agent.command)
-      expect(command.args.slice(0, -1)).toEqual([...config.agent.args])
-      expect(command.args.at(-1)).toContain(agentSentence)
+      const command = agentCommand(line, agentSentence(guidePath), platform)
+      expect(command.command).toBe(line.command)
+      expect(command.args.slice(0, -1)).toEqual([...line.args])
+      expect(command.args.at(-1)).toContain(agentSentence(guidePath))
     }
   })
 

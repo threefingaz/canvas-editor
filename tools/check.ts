@@ -3,7 +3,7 @@
 // the rules of a screen and against the design system:
 //
 // - `file`: the file cannot be read as a screen (a syntax error, a wrong
-//   `meta`);
+//   `meta`), or a `flow.json` is not valid;
 // - `relation`: `stateOf` or `optionOf` breaks a rule of the list;
 // - `broken-link`: a link to a screen address that no screen has;
 // - `not-library`: an element that is not from the library (a plain element,
@@ -25,9 +25,14 @@
 // and a person before a review. It does not find a value that only the page
 // shows (a number of pixels, a value that the code computes).
 
+import { existsSync } from 'node:fs'
+import { join, posix } from 'node:path'
 import { unreached } from '../src/related/links.ts'
+import { flowErrors, type FlowFile } from './flow.ts'
+import { isLibrarySource, type LibrarySources } from './jsx.ts'
 import { screenFacts } from './screen-facts.ts'
-import { screenList, type ScreenFile } from './screens.ts'
+import { readFlowFiles, readScreenFiles } from './screens-plugin.ts'
+import { screenList, type ScreenEntry, type ScreenFile } from './screens.ts'
 
 export const findingKinds = [
   'file',
@@ -45,7 +50,8 @@ export const findingKinds = [
 export type FindingKind = (typeof findingKinds)[number]
 
 // `line` and `column` are the place of the element; a finding of the file or
-// of its relation has none.
+// of its relation has none. `screen` is the id of the screen, or the flow of a
+// `flow.json`.
 export type Finding = { kind: FindingKind; screen: string; file: string; line?: number; column?: number; text: string }
 
 export type Note = { screen: string; text: string }
@@ -58,8 +64,9 @@ export type CheckResult = {
 }
 
 export type CheckOptions = {
-  // The npm package of the library, or null when no library is connected.
-  libraryPackage: string | null
+  // The sources of the library (`librarySources` in `pack.ts`), or null when
+  // no library is connected.
+  library: LibrarySources | null
   // The keys whose number is a step of a scale (`scaleKeys` of the pack), or
   // null or nothing when the pack does not say.
   scaleKeys?: readonly string[] | null
@@ -70,6 +77,13 @@ export type CheckOptions = {
   // screen. The links and the relations are always read against the whole
   // list.
   only?: readonly string[]
+  // The `flow.json` files of the screens folder. A file that is not valid is a
+  // finding; it is reported with each screen, or when a screen of its flow is
+  // in `only`.
+  flows?: readonly FlowFile[]
+  // The widths of a frame of the project (`widths` of its config); the widths
+  // of the tool when not given.
+  widths?: readonly number[]
 }
 
 // True for an import that a screen must not have: a virtual module of the
@@ -95,19 +109,37 @@ function compare(a: Finding, b: Finding): number {
 }
 
 // The id of a screen from an argument of the command: an id, or the path of
-// its file (`screens/onboarding/welcome.tsx`, `./screens/…`, with `\`).
-export function screenArgument(argument: string, entries: readonly { id: string; file: string }[]): string | null {
+// its file relative to the project (`screens/onboarding/welcome.tsx`,
+// `./screens/…`, with `\`). With `place` (absolute folders with `/`), also a
+// path relative to the current folder or an absolute one, as a host gives it
+// (`canvas/screens/onboarding/welcome.tsx` from the host root).
+export function screenArgument(
+  argument: string,
+  entries: readonly { id: string; file: string }[],
+  place?: { cwd: string; project: string },
+): string | null {
   const text = argument.replaceAll('\\', '/').replace(/^\.\//, '')
-  return entries.find((entry) => entry.id === text || entry.file === text)?.id ?? null
+  const found = entries.find((entry) => entry.id === text || entry.file === text)
+  if (found !== undefined || place === undefined) return found?.id ?? null
+  const path = posix.relative(place.project, posix.resolve(place.cwd, text))
+  return entries.find((entry) => entry.file === path)?.id ?? null
 }
 
 export function checkScreens(files: readonly ScreenFile[], options: CheckOptions): CheckResult {
-  const entries = screenList(files, undefined, undefined, options.libraryPackage)
+  const entries = screenList(files, options.widths, undefined, options.library, options.flows)
   const ids = new Set(entries.map((entry) => entry.id))
   const codeOf = new Map(files.map((file) => [file.file.replaceAll('\\', '/'), file.code]))
   const only = options.only && options.only.length > 0 ? new Set(options.only) : null
+  // An import of the library is never a finding, also from a folder of the
+  // host with JSX in it.
+  const library = options.library
+  const isFromLibrary = (source: string, file: string) => library !== null && isLibrarySource(source, file, library)
 
   const findings: Finding[] = []
+  for (const flow of flowErrors(options.flows ?? [])) {
+    if (only && !entries.some((entry) => entry.flow === flow.flow && only.has(entry.id))) continue
+    findings.push({ kind: 'file', screen: flow.flow, file: flow.file, text: `the sequence of the row: ${flow.error}` })
+  }
   for (const entry of entries) {
     if (only && !only.has(entry.id)) continue
     const base = { screen: entry.id, file: entry.file }
@@ -118,14 +150,14 @@ export function checkScreens(files: readonly ScreenFile[], options: CheckOptions
     if (entry.relationError !== undefined) findings.push({ ...base, kind: 'relation', text: entry.relationError })
 
     const scale = options.scaleKeys ? new Set(options.scaleKeys) : null
-    const facts = screenFacts(codeOf.get(entry.file) ?? '', entry.file, options.libraryPackage, scale)
+    const facts = screenFacts(codeOf.get(entry.file) ?? '', entry.file, options.library, scale)
     const placed: Finding[] = []
     for (const link of facts.links) {
       if (!ids.has(link.id)) {
         placed.push({ ...base, kind: 'broken-link', line: link.line, column: link.column, text: `${link.tag}: link to ${link.href}, no screen with this id` })
       }
     }
-    if (options.libraryPackage !== null) {
+    if (options.library !== null) {
       for (const element of facts.elements) {
         if (element.origin === 'library') continue
         const what = element.origin === 'host' ? 'an HTML element' : 'a local component'
@@ -141,7 +173,7 @@ export function checkScreens(files: readonly ScreenFile[], options: CheckOptions
     }
     for (const item of facts.behavior) placed.push({ ...base, kind: 'behavior', line: item.line, column: item.column, text: `${item.text}: a screen has no state and no handlers` })
     for (const item of facts.classNames) placed.push({ ...base, kind: 'class-name', line: item.line, column: item.column, text: `${item.tag}: a \`className\` attribute` })
-    for (const item of facts.imports.filter((item) => forbiddenImport(entry.file, item.source, options.isComponent))) placed.push({ ...base, kind: 'import', line: item.line, column: item.column, text: `the import of '${item.source}': a screen imports only the library and plain data` })
+    for (const item of facts.imports.filter((item) => !isFromLibrary(item.source, entry.file) && forbiddenImport(entry.file, item.source, options.isComponent))) placed.push({ ...base, kind: 'import', line: item.line, column: item.column, text: `the import of '${item.source}': a screen imports only the library and plain data` })
     for (const item of facts.placeholders) placed.push({ ...base, kind: 'placeholder', line: item.line, column: item.column, text: 'a placeholder text' })
     findings.push(...placed.sort(compare))
   }
@@ -181,4 +213,27 @@ export function checkReport(result: CheckResult): string {
     for (const note of result.notes) lines.push(`  ${note.text}`)
   }
   return lines.join('\n')
+}
+
+// The screens of a project as the check reads them from the disk: the screen
+// files, the `flow.json` files and the list. `canvas check` and
+// `canvas status` read them here, thus their counts agree.
+export type ProjectScreens = { files: ScreenFile[]; flows: FlowFile[]; entries: ScreenEntry[] }
+
+export function readProjectScreens(project: string, screensFolder: string, widths: readonly number[]): ProjectScreens {
+  const folder = join(project, screensFolder)
+  const files = readScreenFiles(project, folder)
+  const flows = readFlowFiles(project, folder)
+  return { files, flows, entries: screenList(files, widths, undefined, null, flows) }
+}
+
+// The check of the screens of a project (`readProjectScreens`). A path with no
+// extension is a component when a file with JSX is there on the disk.
+export function checkProject(
+  project: string,
+  screens: ProjectScreens,
+  options: Pick<CheckOptions, 'library' | 'scaleKeys' | 'only'> & { widths: readonly number[] },
+): CheckResult {
+  const isComponent = (path: string) => ['.tsx', '.jsx', '/index.tsx', '/index.jsx'].some((end) => existsSync(join(project, path + end)))
+  return checkScreens(screens.files, { ...options, isComponent, flows: screens.flows })
 }

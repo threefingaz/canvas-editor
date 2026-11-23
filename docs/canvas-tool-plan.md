@@ -755,12 +755,275 @@ The score after this test: need 1 is 9 (Copilot wrote screens with the real desi
 7. On a screen: **Add the error state** and **Mobile width (390 px)**, then send. Are the new frames next to their screen, with an arrow from the control that leads to them?
 8. Click the title of a frame at the zoom that shows all frames. Are its links clear?
 
+## An independent tool
+
+On 2026-11-23, after the test at work, the user asked for a change of the approach, in his words: "Everything seems like working great, but I would like to adjust a bit the approach. The setup was a bit cumbersome. So now it's mostly tied to my work Copilot situation. I would like to make the clean repo more independent, so it can be installed in the ongoing project. Also with clean install it should be easier to bring a library into it and start working, and in any agent, not just Copilot. So it should be less specific. Additionally, the small thing is like I would like to move maybe and delete screens easily on the canvas. In general, I would expect this tool to have a guidance how to use it, so local agent understands its purpose and organizes the folder structure and everything according what it needs."
+
+This section is the design for that, as it was written before the work. The plan of the work is `docs/plans/completed/20261123-independent-tool.md`. The four decisions of the user at the end of this section each had a pick; the user accepted the picks on 2026-11-23, and the plan follows them. It was built on 2026-11-23: see "Results of an independent tool" below. The text of the design stays as it was; a line that starts with **Changed in the build** marks each place where the build differs, and names the reason.
+
+### What is specific today
+
+**To one agent and one code editor:**
+
+| Place | What it assumes |
+|---|---|
+| `.github/skills/` (six skills) | The one folder that GitHub Copilot in VS Code scans. An agent that scans a different folder finds the skills only through the table in `AGENTS.md`. |
+| `.github/prompts/` (three prompt files) | A file format of one agent. It was not found at work, and its documentation now says that it runs only in a mode that goes away in February 2027. |
+| `agent` in `canvas.config.ts` | The default is the command line of VS Code (`code chat --mode agent --reuse-window`). `tools/agent.ts` has a search for that one command (`codeOfTerminal`, `codePlaces`), and the reason texts name VS Code. |
+| `README.md`, "Give the edits to the agent" | Names Copilot, VS Code and `.github/skills/` as the way. |
+| The fixed sentence | "… as AGENTS.md says": it assumes that the guide is the root `AGENTS.md`. |
+| Tests | `tools/skills.test.ts`, `tools/prompts.test.ts` and `src/frame/library-setup.test.ts` read `.github/`. |
+| This record | "The consumer of the edits is an AI agent: GitHub Copilot in VS Code" (Decisions), and the facts about the work environment. They stay as history; this section replaces the decision. |
+
+**To its own repository:**
+
+| Place | What it assumes |
+|---|---|
+| The root of the dev server | Each plugin reads `screens/`, `packs/`, `.canvas/` and `tokens.json` below the root of Vite, which is the folder of the tool. The tool and its content have one root. |
+| Literal globs | `/screens/**/*.tsx` in `src/frame/main.tsx` and `src/site/ScreenPage.tsx`, `/tokens.json` in `src/editor/tokens/editor-tokens.ts`; `tsconfig.app.json`, `vitest.config.ts` and `.oxlintrc.json` name `screens` and `packs`. |
+| The npm scripts | `node --experimental-strip-types tools/<script>.ts`. Node refuses to strip types of a file below `node_modules`, thus the scripts do not run when the tool is an installed package (tried on 2026-11-23). |
+| `package.json` | `"workspaces": ["packs/*"]` installs the library. `vite`, the React plugin, Tailwind and `magic-string` are development dependencies, thus an install of the tool as a package does not bring them. It has no `bin` and no `exports`. |
+| The pack | `packs/<name>/package.json` is required, and the token entry imports the types with a relative path into `src/` (`../../../src/tokens/format.ts`). |
+| The root config files | `vite.config.ts`, three `tsconfig` files, `.oxlintrc.json`, `vitest.config.ts`, and three HTML entries at the root: in a host project they would lie next to the files of the host with the same names. |
+| `AGENTS.md` | One file of 405 lines at the root with the guide for the agent that makes screens and the internals of the tool (stack, layout, conventions, the state of the branches). A host project has an `AGENTS.md` of its own. |
+
+**In the setup** (a clean export in an empty folder, 2026-11-23, as a new user):
+
+| Step | Who | Cost |
+|---|---|---|
+| 1. Clone, `npm install` | person | Two commands. The install took 1.4 s with a warm cache: 187 MB, 55 packages at the top level. |
+| 2. `npm run tokens` | person | `README.md` names it; with no pack it does nothing. |
+| 3. `npm run dev`, open the browser | person | Ready in 0.1 s. The canvas says that no library is connected. |
+| 4. Copy the sentence, paste it into the chat | person | One paste. |
+| 5. The agent reads the setup skill and its three reference files (364 lines) and `AGENTS.md` (405 lines) | agent | Minutes. |
+| 6. The agent asks up to three questions | person | The work stops until the person answers. |
+| 7. The agent writes the pack | agent | For the sample library: 8 files with 841 lines, of which the token entry is 281 and its tests 248. Each line by hand, with no helper of the tool. |
+| 8. `npm install` again, for the packages of the pack | agent | Needs the registry and the permission of step 6. |
+| 9. The proof: six checks | agent, or person | Five of the six need a page. The agent at work has no browser, thus the person does them or they stay open. |
+| 10. Ask for the first screen | person | Only now. |
+
+The tool is fast; the setup is not. Seven actions of a person come before the first screen, one of them a wait for a long agent run, and the agent writes by hand what a program can write (the files of the pack, the list of the tokens of a stylesheet). At work the user also met a Node version that needed a flag, prompt files that were not found, and a button that did not open the chat: each is a place where the tool assumed one setup.
+
+### The main idea: the tool and the project are two folders
+
+All five answers below rest on one split.
+
+- **The tool** is the code: `src/`, `tools/`, the three HTML entries, the guide and the skills. It is the same for each user and is replaced as a whole by a new version.
+- **The project** is the content of one user: `canvas.config.ts`, `screens/`, `packs/<name>/`, `tokens.json`, the work folder `.canvas/`, the built site `dist/`, and its copy of the guide. It is what a team tracks in its own repository.
+
+Today the two are one folder. After the split the tool takes the folder of the project as a value (**the project root**), and each plugin and script reads the content there. The layout inside the project does not change, thus each rule of a screen file, each request file and each pack stays valid.
+
+Two modes use the same code:
+
+- **Standalone:** the project root is the root of the tool repository, as today. Clone, `npm install`, `npm run dev`. Nothing moves for a user of today.
+- **In a host project:** the project is one folder of the host (`canvas/` by default), and the tool is outside it.
+
+### Install into an ongoing project
+
+| Option | How | For | Against |
+|---|---|---|---|
+| **A. A development dependency with a command** (pick) | `npm install -D <address of the tool>` in the host, then `npx canvas init`. The address is a Git address with a tag, a file made by `npm pack`, or a folder; later a name in the internal registry. The command `canvas` has `dev`, `build`, `check`, `tokens`, `status`, `init`, `sync`. | One line in the `package.json` of the host. The library of the host resolves from the `node_modules` of the host with no second install. A team gets the tool with its usual `npm install`. | The packages of the tool (Vite, the React plugin, Tailwind, TypeScript) go into the `node_modules` of the host, from the internal registry. Node does not strip types below `node_modules`: the command must load the tool through Vite (proven, see below). An install from a Git address must be permitted at work. |
+| **B. A clone next to the host** (the fallback, same code) | Clone the tool to any folder, `npm install` there, then `npm run dev -- --project ../my-app/canvas`. | Nothing changes in the host, not one line. It needs only what works at work today: a clone and an install. An update is `git pull`. | Each person keeps a second folder. The path of the project is an argument of each command. |
+| C. A copy of the tool in a sub folder of the host | Copy `src/` and `tools/` into the host. | No install step. | 450 files in the host: its lint, its type check and its reviews read them, and an update is a merge. Rejected. |
+
+**Changed in the build:** with a clone next to the host, each command runs from the host root as `node ../canvas-editor/bin/canvas.js <command>` (README.md, "Start in an ongoing project"): the lookup of the project finds `canvas/` there, thus no `--project` is needed. `npm run dev -- --project ../my-app/canvas` in the clone works too.
+
+**Recommendation: build the split once and support A and B.** They differ only in where the tool lies. A is the documented default; B is the way when a Git dependency is not permitted, or when the host uses a different package manager.
+
+Proven on 2026-11-23 in a scratch folder: the clean tool, packed (700 kB) and installed as a development dependency of an empty host, starts its dev server from `node_modules` and serves the editor; `runnerImport` of Vite loads a TypeScript module of `tools/` from `node_modules`, where Node alone refuses it. Thus the command is a small plain JavaScript file that loads the rest through Vite, with no build step of the tool and no new dependency.
+
+How the tool keeps out of the way of the host:
+
+- **`package.json`:** one development dependency, and one script if the user wants it. No workspace: in a host, the pack has no `package.json`, because the library is already installed there.
+- **The bundler:** the tool runs its own Vite with its own config and reads no config of the host. Its cache is in `.canvas/` of the project.
+- **React:** a screen and the library must use the React of the host; the editor uses the React of the tool. The frame and the site resolve `react` and `react-dom` from the project root. This is the largest technical risk of the design (two copies in one frame, also with equal versions; a host with an older React), thus the split starts with a spike of it, and the rule is written after the spike.
+
+  **Changed in the build:** one Vite server cannot give the frame and the editor different copies of React, because its dependency step keys a package by its bare name. `canvas dev` is thus two Vite servers on one origin: the editor server with the React of the tool, and the frame server below `/__frame/` with the React of the project. See "Two servers on one origin" in the results.
+- **The guide in a host names the command of the tool, not `npm run`:** `npm run build` and `npm run lint` in a host are the build and the lint of the host. The guide writes `canvas check` and `canvas build`, and `AGENTS.md` of the project says in one line how the command runs there.
+- **TypeScript and lint:** `canvas init` writes `canvas/tsconfig.json` for the screens and the pack; `canvas build` runs the type check with the TypeScript of the tool. The lint of the host reads `canvas/` with the rules of the host; the guide says how to leave the folder out when those rules do not fit.
+- **Git:** `canvas/.gitignore` has `.canvas/` and `dist/`. The `.gitignore` of the host does not change.
+- **The instruction file:** the project has its own `canvas/AGENTS.md`; the instruction file of the host gets one marked block of two lines (see "Guidance").
+- **The source of the host as the library:** when the design system is code of the host and not a package, `pack.json` names its folders (see below). When that code needs an alias or a loader of the bundler of the host, the project can have a small file with extra Vite config. That file is a later step, built when a host needs it.
+
+**What standalone keeps:** all of today. The repository is a tool and a project at once; the pack can have a `package.json` as an npm workspace, which installs a library that the folder does not have; `npm run export` writes the clean tool. The npm scripts call the same command as the host mode does.
+
+### A library in minutes
+
+In a host, the design system is already installed. Today the agent still writes each file of the pack by hand and proves it on a page before the user can do anything.
+
+| Option | How | For | Against |
+|---|---|---|---|
+| **A. A command writes the pack, the agent finishes it, in two levels** (pick) | `canvas init --library <package>` writes a pack that works at once. The agent then adds the tokens and the library skill, with helpers of the tool, while the user already works. | The first screen is minutes from the install. The slow part no longer blocks. | A screen made before the second level has no token controls and no count of deviations yet. |
+| B. A shorter setup skill, agent only | Cut the skill to a fast path. | No new code. | The agent still writes each file by hand and still blocks the user. |
+| C. The editor finds the tokens on the page | The frame reads each CSS variable of the root and makes tokens from them. | No setup for a library with CSS variables. | Only for such a library. It cannot know how the library writes a token in code, and the agent has no page. Later, as one more helper, if a library needs it. |
+
+**Level 1, connected (a command, seconds).** `canvas init` derives what a program can derive:
+
+- **The library:** `--library <package>`, or the one dependency of the host that has React as a peer dependency and exports components; with more than one candidate it lists them and stops. The short name of the pack comes from the package name.
+- **`pack.json`:** `name`, and `sources`: the packages, and for code of the host the folders, whose components count as "from the library". `sources` replaces `package` (which stays valid as a list of one), and closes the gap of a library with more than one package.
+- **The provider:** a wrapper that renders its children, with the import of the stylesheet of the package when its `package.json` exports one. The output of the command names what it guessed.
+- **The token entry:** a call of a helper when a source of tokens is found (below), else an empty list.
+- **No `package.json` of the pack in a host.** In standalone, `--library <package>@<range>` writes it and runs `npm install`.
+
+**Changed in the build:** `canvas init` always writes an empty token entry and never guesses a call of a helper: a guessed list of tokens would set the level to `ready` with codes that no agent checked. The helper is the work of level 2. In standalone `init` does not run `npm install`; it says to run it, because an install needs the registry and the permission of the user.
+
+At level 1 the screens render with the real library, and selection, comments, quick requests, options, links, states and the site all work. The editor says "The tokens are not set up" in place of the token controls and counts no value as a deviation; `npm run check` still finds a plain element, a `style` and a raw value.
+
+**Level 2, tokens and the library skill (the agent, one sentence, not blocking).** The editor shows the sentence until it is done. The agent:
+
+- completes the provider from the entry of the host application (the theme provider, the base styles, the fonts);
+- writes the token entry with a helper of the tool, imported from the tool by name (`canvas-editor/tokens`): `tokensFromCss` (the custom properties of a stylesheet, with their values in media rules), `tokensFromObject` (a theme object, with a map from its paths to the groups). A helper turns the 281 lines of the sample entry into about twenty;
+- fills `scaleKeys`, writes the library skill and the `AGENTS.md` of the pack.
+
+**The proof with no page.** `canvas status` prints the state as a list that a person and an agent read: the library that was found, the provider, the count of tokens in each group, the library skill, the count of screens, the findings of the check, the command of the agent. It replaces the checks of the proof that need no eye. The checks on a page stay, as the last and optional part.
+
+**The first sentence can be the task.** After level 1 the user can ask for a screen at once. The skill `canvas-screen` then reads the types and the documentation of the library in place of a library skill, and says in its report that level 2 is open.
+
+### Any agent
+
+Facts from the documentation of ten coding agents, read on 2026-11-23 (the notes are outside this repository):
+
+- A root `AGENTS.md` in plain Markdown is read by nearly each agent. Two need one line of their own config. One reads `AGENTS.md` only when the folder has no instruction file of its own format; `CLAUDE.md` with a pointer covers it, as today.
+- The format of a skill is the same in each agent: a folder with `SKILL.md`, a `name` equal to the folder name, a `description` of 1024 characters or less.
+- **No folder of skills is read by each agent.** `.agents/skills/` is read by most; the agent of the user at work reads `.github/skills/`; one more reads only `.claude/skills/`.
+- A skill or an instruction file in a sub folder is not found by each agent when the workspace is the root of the host. Thus a pointer must be at the root of the host.
+- Prompt files and command files are different in each agent, and several agents now replace them with skills.
+- A link in an instruction file does not make an agent read the target. An instruction to read it does.
+- Only one agent has a command that opens a chat window with a prompt (the command line of VS Code). Each other needs a terminal, or runs with no window and with permission flags.
+
+| Option | How | For | Against |
+|---|---|---|---|
+| **A. One neutral home, and small adapters that a command writes** (pick) | The guide and the skills are plain Markdown in `guide/` of the tool. `AGENTS.md` lists each skill with a path and says when to read it, thus they work where no skill is loaded by its description. For the loading by description, `canvas agents` writes a stub of each skill into the folders that agents scan. | One source. A new agent is one more folder name in a list. | A stub is a second file for each skill and folder. |
+| B. The skills stay in `.github/skills/` | As today. | No work. | One agent finds them by description; the others only by the table. |
+| C. The skills in `.agents/skills/` only | The folder that most agents read. | One folder, no stub. | The agent at work does not read it, by its documentation. |
+
+**The stub.** A stub has the `name` and the `description` of its skill and one line: read the skill at its path in the guide, and follow it. It has no content of its own, thus it does not drift. The clean repository has the stubs in `.agents/skills/`, `.github/skills/` and `.claude/skills/`, written by the command and checked by a test against it. In a host, `canvas init` writes them at the root of the host, into `.agents/skills/` and into each of the other two whose parent folder exists.
+
+**The prompt files go.** They did not work at work, and their format is for one agent.
+
+**"Send to the agent"** has three levels, and the first always works:
+
+1. **The clipboard is the base.** With no command, the one button copies the sentence and says "Copied: paste it in the chat of the agent".
+2. **A preset or a command of the user.** `agent` in `canvas.config.ts` is `'auto'`, `'clipboard'`, the name of a preset, or `{ command, args }`. The one preset of the start is `vscode`, the command of today with its search. `'auto'`, the default, takes `vscode` when the dev server runs in a terminal of VS Code, else the clipboard. A user of an agent that runs in a terminal can write a command of his own there, as today; that is a choice of the user, with the permission flags of that agent, never a default. A view of such a run in the editor is not in this plan.
+3. **Later, if the paste gets in the way: the agent waits.** A command `canvas wait` that ends when the user clicks the button. An agent that the user told to wait then applies the requests and waits again, in each agent that can run a command. It costs turns of the agent while nothing happens and depends on the time limit of a command; it is not in this plan.
+
+**Changed in the build:** `null`, the form of an older config, is the clipboard, not a way that is off: the clipboard is the base that always works.
+
+**The fixed sentence** no longer names `AGENTS.md` of the root. It is made from the place of the project: `Apply the canvas requests as AGENTS.md says.` in standalone, `Apply the canvas requests as canvas/AGENTS.md says.` in a host. The folder of the requests is in the guide, not in the sentence. The skill `canvas-apply` has the two forms in its description.
+
+### Guidance for the local agent
+
+Today one file is the guide of the agent that makes screens, the reference of the formats and the manual of the developer of the tool. The agent that only makes a screen is told to skip four sections.
+
+| Option | How | For | Against |
+|---|---|---|---|
+| **A. A short entry, the references in `guide/`, the internals apart** (pick) | See below. | An agent reads 60 lines and then only the file of its job. The same files serve the two modes. | Links in tests and skills change once. |
+| B. Keep one file, add a summary at the top | | No move. | A host cannot take a file of 400 lines about `src/`. |
+| C. Only skills, no entry | | Short. | An agent with no loading by description has no start. |
+
+The files:
+
+- **`AGENTS.md` of the project** (about 60 lines): what the tool is for, in three sentences; the map of the folders; one table "the situation, and what you do" (no library is connected; the library is connected and its tokens are not set up; a new screen, flow, state or width; apply the requests; check the screens; update the library); the three things that stay fixed (the form of a screen file, no change of the library, no change outside the project for a request); the commands. Each row names the file to read, with its path. Each path is relative to the file, thus the same text is right at the root of the tool and in `canvas/` of a host.
+- **`guide/screen-files.md`** and **`guide/requests.md`**: the sections "Screen files" and "Requests" of today, moved whole. **`guide/skills/<name>/`**: the six skills, moved whole.
+- **`docs/development.md`**: the stack, the layout, the conventions and the state of the branches. Only a developer of the tool reads it. It is in the tool repository and never in a project.
+- **In a host,** `canvas init` copies `AGENTS.md` and `guide/` into `canvas/`. `canvas sync` copies them again after an update of the tool, and `canvas status` names the version of the tool that wrote the copy. A copy and not a path into `node_modules`: an agent does not always read there, and with a clone next to the host the tool is not in the workspace at all. The copies are not for editing; what a team wants to add goes into its own instruction file or into the pack.
+- **The one line in the host.** `canvas init` adds a marked block to each instruction file that the root of the host has (`AGENTS.md`, `CLAUDE.md`, `.github/copilot-instructions.md`: the three that this record names today), and makes `AGENTS.md` when there is none: "This project has a canvas of screen prototypes in `canvas/`. Before any work there, and when the user speaks of the canvas, screens, flows or canvas requests, read `canvas/AGENTS.md` and follow it." The command prints what it wrote; a second run changes nothing.
+
+### Screens on the canvas
+
+The user wants to move and to delete a screen on the canvas. Today the sequence of a row is the sequence of the file names, and a delete or a rename is a task for the agent or for the file manager.
+
+**Where the sequence is kept:**
+
+| Option | For | Against |
+|---|---|---|
+| **A. `screens/<flow>/flow.json`** (pick): `{ "order": ["welcome", "workspace"] }`, the base screens of the flow by name | Plain data that a person can read and Git tracks. One file changes for a move. It moves with its folder. The site index uses it too. | One more file for a flow that was moved. |
+| B. A number in `meta` of each screen | In the screen file. | A move writes into several code files. |
+| C. A number at the start of each file name | No new file. | The id of a screen changes with each move, and each link to it. |
+
+A screen that the list does not name comes after the named ones, by name, thus a flow with no file is as today and a new screen of the agent needs no entry. States and options follow their base and are not in the list. The sequence of the rows stays by name; a list of the flows can come later in the same way.
+
+**Who makes the change:**
+
+| Option | For | Against |
+|---|---|---|
+| A. Each one is a request for the agent | One rule: the agent writes each change. | A delete of a file waits for an agent run. It is not "easily". |
+| **B. The local file API does what is exact; what needs a judgement stays an issue or a request** (pick) | At once. A move or a delete of a file needs no judgement. | The tool now writes into `screens/`: a new rule, with a narrow limit. |
+| C. The file API does all, also the links to a deleted screen | Nothing is left. | What a control does when its target is gone is a design decision. |
+
+The limit of B: **the tool makes a change in `screens/` only when the result is fully given by the action**, and it changes only whole files, `flow.json`, and text literals that the parser found (an address of a link, `stateOf`, `optionOf`, the `title` of `meta`). It never writes markup.
+
+| Action on the canvas | What the tool does at once | What is left for a judgement |
+|---|---|---|
+| Move in the row ("Move left" and "Move right" in the menu of a base screen) | Writes `order` in `flow.json`. | Nothing. |
+| Change the title | Replaces the `title` literal in `meta`. | Nothing. |
+| Rename, or move to a different flow | Moves the file with its states and options. Replaces each literal link to the old ids and each `stateOf` and `optionOf` in the other screens. Moves the request and issues files and replaces the ids inside them. Updates the two `flow.json` files. Refuses when the new id exists. | A link that the code computes is not found: it then shows as a `broken-link` issue. |
+| Delete | Moves the file, its states, its options and their request and issues files into `.canvas/trash/<time>/`, and takes the name out of `flow.json`. First it says what goes with it and which screens link to it. "Restore" in the Project tab puts it all back. | Each link to the deleted screen is a `broken-link` issue on its screen, as today; the quick request "Fix the deviations", or a comment, tells the agent what the control does now. |
+
+A delete goes to a trash folder, not away: a new screen that Git does not track yet would be lost, and "Restore" is the undo. The trash is in the work folder, which Git ignores; the user empties it by hand.
+
+A base screen with an open `keep`, or a rename while a request file has a reply that names a file, needs no special rule: the request files move with their screen. An agent that works at the same moment is the one risk: the guide tells the agent to read a file again before it writes it, and the editor shows a file error when a move fails.
+
+On the canvas: a small menu at the end of the title row of a frame ("Rename…", "Change the title…", "Move to flow…", "Move left", "Move right", "Delete…"), and the group "Deleted screens" with "Restore" in the Project tab. A drag of the title of a frame along its row, with a line at the place of the drop as the move of an element has, is a later step: the menu gives the same result with less code, and the user says whether he misses the drag. A tool action is off while a save of an edit of that screen is pending, and it stops with no change when a file changed after the tool read it (an agent wrote it). "Movement of frames by hand" stays out: a frame has a place in a sequence, not a free position.
+
+### Decisions of the user
+
+The user accepted the four picks on 2026-11-23. Each names the phase that a different answer would change.
+
+1. **How the tool comes into a host project.** Pick: a development dependency from a Git address with a tag, with the clone next to the host as the fallback. The question is whether an install from a Git address is permitted at work; if not, the fallback is the default there, and nothing else changes. (Phase 4.)
+2. **May the tool move, rename and delete screen files by itself,** within the limit above? Pick: yes. The other answer makes each of these a request for the agent. (Phase 2.)
+3. **A first screen before the tokens are set up.** Pick: yes, with the note in the editor. The other answer keeps the setup as one blocking step, made shorter by the command and the helpers. (Phase 5.)
+4. **The names of coding agents in tracked files.** The repository rule forbids the names of other design tools, editors and starter kits. The adapters need three folder names (`.agents/`, `.github/`, `.claude/`), and a preset needs the name of a command. Pick: folder and command names are permitted as names of the stack; the documents name no agent beyond the ones that they name today.
+
+### What does not change
+
+The request format and its eight kinds; the rules of a screen file; the pack as the one home of all that is specific to a library; the three HTML entries; the static check; the site; no remote server, no cloud service, no MCP; few dependencies, each from the internal registry (this design adds none: the packages that the tool needs to run become regular dependencies in place of development dependencies).
+
+## Results of an independent tool
+
+Built on 2026-11-23 on `canvas-tool`, in the twenty tasks of `docs/plans/completed/20261123-independent-tool.md` (commits `9a8380e` to the commit of the documents). Each pick of "Decisions of the user" is built as the design says, with the changes below. No package is new.
+
+### What was built
+
+- **The guide.** `AGENTS.md` is a short entry (about 65 lines): the purpose, the map of the folders, a table of the situations with the file to read in each, the three fixed things, and the commands. "Screen files" and "Requests" moved whole into `guide/screen-files.md` and `guide/requests.md`, the six skills into `guide/skills/`, and the internals of the tool into `docs/development.md`. The guide writes each command as `canvas <command>`, and one line of `AGENTS.md` says how it runs in that place.
+- **The stubs.** `canvas agents` writes a stub of each skill (its `name`, its `description`, and the path of the skill) into `.agents/skills/`, `.github/skills/` and `.claude/skills/`; a test checks the tracked stubs. The prompt files are gone. The fixed sentence names the guide of the project: `Apply the canvas requests as AGENTS.md says.`, or `… as canvas/AGENTS.md says.` in a host; the skill `canvas-apply` still takes the older sentence.
+- **Screens on the canvas.** `screens/<flow>/flow.json` gives the sequence of the base screens of a row. The menu at the end of the title row of a frame has "Rename…", "Change the title…", "Move to flow…", "Move left", "Move right" and "Delete…"; the Project tab has the group "Deleted screens" with "Restore". The tool writes only whole files, `flow.json` and the text literals that the parser found (`tools/screen-ops.ts`: a plan, then `applyPlan`, which stops with no change when a file changed after the plan read it, and puts back each step when a step fails). A delete moves the files into `.canvas/trash/`.
+- **The command and the project root.** `bin/canvas.js` (plain JavaScript) loads `tools/cli.ts` through `runnerImport` of Vite, thus the TypeScript of the tool runs also below `node_modules`. The commands: `dev`, `build`, `preview`, `check`, `tokens`, `status`, `init`, `sync`, `agents`, `export`. Each plugin and script reads the content from the project root (`tools/project.ts`): `--project`, then `CANVAS_PROJECT`, then the nearest folder upward with `canvas.config.ts` or `canvas/canvas.config.ts`, then the tool. A project has its own `canvas.config.ts` for `widths` and `agent` only. The frame, the site and the editor read the screens and `tokens.json` of the project through virtual modules, not through a literal glob.
+- **The package.** The tool is a development dependency of a host, from a Git address with a tag or a file of `npm pack`; the packages that it runs are regular dependencies, `files` names what npm packs, and the tool has no install script. A pack imports the token types and helpers from `canvas-editor/tokens`.
+- **A library in two levels.** `pack.json` has `sources` (packages, and folders of the host); `package` stays valid as a list of one; a pack in a host has no `package.json`. The level of the library (`none`, `connected`, `ready`) comes from the token file; at `connected` the editor says "The tokens are not set up" and counts no value as a deviation. `canvas init` writes level 1 in less than a second; `canvas status` prints the state and the next step; `canvas sync` copies the guide again. The helpers `tokensFromObject` and `tokensFromCss` make the token entry of level 2. The setup skill has the two levels, and `canvas-screen` can make a first screen before the tokens.
+- **"Send to the agent".** `agent` is `'auto'`, `'clipboard'`, a preset (`'vscode'`), `{ command, args }`, or `null`. `'auto'` is the default of a project and the value of the template: the preset `vscode` in a terminal of VS Code, else the clipboard. With the clipboard the toolbar has one button, "Copy for the agent", with the count. The tracked line of `canvas.config.ts` of this repository did not change.
+
+### The proof (2026-11-23)
+
+Scratch hosts outside the repository, with the file of `npm pack` or a clone of the tool, and fresh agents with only the files of the host:
+
+- **The time to an open editor in a host:** three commands (`npm install -D <file>`, `npx canvas init`, `npx canvas dev`), with no option, 12.5 s from the first command to the dev server that answers: the install 5.6 s, `init` 0.8 s. An install from a Git address with a tag took 4.6 s and installed no development package of the tool.
+- **A first screen before the tokens:** a fresh agent wrote one screen in 93 s, with no finding of the check. **Level 2:** with `tokensFromObject` 475 s and 100 tokens, with `tokensFromCss` on a design system of the host's own source 333 s and 24 tokens; no question to the user in either.
+- **An older React:** a host with React 18.3 and MUI 7.3: the frames on React 18.3, the editor on React 19.3, the selection found the place in the code, and the site has React 18 only.
+- **A design system that is a folder of the host** (`sources: ["./src/ui"]`): the frames with the styles of the host, the origin `library` for its components, and no finding of the check.
+- **The full loop** in a host and in the clean export, each with one fresh agent through three messages of a user: install, init, level 2, two screens, an edit and a quick request applied, a rename and a delete on the canvas, the broken link fixed, the check and the build of the site. Each step passed. The gaps that the agents found are fixed in the guide, or are in "Open issues".
+- **The migration:** a clone of the older version (at `13346c4`) with a full path as `agent` merged this work with no conflict; `git checkout package-lock.json` was needed once. A standalone project moved into a host with the steps of `README.md`, with its tokens, findings and open changes.
+- **A review** of all changes by two fresh reviewers: the fixes are in the code; four findings of low weight are in "Open issues".
+
+### Changes from the design, and why
+
+- **Two servers on one origin.** The design had one Vite server, with the frame resolving React from the project. The spike showed that one server cannot give two copies of React: its dependency step keys a prepared package by its bare name, for each importer, thus a frame got the React of the tool inside the library of the host and failed. With `resolve.dedupe` in one server everything runs on one copy, the React of the tool, and a library for React 18 then runs on React 19; the editor on the React of the host failed, because the copied UI components give `ref` as a prop. Thus `canvas dev` is two Vite servers on one origin. The editor server has the root of the tool, the React of the tool and its cache `.canvas/vite-editor`. The frame server runs in middleware mode below `/__frame/`, with an alias for each module of React to the file of the project and its cache `.canvas/vite-frame`. The editor server gives each `/__frame/` address and the hot updates of the frames to it, thus there is one port, and the editor reads the frame document and its React records as before. The site and its build take the rule of the frame server; `/site.html` sends the browser to `/__frame/site.html`. The cost is small: each watcher event comes two times, and each server restarts itself on a change of the pack.
+- **`init` guesses no tokens and installs nothing.** See the note in "A library in minutes". Level 1 is thus always an empty token entry, and the editor shows the banner of level 2.
+- **The type check of a host** uses `tsc -p canvas/tsconfig.json --noEmit` with the TypeScript of the tool, thus no file is written into the host; the token entry is left out of it, because a host often has no types of Node. A host with no types of React fails the type check; the guide says so.
+- **The CSS reader of `tokensFromCss` is our own small one.** The CSS packages in `node_modules` are only packages of Vite, which the root `package.json` does not declare, and Vite exports no CSS parser.
+- **`null` of `agent` is the clipboard.** An older config keeps a button that works.
+- **The drag of the title of a frame is a later step,** as the design said: the menu gives the same result. "Move left" and "Move right" are in the menu of a base screen.
+- **`canvas init` writes no `AGENTS.md` of the pack and no `screens/` folder.** The `AGENTS.md` and the library skill of a pack are the work of level 2; the agent makes `screens/<flow>/` with its first screen.
+
+Not verified: React 17; npm before version 11 for the Git install; `init` with a clone next to the host in a scratch folder (unit tests only); the preset `vscode` started on this machine (it would open VS Code; its way was checked by HTTP and its start by unit tests); the stubs with the agent at work.
+
 ## Open issues
 
 Each item is for a later step. The step is in brackets. Seven items left this list on 2026-11-22 with the work for the four needs: the states after a change of their screen, the link of a new state, a comment with an `options` item, a comment that asks for a state that exists, and the fixed values of library components in the Issues list.
 
-- **`code chat` is not checked.** "Send to the agent" starts `code chat --mode agent --reuse-window "<sentence>"`. The command is not on the machine of the development, thus the options, the window that it takes and its exit code are from the documentation only. At work the command was not on the path (2026-11-23); the search for it in the folder of VS Code is built and has tests, and the user tries it next. On Windows a command that is not there gives an exit code of the shell, and the reason then reads "ended with the code 1". (The test at work)
-- **The prompt files are not checked in Copilot.** Their head has `description` and `agent: agent`; an older version names the second key `mode`. (The test at work)
+- **`code chat` is not checked.** The preset `vscode` starts `code chat --mode agent --reuse-window "<sentence>"`; `'auto'` takes it when the dev server runs in a terminal of VS Code. The command is not on the machine of the development, thus the options, the window that it takes and its exit code are from the documentation only. At work the command was not on the path (2026-11-23); the search for it in the folder of VS Code is built and has tests, and the user tries it next with `'auto'`. When it does not start, the button copies the sentence. On Windows a command that is not there gives an exit code of the shell, and the reason then reads "ended with the code 1". (The test at work)
+- **The stubs are not checked with the agent at work.** Whether it loads `canvas-screen` and `canvas-apply` from the stubs in `.github/skills/`, and which skill folder it reads in a host, is not known. The table of `AGENTS.md` is the way that needs no loading. (The test at work)
+- **An install from a Git address is not checked at work.** It worked here with npm 11 from a local bare repository; npm before version 11, the registry of the company and its rules for a Git dependency are not tried. The clone next to the host is the other way. React 17 in a host is not tried either. (The test at work)
 - **A number of pixels under a short key of a library** (`p: 3` in a library where `p` is pixels) is not found: the tool knows only the keys of a size as CSS names them, and the pack names which of them take a scale. (When a library needs it)
 - **The count of deviations is by element.** Each value with no token of an element that sets a value in the file counts, also a default of its component; only the values that the file writes as pixels or as a hex color are named as "written in the file". Possible fix: the pack names the defaults of its components. (When it gets in the way)
 - **The `layout` issue is one kind:** a content that is wider than the screen. A text that is cut, two elements that lie on each other, and a control that is too small for a thumb are not found. (When it gets in the way)
@@ -771,7 +1034,7 @@ Each item is for a later step. The step is in brackets. Seven items left this li
 - **`tokens.json` is not committed.** The decisions say the token file is committed. The user decides when. Until then a clone must run `npm run tokens`. (Step 5)
 - **The trackpad pinch was checked only with a test event,** a wheel event with Ctrl, which is the form of a pinch in the browser. The user checks pan, zoom, the selection and the new controls in Edge with his own mouse and trackpad. He also checks that the step controls and the three states are clear with no explanation. (Before step 5)
 - **The design system that the user uses most is not known.** If it has no CSS variables, the state `linked` and the preview of a token are not possible for it, and they need a second path. See "Open risks". (Before step 5)
-- **The library skill does not load by its description.** It is in `packs/<name>/skills/`, not in `.github/skills/`, thus Copilot reads it only when it follows the link from the root `AGENTS.md` to `packs/<name>/AGENTS.md`. Check that it does, with one new screen and one request. (The test at work)
+- **The library skill does not load by its description.** It is in `packs/<name>/skills/`, and `canvas agents` writes no stub for it, thus Copilot reads it only when it follows the link from the root `AGENTS.md` to `packs/<name>/AGENTS.md`. Check that it does, with one new screen and one request. (The test at work)
 - **A part inside a component takes no comment.** The helper line of a text field cannot be selected: a click selects the whole field. In the agent check, "make this a select" thus went on a different element. The same holds for an edit, which is about the first node of the element. The user writes the comment on the component and names the part. Possible fix: select the inner parts read-only, as the decision "The inner parts of a library component" says, and give a comment on a part the target of its component and the name of the part. (When it gets in the way)
 - **Links between states.** The agent drew no way back between three states of one page, and its link from the second state skipped a state that is not drawn (the state with the address fixed) and went to the third. The skills do not say what a link does when the state between two drawn ones is not drawn. (The next change of the skills)
 - **A package that the pack does not declare.** The library skill for MUI names `visuallyHidden` from `@mui/utils`; both agents used it, and `packs/mui/package.json` does not list the package (it comes with `@mui/material`). Add the package to the pack, or name a form from `@mui/material`. (The next change of the pack)
@@ -785,7 +1048,7 @@ Each item is for a later step. The step is in brackets. Seven items left this li
 - **An edit can go stale after a change of the file.** A target moves only by one step, from the document before to the new one, and only with its neighbors (see "Results of edits and requests"). An edit goes stale when a change near it (between its two landmarks, or up to the start or the end of the file with no landmark) adds, removes or moves elements, when an applied move puts its element at a different place, when its own label changed, when the columns change, when its element is not on the page at the reload, and when the file changes again while it is stale. An edit whose element has a sibling with the same tag between the same landmarks (two dividers, two avatars) goes stale at each change of the file, also with no change near it. In a file with a repeated structure (cards with the same elements, written out one by one), a removal of one copy leaves more than one longest alignment of the tags: the edits near the repeat go stale, also when their element did not change. The user discards the edit and makes it again. Possible fix: a stronger identity than tag, column and label, for example a key of the element written by the build step. (Step 5)
 - **Two look-alikes that trade places across a landmark keep the edit at the place.** The anchor sees no props. Two elements with the same tag and the same label (or none), with an element of a unique label between them, can trade places (a hand edit, or two applied moves) with no change of the tags, columns and lines that the anchor reads; a hand edit that replaces an element with one of the same tag and lines is the same. The edit then stays at its place, on the other element. These are the only known cases; both need a move or an added element, the only changes for which the longest alignment of the tags can differ from the true map of the elements. Possible fix: as above, a key of the element written by the build step. (Step 5)
 - **The editor that opens after a change of the screen file can take a look-alike.** It has no elements of the document before: it takes the element at the target when it has the same tag and label, and for an empty label the tag alone. When lines changed above the target while the editor was closed, a different element that looks the same can be at that place, and the edit changes or hides it. Possible fix: save in the request file a hash of the screen file for the targets, and treat the targets of a different hash as places of an older document. (Step 5)
-- **Work files of removed or renamed screens stay.** The file API takes only the ids of the current screens, and nothing deletes `.canvas/requests/` and `.canvas/issues/` files of a screen that is gone. The guide tells the agent to leave out a file whose screen file does not exist. Possible fix: the plugin deletes the issues file of a screen that leaves the list; a request file stays for the user to decide. (When it gets in the way)
+- **Work files of removed screens stay.** A rename and a delete on the canvas move the request and issues files with their screen (since 2026-11-23). A screen file that a person or an agent deletes or renames by hand leaves them: the file API takes only the ids of the current screens, and nothing deletes `.canvas/requests/` and `.canvas/issues/` files of a screen that is gone. The guide tells the agent to leave out a file whose screen file does not exist. Possible fix: the plugin deletes the issues file of a screen that leaves the list; a request file stays for the user to decide. (When it gets in the way)
 - **The Issues list reads the CSS rules again for each element** of the screen at each pass (500 ms after the last change of the frame). Possible fix: read the rules of a document once for each pass. (When it gets slow)
 - **`@layer` is not calculated** when the editor finds the rule that wins. Group rules for container and scope count as applying. (When a library needs it)
 - **The focus leaves a step control after each key step,** because a commit renders the styles view again. (When it matters)
@@ -807,27 +1070,33 @@ Each item is for a later step. The step is in brackets. Seven items left this li
 - **A draft of a closed bubble can be left at an old place.** A draft is kept by its place in the code (`draftKey`). The draft and the open bubble of the selected element follow it when the agent writes the screen file (`followPlace`, the event `moved`), and an element that is gone keeps its bubble open with the draft and the button "Add on the screen". A draft whose bubble is closed, or whose element is not selected, does not move: it stays under the old place, and a different element at that place later shows it. Possible fix: move each draft of the screen with the anchor pass. (When it gets in the way)
 - **The bar, the pins, the bubble and the two tabs are not checked by the user.** The checks of step 10 ran in a hidden pane, with reads of the DOM and screenshots. The user checks them with his own mouse and trackpad in Edge, and whether a pin and its bubble are clear with no explanation and the two tabs put each thing where he looks for it. (Before the test at work)
 - **A confirmation that the user asks for has no rule for its link.** The agent drew the confirmation below the main button and left the link on the main button. Whether the link moves to the confirm control, or the confirmation is a state file, is not written. (The next change of the guide)
+- **A host with no types of React stops `canvas build`.** The build runs the type check with `canvas/tsconfig.json`; in a host with no `@types/react` (a plain JavaScript host, or a host with React 19 and no types) each JSX file of the pack and of the screens is an error, and no site is written (the proof of 2026-11-23, a host with its design system in `src/ui/`). `AGENTS.md` of a project and the entry skills tell the agent to run the build before its work and to name these errors. Possible fix: an option of `canvas build` with no type check, or no type check when React has no types. (When a host has it)
+- **One control has one address.** The quick request "Add the error state" tells the agent to link the control that leads to the state; in the proof both agents linked the main button of a sign-in screen to its error state, thus the button leads only to the error, and the screen after a success, once drawn, needs the same button. Possible fix: a rule in the guide that a control with a success target keeps it, and the error state is reached from the canvas only. (The next change of the guide)
+- **Two readers of the files of a project.** `canvas init`, `sync` and `status` read the disk through `Disk` (`tools/init.ts`), and the screen actions through `Reader` (`tools/screen-ops.ts`); `filesBelow` and `Reader.list` do the same work. One interface in one module would be simpler; the code review of 2026-11-23 left it, because the two have tests of their own and the merge touches each plan. (When one of them changes)
+- **The sample token entry is written by hand.** `packs/mui/library/tokens.ts` does not call `tokensFromObject`; a test compares the two. A rewrite with the helper must give a `tokens.json` that is the same byte for byte. (When the sample pack changes)
+- **A rename keeps the title.** "Rename…" changes the file and the id, not `meta.title`; after a rename of `forgot-password` to `password-reset` the title said "Forgot password". The agent left it, because the title is an action of the user. Possible fix: the rename dialog offers the title too. (When it gets in the way)
+- **An edit during a delete goes with the screen.** An edit made while the `POST` of a delete runs is not in the request file that goes into the trash, and a restore does not bring it back. After a rename such an edit goes to the new id, and so does a change or a discard of an item (since 2026-11-23, `carriedEdits`, with the moved screens held in the request sync while the call runs, thus the order of the answer and the new list does not matter). (When it gets in the way)
+- **A rename and a parse error.** A rename reads and writes only the request files that it changes (since 2026-11-23). A screen file with a parse error keeps its links and its relation after a rename, with no note. A file that goes while a screen action reads the folder gives an error of the server. (When it gets in the way)
+- **A color role as a text prop of a component of MUI 9** (`<Typography color="text.secondary">`) wrote no color in the setup of the proof, by the report of the agent; the library skill of the sample pack uses that form. Not checked in the editor. (The next change of the sample pack)
+- **The later steps of an independent tool.** Not built, by the plan: a drag of the title of a frame along its row (the menu has "Move left" and "Move right"); the menu of a screen on a row of the Project tab; a command of the user that runs an agent with no window, with its output in a log; `canvas wait`; a note of `canvas dev` when the copy of the guide in a host is older than the tool; the extra Vite config of a project for the aliases and loaders of a host; a list of the flows for the sequence of the rows; the tokens from the page; a name of the tool in the internal registry. (When the user asks)
 
 ## Current state
 
-- The work branch is `canvas-tool`. `main` has all work up to the canvas first (step 10; a fast-forward on 2026-11-22), and `origin` has it.
-- Steps 1 to 10 are done: steps 1 to 4, the library packs and the agent checks (2026-11-20), comments, preview with links and the prototype site, the options and the state map, and the canvas first (2026-11-21). Each of the six goals has code. The sample library is MUI 9 in the pack `packs/mui/`, with four sample screens in `screens/onboarding/`: `welcome`, `welcome-mobile`, `workspace`, and `workspace-email-error`, a state of `workspace` (`stateOf`); the main button of `welcome` links to `workspace`. The core names no library; with no pack the tool builds and says that no library is connected. `npm run tokens` writes `tokens.json` from the token entry of the pack, and the dev server writes it again after a change in `packs/mui/library/`; the file is not committed. `npm run export -- <folder>` writes the clean tool.
-- The editor shows the canvas with pan and zoom, each screen as a frame with an edge and a title row that fits its width, the selection of an element with its bar (Comment, Ask for options, Remove), and the panel with two tabs: Design with the place in the code and the three states of each value, and Changes with the changes and the issues of the listed screen. The zoom keeps the selection in the view; a double click on a title fits its frame. A base screen and its states are one group in the row of the flow, and the options of a frame are a column below it.
-- The user can edit tokens, spacing, layout and the text, and remove an element. The user moves an element among its siblings on the canvas: a drag of the selected element, the arrows of the bar, or the arrow keys of the flow (since 2026-11-22). Each edit is a preview; undo and redo work. The user can write a comment on an element or on the screen on the canvas: a pin with a bubble for its text, its change, its discard and the reply of the agent. An element with open edits has a dot. The editor saves the edits and the comments in `.canvas/requests/` and the Issues list in `.canvas/issues/`. Elements that are not from the library have a marker, and a link to a screen that does not exist is an issue. The user can ask for options of an element or of the screen in a floating panel, and keep one option. `AGENTS.md` has the guide for the agent that applies a request, comments, options and keeps too, and `packs/mui/AGENTS.md` its forms for MUI.
-- A screen links to a different screen with `href="#/<screen id>"`. With the Preview switch on, a click on a link moves the canvas to the frame of its screen; each frame title opens its screen as a full page.
-- `npm run build` writes the prototype site into `dist/`: the index of the screens by flow, with the states of a screen below it and no options, and each screen as a full page. `npm run preview` serves it. The editor and the frame are for the dev server only.
-- The skills: `canvas-screen-design`, `canvas-information-display` and `canvas-library-setup` in `.github/skills/`, and the library skill `canvas-library-mui` in `packs/mui/skills/`. They say how a screen links to the next state.
-- Vitest tests the pure logic (1719 tests). The interface was checked in the browser pane.
-- `.claude/launch.json` starts the dev server (with the pack and with no pack) and the server of the built site for the browser pane of the Claude desktop app.
-- Fresh agents ran the loop with only the instruction files: screens, links, edits, comments, the setup of a library, states, options and keeps. Copilot at work has not run it yet.
+- The work branch is `canvas-tool`. It has the independent tool (2026-11-23, the plan `docs/plans/completed/20261123-independent-tool.md`) and is ahead of `main` and of `origin`: nothing of this work is pushed. `main` has all work up to the four needs (2026-11-22). Push and merge only when the user asks.
+- Steps 1 to 10, the move on the canvas, the four needs and the independent tool are done. Each of the six goals has code.
+- **Two modes, one code.** Standalone: this repository is the tool and the project at once, with the sample pack `packs/mui/` (`"sources": ["@mui/material"]`) and the four sample screens in `screens/onboarding/`. In a host: the tool is a development dependency (from a Git address with a tag or a file of `npm pack`), or a clone next to the host, and the project is `canvas/` of the host. `canvas init`, `canvas dev` and an open editor take three commands and about 12 s.
+- **The command** `canvas <command>` (`bin/canvas.js`) runs each npm script of this repository. `canvas dev` is two Vite servers on one origin: the editor on the React of the tool, the frames and the site on the React of the project.
+- **The guide** is a short `AGENTS.md` with `guide/` (the two references and the six skills); the stubs of the skills are in `.agents/skills/`, `.github/skills/` and `.claude/skills/`. The internals of the tool are in `docs/development.md`. The prompt files are gone. In a host `canvas init` copies the guide into `canvas/`, and `canvas sync` copies it again.
+- **A library in two levels:** `canvas init` connects it in seconds (level 1, a first screen at once); the agent sets up its tokens with `tokensFromObject` or `tokensFromCss` and writes its library skill (level 2). `canvas status` names the level and the next step.
+- **The editor** has all of step 10, the move of an element and the four needs, and now the screen actions: the menu of a frame (rename, title, move to a flow, move in the row, delete into the trash) and "Restore" in the Project tab. "Send to the agent" takes its way from `agent`: `'auto'`, the clipboard, a preset, or a command.
+- Vitest tests the pure logic (2120 tests). The interface was checked in the browser pane, and the proof ran in scratch hosts with fresh agents (see "Results of an independent tool").
 - `tokens.json` is not committed.
-- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and ten commits, exports of `canvas-tool`. Its remote is the repository `canvas-editor` on GitHub (since 2026-11-21; public since 2026-11-22). It has the work for the four needs (the last export of 2026-11-22). `AGENTS.md`, section "Current state", says how a new export goes into it.
-- The work for the four needs of the user is done (2026-11-22): `npm run check`, the deviations apart from the defaults of the library, the arrows of the links and the names of the flows, the Project tab, the quick requests, "Send to the agent" and the prompt files. The section "The four needs" has the score of each need and what is left.
-- Not done yet: the checks of the user of step 10, of the move on the canvas and of the new parts, and the test in the work environment.
+- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and ten commits, exports of `canvas-tool`; its remote is the public repository `canvas-editor` on GitHub. Its last export is of 2026-11-22, the second round of the four needs; it does not have the independent tool. `docs/development.md`, section "Current state", says how a new export goes into it.
+- Not done yet: the checks of the user with his own mouse and trackpad (step 10, the move on the canvas, the screen actions), the new export, and the test in the work environment.
 
 ## Next steps
 
-The implementation plans of the done steps are in `docs/plans/completed/`: `20261116-canvas-read-only-path.md` (steps 1 and 2), `20261118-canvas-edits-and-requests.md` (steps 3 and 4), `20261120-library-packs.md` (the library packs, a part of step 5), `20261121-comments-preview-site.md` (steps 6, 7 and 8), `20261121-options-and-state-map.md` (step 9), `20261121-canvas-first-editor.md` (step 10) `20261122-move-on-canvas.md` (the move on the canvas, after step 10) and `20261122-four-needs.md` (the four needs, after step 10). Each later step gets its own plan. Read "Open issues" before you write the plan of a step.
+The implementation plans of the done steps are in `docs/plans/completed/`: `20261116-canvas-read-only-path.md` (steps 1 and 2), `20261118-canvas-edits-and-requests.md` (steps 3 and 4), `20261120-library-packs.md` (the library packs, a part of step 5), `20261121-comments-preview-site.md` (steps 6, 7 and 8), `20261121-options-and-state-map.md` (step 9), `20261121-canvas-first-editor.md` (step 10), `20261122-move-on-canvas.md` (the move on the canvas, after step 10), `20261122-four-needs.md` (the four needs, after step 10) and `20261123-independent-tool.md` (step 12). Each later step gets its own plan. Read "Open issues" before you write the plan of a step.
 
 1. **Preparation.** Done on 2026-11-16.
 2. **Read-only path.** Done on 2026-11-16.
@@ -839,4 +1108,10 @@ The implementation plans of the done steps are in `docs/plans/completed/`: `2026
 8. **The deployable build:** the index of screens and each screen as a full page. Done on 2026-11-21.
 9. **Options and the state map.** Done on 2026-11-21: the states of a screen as a group on the canvas and in the index of the site, and options side by side, which the user asks for and keeps (see "Options and the state map").
 10. **The canvas first.** Done on 2026-11-21: the bar of the selection, comments as pins with a bubble, "Ask for options" on the canvas, the panel with the tabs Design and Changes, the dots of the edits, the ring of the listed frame, the edge and the title row of a frame, the zoom that follows the selection, and one Escape (see "The canvas first"). On 2026-11-22 the move of an element went to the canvas too: a drag, the arrows of the bar and the arrow keys (see "The move on the canvas"). The user checks it with his own mouse and trackpad.
-11. **The clean repository and the test at work.** The export as a repository of its own, which the user clones at work (done on 2026-11-21 for steps 1 to 9, and on 2026-11-22 for step 10); then the loop with Copilot, a library of the work environment, and the site on a static host of the company. The checks at work, in this sequence: (a) `npm install` from the internal registry, and the setup of the design system as a pack; (b) in the chat of Copilot, `/canvas-screen` with one task: do the screens pass `npm run check`, and are they good to look at with the real library; (c) "Send to the agent" with open changes: does `code chat --mode agent` open the chat with the sentence, in the window of the project; if not, `/canvas-apply`; (d) the quick requests "Draw the missing states" and "Draw at 390 px" with Copilot; (e) the count of deviations and the group of the defaults with the real library: is each deviation a true one; (f) the site on a static host.
+11. **The clean repository and the test at work.** The export as a repository of its own, which the user clones at work (done on 2026-11-21 for steps 1 to 9, and on 2026-11-22 for step 10 and the four needs). The first test at work ran on 2026-11-23 (see "The test at work").
+12. **An independent tool.** Done on 2026-11-23: the tool and the project as two folders, an install into an ongoing project, a library in two levels, a neutral guide with stubs for each agent, "Send to the agent" with the clipboard as the base, and the move, the rename and the delete of a screen on the canvas (see "An independent tool" and "Results of an independent tool").
+13. **The next steps of the user,** in this sequence:
+    1. Restart his own dev server with `npm run dev`. A server that runs plain `vite`, or that started before this work, serves only the editor: its frames give 404 until it is started again with the command.
+    2. Check the screen actions and the parts of step 10 with his own mouse and trackpad.
+    3. A new export into the clean repository when he asks, with the steps of `docs/development.md`, and a tag for the address of the install. Push only when he asks.
+    4. The second test at work: is an install from a Git address permitted (if not, the clone next to the host is the way there); `npx canvas init` in a real project of the company with its design system; which skill folder the agent there reads (do the stubs in `.github/skills/` load `canvas-screen` and `canvas-apply`); and "Send to the agent" with `'auto'` in a terminal of VS Code.

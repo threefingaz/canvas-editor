@@ -2,13 +2,20 @@ import { describe, expect, test } from 'vitest'
 import { writesTokens } from './token-writes.ts'
 
 describe('writesTokens', () => {
-  const folder = '/project/library'
+  const folder = ['/project/library']
 
   test('a change of a code file in the library folder starts the token writer', () => {
     expect(writesTokens('/project/library/theme.ts', folder)).toBe(true)
-    expect(writesTokens('/project/library/tokens.ts', '/project/library/')).toBe(true)
+    expect(writesTokens('/project/library/tokens.ts', ['/project/library/'])).toBe(true)
     expect(writesTokens('/project/library/provider.tsx', folder)).toBe(true)
     expect(writesTokens('/project/library/parts/colors.ts', folder)).toBe(true)
+  })
+
+  test('a stylesheet or a code file of a folder source of the host starts it too', () => {
+    const folders = ['/project/library', '/host/src/ui']
+    expect(writesTokens('/host/src/ui/theme.css', folders)).toBe(true)
+    expect(writesTokens('/host/src/ui/tokens.ts', folders)).toBe(true)
+    expect(writesTokens('/host/src/other/theme.css', folders)).toBe(false)
   })
 
   test('a test file does not start it', () => {

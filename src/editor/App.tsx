@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { library, screens } from 'virtual:canvas-screens'
+import { flowErrors, library, screens } from 'virtual:canvas-screens'
 import { linkAt, type LinkTarget } from '../frame/screen-link.ts'
+import type { AppliedAction } from '../requests/api.ts'
 import { optionTotals } from '../related/groups.ts'
 import { flowPairs } from '../related/links.ts'
 import { Canvas } from './canvas/Canvas.tsx'
@@ -11,7 +12,7 @@ import { Frame, type KeepBase } from './canvas/Frame.tsx'
 import { keepKeys, layoutFrames } from './canvas/layout.ts'
 import { readMarkersShown, writeMarkersShown } from './canvas/markers.ts'
 import { Markers } from './canvas/Markers.tsx'
-import { NoLibrary } from './canvas/NoLibrary.tsx'
+import { NoLibrary, NoTokens } from './canvas/NoLibrary.tsx'
 import { followLink, operate, useOperate } from './canvas/operate.ts'
 import { titleRowHeight } from './canvas/title.ts'
 import { Toolbar } from './canvas/Toolbar.tsx'
@@ -31,6 +32,7 @@ import {
   type Strips,
   type View,
 } from './canvas/viewport.ts'
+import { bubbleScreen } from './comments/bubble.ts'
 import { bubble } from './comments/bubble-store.ts'
 import { CommentBubble } from './comments/CommentBubble.tsx'
 import { Pins } from './comments/Pins.tsx'
@@ -43,6 +45,8 @@ import { clearsSelection, tabAfter, type Tab, type TabEvent } from './inspector/
 import { useMediaQuery } from './media-query.ts'
 import { hiddenIn } from './preview/css.ts'
 import { useRequestSync } from './requests/sync.ts'
+import { ScreenDialogs } from './screens/ScreenMenu.tsx'
+import { viewAfter } from './screens/screen-actions.ts'
 import { moveDrag } from './selection/drag-store.ts'
 import { canvasRectOf } from './selection/geometry.ts'
 import { hitAt, pickAt, type Hovered } from './selection/pick.ts'
@@ -62,7 +66,8 @@ import { Alert, AlertDescription, AlertTitle, PanelSurface } from './ui'
 // has the full width, and a new size keeps the middle of the view. The list
 // of screens comes from the virtual module; a new screen file updates it with
 // no reload of the editor. With no library pack, the canvas shows a message
-// with the sentence for the agent. The editor imports nothing from a pack.
+// with the sentence for the agent; with a library whose tokens are not set up
+// (the level `connected`), a message with the sentence of that step. The editor imports nothing from a pack.
 // The title of an option frame has the button "Keep this option": it adds a
 // `keep` item to the edits of the base, and the kept frame has a mark while
 // the item is open.
@@ -196,6 +201,9 @@ export default function App() {
   const byId = useMemo(() => new Map(screens.map((screen) => [screen.id, screen])), [])
   // The links between the screens, for the arrows of the canvas.
   const pairs = useMemo(() => flowPairs(screens), [])
+  // The error of each `flow.json` that is not valid, by flow, for the name
+  // of its row.
+  const flowFileErrors = useMemo(() => new Map(flowErrors.map((item) => [item.flow, `${item.file}: ${item.error}`])), [])
   const bounds = layout.bounds
   // The frames that have a document: the screens with no error. The maps by
   // screen id drop the entries of removed screens at their next change, and
@@ -366,6 +374,18 @@ export default function App() {
     showScreen(id)
   }
 
+  // After a screen action of the menu of a frame: the Changes tab follows the
+  // new id of its screen, or lists none after a delete; the selection and the
+  // bubble of a screen whose id changed clear, because its frame is a new one
+  // (`viewAfter`).
+  const onScreenAction = (plan: AppliedAction) => {
+    const view = { selected: selection.get()?.screenId ?? null, bubble: bubbleScreen(bubble.get()) }
+    const after = viewAfter(plan.screens, { ...view, listed: null })
+    setListed((current) => viewAfter(plan.screens, { ...view, listed: current }).listed)
+    if (after.clearSelection) selection.clear()
+    if (after.closeBubble) bubble.send({ type: 'close' })
+  }
+
   const onResize = useCallback(
     (next: Size) => {
       size.current = next
@@ -449,7 +469,14 @@ export default function App() {
           onResize={onResize}
           overlay={
             <>
-              <FlowLayer view={view} frames={layout.frames} pairs={pairs} arrows={links} listed={operating ? null : listedId} />
+              <FlowLayer
+                view={view}
+                frames={layout.frames}
+                pairs={pairs}
+                arrows={links}
+                listed={operating ? null : listedId}
+                flowErrors={flowFileErrors}
+              />
               <Markers view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
               <EditMarks view={view} frames={layout.frames} documents={frameDocuments} shown={markers && !operating} />
               <Pins
@@ -470,6 +497,7 @@ export default function App() {
               {library === null && <NoLibrary />}
               <div className="pointer-events-none absolute inset-x-4 top-4 flex flex-col items-center gap-2" role="status">
                 {library !== null && <TokenFileError />}
+                {library?.level === 'connected' && <NoTokens />}
                 {notice && (
                   <PanelSurface className="rounded-lg px-3 py-2 text-xs shadow-lg" data-operate-notice="">
                     {notice}
@@ -528,6 +556,7 @@ export default function App() {
           onReveal={reveal}
         />
       )}
+      <ScreenDialogs onApplied={onScreenAction} />
       {narrow && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--background)] p-6 text-center text-sm">
           The editor needs a window that is {minEditorWidth}px wide or more.

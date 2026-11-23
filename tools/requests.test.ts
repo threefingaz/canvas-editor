@@ -6,9 +6,11 @@ import {
   baseMatches,
   emptyRequest,
   hashOf,
+  parseScreenAction,
   requestIdOf,
   routeOf,
   sameOrigin,
+  screensRouteOf,
   workPath,
 } from './requests.ts'
 
@@ -55,9 +57,9 @@ describe('workPath', () => {
   })
 
   test('uses the work folder of the config', () => {
-    // The fixed sentence for the agent (`src/editor/requests/agent-sentence.ts`,
-    // with its own test) and the guide in `AGENTS.md` name the folder too.
-    // Change them with it.
+    // The guide in `guide/requests.md`, the skill `canvas-apply` and the older
+    // fixed sentence (`src/editor/requests/agent-sentence.ts`) name the folder
+    // too (`tools/guide.test.ts` checks them). Change them with it.
     expect(config.work).toBe('.canvas')
     expect(workPath('requests', 'settings', ids, root, 'tmp/work')).toBe('/work/app/tmp/work/requests/settings.json')
   })
@@ -224,5 +226,46 @@ describe('requestIdOf', () => {
     expect(requestIdOf('/work/app/.canvas/tmp/a.json', folder)).toBeNull()
     expect(requestIdOf('/work/app/.canvas/requests', folder)).toBeNull()
     expect(requestIdOf('/work/app/.canvas/requests/.json', folder)).toBeNull()
+  })
+})
+
+describe('screensRouteOf', () => {
+  test('gives the action and the trash, and null for each other call', () => {
+    expect(screensRouteOf('POST', '/__canvas/screens')).toBe('action')
+    expect(screensRouteOf('POST', '/__canvas/screens?x=1')).toBe('action')
+    expect(screensRouteOf('GET', '/__canvas/trash')).toBe('trash')
+    expect(screensRouteOf('GET', '/__canvas/screens')).toBeNull()
+    expect(screensRouteOf('POST', '/__canvas/trash')).toBeNull()
+    expect(screensRouteOf('POST', '/__canvas/screens/a')).toBeNull()
+    expect(screensRouteOf(undefined, undefined)).toBeNull()
+  })
+})
+
+describe('parseScreenAction', () => {
+  const parse = (value: unknown) => parseScreenAction(JSON.stringify(value))
+
+  test('takes each action with its fields only', () => {
+    expect(parse({ action: 'reorder', screen: 'a/b', to: 2, extra: true })).toEqual({ action: 'reorder', screen: 'a/b', to: 2 })
+    expect(parse({ action: 'title', screen: 'a/b', title: 'New' })).toEqual({ action: 'title', screen: 'a/b', title: 'New' })
+    expect(parse({ action: 'rename', screen: 'a/b', flow: '', name: 'c' })).toEqual({
+      action: 'rename',
+      screen: 'a/b',
+      flow: '',
+      name: 'c',
+    })
+    expect(parse({ action: 'delete', screen: 'a/b' })).toEqual({ action: 'delete', screen: 'a/b' })
+    expect(parse({ action: 'restore', folder: '20261123-101500-a-b' })).toEqual({ action: 'restore', folder: '20261123-101500-a-b' })
+  })
+
+  test('gives an error for a body that is not an action', () => {
+    expect(parseScreenAction('{')).toHaveProperty('error')
+    expect(parse([])).toEqual({ error: 'the content must be an object' })
+    expect(parse({ action: 'move', screen: 'a' })).toEqual({ error: '`action` must be reorder, title, rename, delete or restore' })
+    expect(parse({ action: 'delete' })).toEqual({ error: '`screen` must be a text' })
+    expect(parse({ action: 'delete', screen: '' })).toEqual({ error: '`screen` is empty' })
+    expect(parse({ action: 'reorder', screen: 'a', to: 1.5 })).toEqual({ error: '`to` must be a whole number from 0' })
+    expect(parse({ action: 'reorder', screen: 'a', to: '1' })).toEqual({ error: '`to` must be a whole number from 0' })
+    expect(parse({ action: 'rename', screen: 'a', name: 'b' })).toEqual({ error: '`flow` must be a text' })
+    expect(parse({ action: 'restore' })).toEqual({ error: '`folder` must be a text' })
   })
 })

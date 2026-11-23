@@ -94,6 +94,8 @@ type ScreenState = {
   busy: boolean
   needLoad: boolean
   needSave: boolean
+  // True after a load or a save that failed, until one succeeds.
+  failed: boolean
 }
 
 export type SyncDeps = {
@@ -110,14 +112,53 @@ export type Sync = {
   // The current list of screens: a new screen is loaded, a removed screen is
   // no longer saved.
   setScreens: (list: readonly ScreenRef[]) => void
+  // After a screen action of the tool (`src/editor/screens/follow.ts`): the
+  // screens of `drop` are gone or have a new id, and their files moved with
+  // them. Their work stops at once and their errors clear, and a later list
+  // that still has one of them (the list comes after the answer of the
+  // action) does not load it again. The screens of `load` are new or came
+  // back: each one of the list loads its file again.
+  replaceScreens: (drop: readonly string[], load: readonly string[]) => void
   // Ends the work and clears the errors of the sync.
   stop: () => void
 }
 
-export function createSync({ store, client, listen, report }: SyncDeps): Sync {
+// The state of the request file of a screen for a screen action: `saved`
+// when the file has the edits of the editor, `pending` while a load or a
+// save is to come, `failed` after a load or a save that failed with edits
+// that the file does not have.
+export type SaveState = 'saved' | 'pending' | 'failed'
+
+export type RequestSync = Omit<Sync, 'replaceScreens'> & {
+  saveState: (id: string) => SaveState
+  // `replaceScreens` with `bases`: the edits that the moved file has at each
+  // new id (the edits of the old id when the action started). The first load
+  // of that id merges the edits of the editor against them, thus an item that
+  // the user changed or discarded while the action ran keeps that change.
+  replaceScreens: (drop: readonly string[], load: readonly string[], bases?: ReadonlyMap<string, readonly Edit[]>) => void
+  // Holds the request files of `ids` while a screen action moves them, and
+  // gives the function that ends the hold. Meanwhile the screens of `ids` load
+  // and save nothing (their requests wait), a new list neither ends them nor
+  // clears their edits, and it starts no screen. Thus the edits of the store
+  // are the edits of the user, whichever comes first: the answer of the action
+  // or the new list. The end of the hold takes the current list, and the held
+  // screens that are still there do the work that waits.
+  hold: (ids: readonly string[]) => () => void
+}
+
+export function createSync({ store, client, listen, report }: SyncDeps): RequestSync {
   const states = new Map<string, ScreenState>()
   let last = store.screens()
   let stopped = false
+  // The current list of screens.
+  let list: readonly ScreenRef[] = []
+  // The ids that a screen action dropped, while the list still has them.
+  const gone = new Set<string>()
+  // The bases of the new ids of a screen action that the list has not yet.
+  const seeds = new Map<string, Edit[]>()
+  // The ids of each screen action that runs (`hold`).
+  const holds = new Set<ReadonlySet<string>>()
+  const held = (id: string) => [...holds].some((ids) => ids.has(id))
 
   const setError = (id: string, error: string | null) => report(`requests:${id}`, error)
 
@@ -140,9 +181,11 @@ export function createSync({ store, client, listen, report }: SyncDeps): Sync {
     const result = await client.loadRequest(id)
     if (stopped || states.get(id) !== state) return
     if (result.status === 'error') {
+      state.failed = true
       setError(id, `Cannot read the changes of ${id}: ${result.error}`)
       return
     }
+    state.failed = false
     setError(id, null)
     // A text that the editor did not load or write last came from outside.
     if (state.hash !== result.hash) reconcile(state, result.file.edits, result.hash)
@@ -155,15 +198,18 @@ export function createSync({ store, client, listen, report }: SyncDeps): Sync {
     const mine = local(id)
     // The file has these edits: nothing is unsaved, also after a failed save.
     if (sameEdits(mine, state.base)) {
+      state.failed = false
       setError(id, null)
       return
     }
     const result = await client.saveRequest(requestOf(state.screen, mine), state.hash)
     if (stopped || states.get(id) !== state) return
     if (result.status === 'error') {
+      state.failed = true
       setError(id, `Cannot save the changes of ${id}: ${result.error}`)
       return
     }
+    state.failed = false
     setError(id, null)
     if (result.status === 'conflict') {
       reconcile(state, result.file.edits, result.hash)
@@ -174,8 +220,9 @@ export function createSync({ store, client, listen, report }: SyncDeps): Sync {
   }
 
   const run = (state: ScreenState) => {
-    // A screen that left the list during a call is not loaded or saved again.
-    if (stopped || state.busy || states.get(state.screen.id) !== state) return
+    // A screen that left the list during a call is not loaded or saved again;
+    // a held screen waits for the end of the hold.
+    if (stopped || state.busy || states.get(state.screen.id) !== state || held(state.screen.id)) return
     let next: (state: ScreenState) => Promise<void>
     if (state.needLoad) {
       state.needLoad = false
@@ -219,42 +266,104 @@ export function createSync({ store, client, listen, report }: SyncDeps): Sync {
     run(state)
   })
 
+  const start = (screen: ScreenRef) => {
+    const state: ScreenState = {
+      screen,
+      hash: null,
+      base: seeds.get(screen.id) ?? [],
+      timer: null,
+      busy: false,
+      needLoad: true,
+      needSave: false,
+      failed: false,
+    }
+    seeds.delete(screen.id)
+    states.set(screen.id, state)
+    run(state)
+  }
+
+  const end = (id: string, state: ScreenState) => {
+    if (state.timer !== null) clearTimeout(state.timer)
+    states.delete(id)
+    setError(id, null)
+  }
+
+  // Takes the current list: ends the screens that left it, starts the new
+  // ones. While a screen action runs, it starts none (see `hold`).
+  const applyList = () => {
+    const ids = new Set(list.map((screen) => screen.id))
+    for (const id of gone) if (!ids.has(id)) gone.delete(id)
+    for (const [id, state] of states) {
+      if (ids.has(id) || held(id)) continue
+      end(id, state)
+      // The saved edits of a removed screen go out of the store; its request
+      // file stays on the disk. A screen with the same id later (a new option
+      // after a `keep` deleted the old one, a file that comes back) loads
+      // its file, and old edits do not go into it. Edits that are not saved
+      // yet (in the save delay, or made during a save) stay: when the screen
+      // comes back, the load merges them as new items and saves them.
+      const mine = local(id)
+      if (mine.length > 0 && state.hash !== null && sameEdits(mine, state.base)) store.replace(id, [])
+    }
+    for (const screen of list) {
+      if (gone.has(screen.id)) continue
+      const known = states.get(screen.id)
+      if (known) known.screen = screen
+      else if (holds.size === 0) start(screen)
+    }
+  }
+
   return {
-    setScreens: (list) => {
+    setScreens: (next) => {
       if (stopped) return
-      const ids = new Set(list.map((screen) => screen.id))
-      for (const [id, state] of states) {
-        if (ids.has(id)) continue
-        if (state.timer !== null) clearTimeout(state.timer)
-        states.delete(id)
-        setError(id, null)
-        // The saved edits of a removed screen go out of the store; its request
-        // file stays on the disk. A screen with the same id later (a new option
-        // after a `keep` deleted the old one, a file that comes back) loads
-        // its file, and old edits do not go into it. Edits that are not saved
-        // yet (in the save delay, or made during a save) stay: when the screen
-        // comes back, the load merges them as new items and saves them.
-        const mine = local(id)
-        if (mine.length > 0 && state.hash !== null && sameEdits(mine, state.base)) store.replace(id, [])
+      list = next
+      applyList()
+    },
+    replaceScreens: (drop, load, bases) => {
+      if (stopped) return
+      const listed = new Set(list.map((screen) => screen.id))
+      for (const id of drop) {
+        const state = states.get(id)
+        if (state) end(id, state)
+        if (listed.has(id)) gone.add(id)
+        seeds.delete(id)
       }
-      for (const screen of list) {
-        const known = states.get(screen.id)
-        if (known) {
-          known.screen = screen
+      for (const id of load) {
+        gone.delete(id)
+        const state = states.get(id)
+        const base = bases?.get(id)
+        if (base !== undefined) {
+          if (state) state.base = [...base]
+          else seeds.set(id, [...base])
+        }
+        if (state) {
+          state.needLoad = true
+          run(state)
           continue
         }
-        const state: ScreenState = {
-          screen,
-          hash: null,
-          base: [],
-          timer: null,
-          busy: false,
-          needLoad: true,
-          needSave: false,
-        }
-        states.set(screen.id, state)
-        run(state)
+        const screen = list.find((item) => item.id === id)
+        if (screen) start(screen)
       }
+    },
+    hold: (ids) => {
+      const set: ReadonlySet<string> = new Set(ids)
+      holds.add(set)
+      return () => {
+        if (!holds.delete(set) || stopped) return
+        applyList()
+        for (const id of set) {
+          const state = states.get(id)
+          if (state) run(state)
+        }
+      }
+    },
+    saveState: (id) => {
+      const state = states.get(id)
+      if (!state) return 'saved'
+      if (state.timer !== null || state.busy || state.needSave || state.needLoad) return 'pending'
+      const mine = local(id)
+      if (state.hash === null ? mine.length === 0 : sameEdits(mine, state.base)) return 'saved'
+      return state.failed ? 'failed' : 'pending'
     },
     stop: () => {
       stopped = true
@@ -296,6 +405,9 @@ type IssuesState = {
 export function createIssuesSync({ store, client, report }: IssuesSyncDeps): Sync {
   const states = new Map<string, IssuesState>()
   let stopped = false
+  let list: readonly ScreenRef[] = []
+  // The ids that a screen action dropped, while the list still has them.
+  const gone = new Set<string>()
 
   const setError = (id: string, error: string | null) => report(`issues:${id}`, error)
 
@@ -326,18 +438,36 @@ export function createIssuesSync({ store, client, report }: IssuesSyncDeps): Syn
   const unsubscribe = store.subscribe(runAll)
 
   return {
-    setScreens: (list) => {
+    setScreens: (next) => {
       if (stopped) return
+      list = next
       const ids = new Set(list.map((screen) => screen.id))
+      for (const id of gone) if (!ids.has(id)) gone.delete(id)
       for (const id of states.keys()) {
         if (ids.has(id)) continue
         states.delete(id)
         setError(id, null)
       }
       for (const screen of list) {
+        if (gone.has(screen.id)) continue
         const known = states.get(screen.id)
         if (known) known.screen = screen
         else states.set(screen.id, { screen, saved: null, busy: false })
+      }
+      runAll()
+    },
+    replaceScreens: (drop, load) => {
+      if (stopped) return
+      const listed = new Set(list.map((screen) => screen.id))
+      for (const id of drop) {
+        states.delete(id)
+        setError(id, null)
+        if (listed.has(id)) gone.add(id)
+      }
+      for (const id of load) {
+        gone.delete(id)
+        const screen = list.find((item) => item.id === id)
+        if (screen && !states.has(id)) states.set(id, { screen, saved: null, busy: false })
       }
       runAll()
     },
@@ -358,20 +488,31 @@ function listenToServer(handler: (id: string) => void): () => void {
   return () => hot.off(requestChangedEvent, onChange)
 }
 
+// The syncs of the editor while `useRequestSync` runs, for the screen
+// actions: the state of a save, and the change of the ids after an action.
+export type EditorSync = { requests: RequestSync; issues: Sync }
+
+let running: EditorSync | null = null
+
+export function editorSync(): EditorSync | null {
+  return running
+}
+
 // Keeps the edits of the editor and the request files of `list` the same, and
 // writes the issues files of `list`, for the life of the component.
 export function useRequestSync(list: readonly ScreenRef[]) {
   const sync = useRef<Sync[]>([])
 
   useEffect(() => {
-    const started = [
-      createSync({ store: edits, client: requestsClient, listen: listenToServer, report: fileErrors.report }),
-      createIssuesSync({ store: issues, client: requestsClient, report: fileErrors.report }),
-    ]
+    const requests = createSync({ store: edits, client: requestsClient, listen: listenToServer, report: fileErrors.report })
+    const issuesSync = createIssuesSync({ store: issues, client: requestsClient, report: fileErrors.report })
+    const started = [requests, issuesSync]
     sync.current = started
+    running = { requests, issues: issuesSync }
     return () => {
       for (const one of started) one.stop()
       sync.current = []
+      running = null
     }
   }, [])
 

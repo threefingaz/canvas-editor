@@ -31,6 +31,16 @@ export function optionsOf<S extends RelatedScreen>(screens: readonly S[], baseId
   return screens.filter((screen) => screen.optionOf === baseId)
 }
 
+// The screens that go with the screen `id` when it moves or goes to the trash:
+// its states, then the options of the screen and of its states, in the order
+// of the list.
+export function groupMembers<S extends RelatedScreen>(screens: readonly S[], id: string): S[] {
+  const states = screens.filter((screen) => screen.stateOf === id)
+  const bases = new Set([id, ...states.map((state) => state.id)])
+  const options = screens.filter((screen) => screen.optionOf !== undefined && bases.has(screen.optionOf))
+  return [...states, ...options]
+}
+
 // The count of the options of each screen that has options, in one pass of
 // the list; a screen with no options is not in the map.
 export function optionTotals(screens: readonly RelatedScreen[]): Map<string, number> {

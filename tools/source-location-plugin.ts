@@ -2,18 +2,20 @@
 // screen files (see `source-location.ts`). The production build has no
 // `data-loc-*` attribute. Register it before the React plugin.
 //
-// The library package comes from the manifest of the library pack, which the
-// Vite config reads once (`pack.ts`). With no pack, no import has the origin
-// `library`.
+// The sources of the library come from the manifest of the library pack,
+// which the Vite config reads once (`pack.ts`): its packages, and its folders
+// of code of the host. With no pack, no import has the origin `library`.
+// `project` is the project root and `host` the host root (`project.ts`), with
+// `/` between the parts: the screens are in the screens folder of the
+// project, and a folder of the manifest is relative to the host.
 
 import type { Plugin } from 'vite'
 import { config } from '../canvas.config.ts'
-import type { Pack } from './pack.ts'
+import { librarySources, type Pack } from './pack.ts'
 import { addSourceLocations, screenModuleFile } from './source-location.ts'
 
-export function sourceLocationPlugin(pack: Pack | null): Plugin {
-  let root = process.cwd()
-  const libraryPackage = pack === null ? null : pack.package
+export function sourceLocationPlugin(pack: Pack | null, project: string, host: string): Plugin {
+  const library = pack === null ? null : librarySources(pack, project, host)
   // The keys of the scales of the pack: a number under a different key of a
   // size marks its element as one that sets a value.
   const scale = pack?.scaleKeys ? new Set(pack.scaleKeys) : null
@@ -22,12 +24,9 @@ export function sourceLocationPlugin(pack: Pack | null): Plugin {
     name: 'canvas-source-location',
     apply: 'serve',
     enforce: 'pre',
-    configResolved(resolved) {
-      root = resolved.root
-    },
     transform(code, id) {
-      const file = screenModuleFile(id, root, config.screens)
-      return file === null ? undefined : addSourceLocations(code, file, libraryPackage, id, scale)
+      const file = screenModuleFile(id, project, config.screens)
+      return file === null ? undefined : addSourceLocations(code, file, library, id, scale)
     },
   }
 }

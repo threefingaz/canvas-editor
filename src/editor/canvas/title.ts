@@ -15,6 +15,7 @@ export type TitlePart =
   | 'relation'
   | 'keep'
   | 'actions'
+  | 'menu'
 
 // The space between two parts of the row, in px on the screen (`gap-2`).
 export const titleGap = 8
@@ -34,7 +35,8 @@ export const titleMin = 48
 // `relation` is the text of a relation error; its icon is `relationIcon`.
 // `asked` is the mark of the open requests for options ("Options asked: 3").
 // `actions` are up to three icons: "Comment on the screen", "Ask for options"
-// (not for an option) and "Open as a full page".
+// (not for an option) and "Open as a full page". `menu` is the button of the
+// menu of the screen actions.
 export const partWidth: Record<Exclude<TitlePart, 'title'>, number> = {
   mark: 48,
   issues: 36,
@@ -45,12 +47,15 @@ export const partWidth: Record<Exclude<TitlePart, 'title'>, number> = {
   relation: 120,
   keep: 112,
   actions: 60,
+  menu: 22,
 }
 
 // The icon of a relation error stays when its text goes out.
 export const relationIcon = 14
 
-// The order of removal. "Keep this option" goes out with the actions.
+// The order of removal. "Keep this option" goes out with the actions. The
+// menu of the screen actions is the last action to go out: it stays after
+// the counts, thus a small frame can still be moved and deleted.
 const removal: readonly (readonly TitlePart[])[] = [
   ['actions', 'keep'],
   ['width'],
@@ -59,6 +64,7 @@ const removal: readonly (readonly TitlePart[])[] = [
   ['options'],
   ['pins'],
   ['issues'],
+  ['menu'],
   ['mark'],
 ]
 
@@ -112,8 +118,9 @@ export function pinsWidth(pins: readonly { number: number; count: number }[]): n
 // The parts that the title row of a frame has, in the order of the row: the
 // mark of a state or an option, the title, the count of options, the width,
 // the relation error, the count of issues, the pins (comments on the screen,
-// lost comments), the mark of the asked options, "Keep this option" and the
-// actions.
+// lost comments), the mark of the asked options, "Keep this option", the
+// actions, and the menu of the screen actions (none with the Preview switch
+// on).
 export function presentParts(state: {
   related: boolean
   options: boolean
@@ -121,6 +128,7 @@ export function presentParts(state: {
   pins: boolean
   asked: boolean
   keep: boolean
+  menu: boolean
 }): TitlePart[] {
   const parts: TitlePart[] = []
   if (state.related) parts.push('mark')
@@ -133,5 +141,6 @@ export function presentParts(state: {
   if (state.asked) parts.push('asked')
   if (state.keep) parts.push('keep')
   parts.push('actions')
+  if (state.menu) parts.push('menu')
   return parts
 }

@@ -33,8 +33,8 @@ describe('readTokenFile', () => {
 })
 
 describe('the token file name', () => {
-  // `editor-tokens.ts` loads the file with a literal glob (`/tokens.json`).
-  // Change it with the config.
+  // The guide and the messages of the editor name the file. Change them with
+  // the config.
   test('is the file of the config', () => {
     expect(config.tokens).toBe('tokens.json')
   })

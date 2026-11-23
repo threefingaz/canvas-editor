@@ -129,6 +129,11 @@ export function draftKey(target: BubbleTarget): string {
   return JSON.stringify([target.screenId, target.loc])
 }
 
+// The screen id of a key of `draftKey`.
+export function draftScreen(key: string): string {
+  return (JSON.parse(key) as [string, unknown])[0]
+}
+
 // An open bubble or options panel.
 export type OpenBubble = Exclude<Bubble, { kind: 'closed' }>
 

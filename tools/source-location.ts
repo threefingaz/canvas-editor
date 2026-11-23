@@ -30,7 +30,7 @@
 
 import MagicString, { type SourceMap } from 'magic-string'
 import { parseSync, Visitor } from 'vite'
-import { fragmentNames, importSources, isFragment, originOf, position } from './jsx.ts'
+import { fragmentNames, importSources, isFragment, originOf, position, type LibrarySources } from './jsx.ts'
 import { tagValues, type ScaleKeys } from './screen-facts.ts'
 import { folderPrefix, screenExtension } from './screens.ts'
 
@@ -63,14 +63,14 @@ export function screenModuleFile(id: string, root: string, folder: string): stri
 // Gives null when nothing changes: a file with no JSX, a file where each
 // element is a fragment or has a location attribute, or code with a syntax error (the
 // main transform reports the error). `relativeFile` is the path relative to
-// the project root and goes into the attribute; `libraryPackage` is the npm
-// package of the library (`package` in the manifest of the pack, `pack.json`),
-// or null when no library is connected; `source` names the file in the source
+// the project root and goes into the attribute; `library` is the sources of
+// the library (`sources` of the manifest of the pack, `pack.json`), or null
+// when no library is connected; `source` names the file in the source
 // map.
 export function addSourceLocations(
   code: string,
   relativeFile: string,
-  libraryPackage: string | null,
+  library: LibrarySources | null,
   source: string = relativeFile,
   // The keys of the scales of the pack (`scaleKeys`), or null.
   scale: ScaleKeys = null,
@@ -103,7 +103,7 @@ export function addSourceLocations(
       const { line, column } = position(code, node.start)
       // A member name can have spaces around its dots.
       const tag = name.replaceAll(/\s+/g, '')
-      const origin = originOf(tag, imports, libraryPackage)
+      const origin = originOf(tag, imports, library, relativeFile)
       // The word `set` marks an element that sets a value in the file.
       const values = tagValues(node, code, scale)
       // With the values that the element sets, when the file says them all:

@@ -4,7 +4,7 @@
 // module, thus it has no imports and reads no DOM.
 
 // `GET` and `PUT` on `/__canvas/requests/<screen id>`, `PUT` on
-// `/__canvas/issues/<screen id>`.
+// `/__canvas/issues/<screen id>`, and the screen actions below.
 export const apiPrefix = '/__canvas/'
 
 export const fileKinds = ['requests', 'issues'] as const
@@ -32,12 +32,65 @@ export function hashOfHeader(header: string | null | undefined): string | null {
 // added or is removed, with `{ id }`: the screen id.
 export const requestChangedEvent = 'canvas:request-changed'
 
-// `POST` on this address starts the command of the code editor that opens the
-// chat of the agent with the fixed sentence (`tools/agent-plugin.ts`). The
-// call carries no content: the command and the sentence are fixed on the
-// server.
+// `GET` on this address gives the way of "Send to the agent" (an
+// `AgentWayAnswer`). `POST` starts the command that opens the chat of the
+// agent with the fixed sentence (`tools/agent-plugin.ts`). The call carries
+// no content: the command and the sentence are fixed on the server.
 export const agentAddress = `${apiPrefix}agent`
+
+// The way of "Send to the agent": the clipboard (the one button "Copy for the
+// agent"), or a command of the dev server, with the name of its preset, or
+// null for a command of the user.
+export type AgentWayAnswer = { way: 'clipboard' } | { way: 'command'; preset: string | null }
 
 // The answer of `agentAddress`, with the status 200 in the two cases.
 // `reason` is a short text for the user: why the command did not start.
 export type AgentAnswer = { started: true } | { started: false; reason: string }
+
+// `POST` on this address does one screen action (`tools/screen-ops.ts`) with a
+// `ScreenAction` as JSON. The answer is 200 with an `ActionAnswer` when the
+// action ran, 409 with an `ActionAnswer` when the plan refused it (nothing
+// changed), 404 for a screen that is not in the list, and 400 for a body that
+// is not an action.
+export const screensAddress = `${apiPrefix}screens`
+
+// `GET` on this address gives the deleted screens in the trash, as a
+// `TrashAnswer`.
+export const trashAddress = `${apiPrefix}trash`
+
+// One screen action. `screen` is the id of a screen of the list; a restore
+// names the folder of the trash (`TrashItem.folder`) in place of a screen.
+// `to` of a move in the row is the position from 0 among the base screens of
+// the row; `flow` of a rename is '' for the screens folder itself.
+export type ScreenAction =
+  | { action: 'reorder'; screen: string; to: number }
+  | { action: 'title'; screen: string; title: string }
+  | { action: 'rename'; screen: string; flow: string; name: string }
+  | { action: 'delete'; screen: string }
+  | { action: 'restore'; folder: string }
+
+// A change of the id of a screen: `from` null for a restored screen, `to` null
+// for a deleted one.
+export type IdChange = { from: string | null; to: string | null }
+
+// The plan that the server applied, with no file content. `screens` are the
+// screens whose id changed, the screen of the action first; `linkedBy` are
+// the screens that link to a deleted screen. Each path is relative to the
+// project root.
+export type AppliedAction = {
+  action: ScreenAction['action']
+  screen: string
+  screens: IdChange[]
+  linkedBy: string[]
+  moves: { from: string; to: string }[]
+  writes: string[]
+  removes: string[]
+}
+
+export type ActionAnswer = { applied: true; plan: AppliedAction } | { applied: false; refusals: string[] }
+
+// A deleted screen in the trash: the folder in `.canvas/trash/` and its
+// manifest.
+export type TrashItem = { folder: string; screen: string; files: string[]; time: string }
+
+export type TrashAnswer = { items: TrashItem[] }

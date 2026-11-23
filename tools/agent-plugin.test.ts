@@ -3,11 +3,13 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Readable } from 'node:stream'
 import { describe, expect, test } from 'vitest'
 import { agentAddress } from '../src/requests/api.ts'
-import { createAgentHandler, type AgentDeps, type AgentProcess, type SpawnOptions } from './agent-plugin.ts'
-import { agentOff, type AgentConfig } from './agent.ts'
+import { createAgentHandler, wayAnswer, type AgentDeps, type AgentProcess, type SpawnOptions } from './agent-plugin.ts'
+import { noCommand, vscodeLine, type AgentWay } from './agent.ts'
 
 const sentence = 'Apply the requests.'
 const agent = { command: 'code', args: ['chat', '--mode', 'agent'] }
+// A command of the user, with no preset.
+const own: AgentWay = { kind: 'command', line: agent, preset: null }
 
 type Started = { command: string; args: string[]; options: SpawnOptions; unref: number }
 
@@ -15,16 +17,16 @@ type Started = { command: string; args: string[]; options: SpawnOptions; unref: 
 // says what the process does after the listeners are set.
 function setup(
   then: (child: EventEmitter, command: string) => void,
-  options: { agent?: AgentConfig; platform?: string; wait?: number; env?: Record<string, string>; exists?: (path: string) => boolean } = {},
+  options: { agent?: AgentWay; platform?: string; wait?: number; env?: Record<string, string>; exists?: (path: string) => boolean } = {},
 ) {
   const starts: Started[] = []
   const deps: AgentDeps = {
-    root: () => '/project',
-    agent: () => ('agent' in options ? options.agent! : agent),
+    root: '/project',
+    agent: options.agent ?? own,
     sentence,
     platform: options.platform ?? 'darwin',
     wait: options.wait ?? 5,
-    env: () => options.env ?? {},
+    env: options.env ?? {},
     exists: options.exists ?? (() => false),
     spawn(command, args, spawnOptions) {
       const started: Started = { command, args, options: spawnOptions, unref: 0 }
@@ -82,14 +84,31 @@ describe('createAgentHandler', () => {
     expect(starts).toEqual([])
   })
 
-  test('a method other than POST is 405', async () => {
+  test('a method other than GET and POST is 405', async () => {
     const { handle, starts } = setup(runs)
-    for (const method of ['GET', 'PUT', 'DELETE']) {
+    for (const method of ['PUT', 'DELETE']) {
       const answer = await call(handle, method, agentAddress)
       expect(answer.status).toBe(405)
-      expect(answer.headers.Allow).toBe('POST')
+      expect(answer.headers.Allow).toBe('GET, POST')
     }
     expect(starts).toEqual([])
+  })
+
+  test('GET gives the way with no command line, and starts nothing', async () => {
+    const vscode: AgentWay = { kind: 'command', line: vscodeLine, preset: 'vscode' }
+    for (const [way, answer] of [
+      [{ kind: 'clipboard' }, { way: 'clipboard' }],
+      [vscode, { way: 'command', preset: 'vscode' }],
+      [own, { way: 'command', preset: null }],
+    ] as const) {
+      const { handle, starts } = setup(runs, { agent: way })
+      const got = await call(handle, 'GET', agentAddress)
+      expect(got.status).toBe(200)
+      expect(got.headers['Content-Type']).toContain('application/json')
+      expect(JSON.parse(got.body)).toEqual(answer)
+      expect(wayAnswer(way)).toEqual(answer)
+      expect(starts).toEqual([])
+    }
   })
 
   test('a call from a different origin is 403', async () => {
@@ -141,7 +160,7 @@ describe('createAgentHandler', () => {
     expect(starts[0].options.shell).toBe(true)
   })
 
-  test('a command that is not found', async () => {
+  test('a command of the user that is not found', async () => {
     const { handle } = setup((child) => {
       child.emit('error', Object.assign(new Error('spawn code ENOENT'), { code: 'ENOENT' }))
     })
@@ -149,8 +168,21 @@ describe('createAgentHandler', () => {
     expect(answer.status).toBe(200)
     expect(JSON.parse(answer.body)).toEqual({
       started: false,
-      reason: 'the command "code" was not found, also not in the folder of VS Code; write its full path as `command` of `agent` in canvas.config.ts',
+      reason: 'the command "code" was not found; write its full path as `command` of `agent` in canvas.config.ts',
     })
+  })
+
+  test('the command of a preset that is not found: the reason names the preset', async () => {
+    const { handle, starts } = setup(
+      (child) => {
+        child.emit('error', Object.assign(new Error('spawn code ENOENT'), { code: 'ENOENT' }))
+      },
+      { agent: { kind: 'command', line: vscodeLine, preset: 'vscode' } },
+    )
+    const answer = JSON.parse((await call(handle, 'POST', agentAddress)).body)
+    expect(answer.started).toBe(false)
+    expect(answer.reason).toMatch(/^the preset vscode: the command "code" was not found, also not in the folder of VS Code; /)
+    expect(starts[0].args).toEqual([...vscodeLine.args, sentence])
   })
 
   test('a command that is not on the path is found in the folder of VS Code', async () => {
@@ -179,18 +211,18 @@ describe('createAgentHandler', () => {
     })
   })
 
-  test('with no command in the config, nothing starts', async () => {
-    const { handle, starts } = setup(runs, { agent: null })
+  test('with the clipboard, a POST starts nothing', async () => {
+    const { handle, starts } = setup(runs, { agent: { kind: 'clipboard' } })
     const answer = await call(handle, 'POST', agentAddress)
     expect(answer.status).toBe(200)
-    expect(JSON.parse(answer.body)).toEqual({ started: false, reason: agentOff })
+    expect(JSON.parse(answer.body)).toEqual({ started: false, reason: noCommand })
     expect(starts).toEqual([])
   })
 
   test('a start that throws is an answer with its message', async () => {
     const handle = createAgentHandler({
-      root: () => '/project',
-      agent: () => agent,
+      root: '/project',
+      agent: own,
       sentence,
       platform: 'darwin',
       spawn() {

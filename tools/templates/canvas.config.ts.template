@@ -1,0 +1,14 @@
+// The settings of this canvas project. `canvas init` wrote this file; the
+// tool finds the project by it.
+//
+// - `widths`: the frame widths that a screen can have, in px.
+// - `agent`: the way of "Send to the agent". `'auto'` (also with no field)
+//   opens the chat of the agent of VS Code when the dev server runs in its
+//   terminal, else the toolbar copies the sentence for the agent.
+//   `'clipboard'` always copies it. `'vscode'` is the preset of the command
+//   line of VS Code. `{ command, args }` is a command of your own: the dev
+//   server starts it with the sentence as the last argument.
+export const config = {
+  widths: [1440, 1024, 390],
+  agent: 'auto',
+}

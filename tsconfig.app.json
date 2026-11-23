@@ -15,6 +15,8 @@
     "moduleDetection": "force",
     "noEmit": true,
     "jsx": "react-jsx",
+    /* The token module of the tool by its name, for the token entry of a pack (`tools/react-resolve.ts`) */
+    "paths": { "canvas-editor/tokens": ["./src/tokens/index.ts"] },
 
     /* Linting */
     "noUnusedLocals": true,

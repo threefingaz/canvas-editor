@@ -1,0 +1,3 @@
+# The work folder of the canvas tool and the built site.
+.canvas/
+dist/

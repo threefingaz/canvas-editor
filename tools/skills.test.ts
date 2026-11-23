@@ -1,13 +1,13 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
-import { agentSentence } from '../src/editor/requests/agent-sentence.ts'
+import { agentSentence, guidePath, olderAgentSentence } from '../src/editor/requests/agent-sentence.ts'
 
-// The skills of the tool, `.github/skills/<name>/SKILL.md`. An agent loads a
+// The skills of the tool, `guide/skills/<name>/SKILL.md`. An agent loads a
 // skill by its name and its description: the name must be the name of the
 // folder, and the description has a limit.
 
-const folder = fileURLToPath(new URL('../.github/skills/', import.meta.url))
+const folder = fileURLToPath(new URL('../guide/skills/', import.meta.url))
 const names = readdirSync(folder).filter((name) => existsSync(`${folder}${name}/SKILL.md`))
 
 function head(name: string): Map<string, string> {
@@ -35,7 +35,13 @@ describe('the skills of the tool', () => {
     expect(description.length).toBeLessThanOrEqual(1024)
   })
 
-  test('the skill of the requests is found by the fixed sentence', () => {
-    expect(head('canvas-apply').get('description')).toContain(agentSentence.replace(/\.$/, ''))
+  test('the skill of the requests is found by the fixed sentence, also with the guide in a sub folder', () => {
+    const description = head('canvas-apply').get('description')
+    expect(description).toContain(agentSentence(guidePath).replace(/\.$/, ''))
+    expect(description).toContain(agentSentence('canvas/AGENTS.md').replace(/\.$/, ''))
+  })
+
+  test('the skill of the requests still takes the older sentence', () => {
+    expect(head('canvas-apply').get('description')).toContain(olderAgentSentence.replace(/\.$/, ''))
   })
 })

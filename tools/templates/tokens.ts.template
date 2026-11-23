@@ -1,0 +1,10 @@
+import type { Token } from 'canvas-editor/tokens'
+
+// The token entry of the pack: `canvas tokens` writes `tokens.json` from it.
+// `canvas init` wrote it with no token: the library is connected, and its
+// tokens are not set up yet. Set them up as the skill canvas-library-setup
+// says, with a helper of `canvas-editor/tokens` (`tokensFromCss`,
+// `tokensFromObject`).
+export function tokens(): Token[] {
+  return []
+}

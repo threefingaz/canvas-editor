@@ -1,8 +1,12 @@
-import { CheckIcon, PencilSimpleIcon } from '@phosphor-icons/react'
+import { ArrowCounterClockwiseIcon, CheckIcon, PencilSimpleIcon } from '@phosphor-icons/react'
+import { useEffect, useState } from 'react'
 import { screens } from 'virtual:canvas-screens'
+import type { TrashItem } from '../../requests/api.ts'
 import { useEditScreens } from '../edits/store.ts'
 import { useIssueScreens } from '../issues/store.ts'
-import { PanelContentSurface } from '../ui'
+import { screensClient } from '../screens/client.ts'
+import { runScreenAction } from '../screens/run.ts'
+import { Button, PanelContentSurface } from '../ui'
 import { cn } from '../ui/lib/utils.ts'
 import { projectRows, projectTotals, rowNote, totalsText, type ProjectRow } from './model.ts'
 
@@ -17,6 +21,11 @@ import { projectRows, projectTotals, rowNote, totalsText, type ProjectRow } from
 // (`onOpenScreen`). An option has no row: it is a choice that is still open.
 // The issues of a screen are read from its frame, thus the counts are those
 // of the code with the open previews applied.
+//
+// The last group, "Deleted screens", lists the folders of the trash
+// (`GET /__canvas/trash`, the newest first), each with "Restore", which puts
+// the files of the screen back (`restore`). The list is read when the tab
+// opens and again after each change of the list of screens.
 
 type ProjectProps = {
   // The listed screen: its row has a mark.
@@ -61,8 +70,91 @@ export function Project({ listed, onOpenScreen }: ProjectProps) {
           </ul>
         </section>
       ))}
+      <DeletedScreens list={screens} />
     </PanelContentSurface>
   )
+}
+
+// The folders of the trash, or the error of the call; null before the first
+// answer.
+type TrashState = { items: TrashItem[] } | { error: string } | null
+
+// `list` is the list of screens: a new list after each change of the
+// screens folder reads the trash again.
+function DeletedScreens({ list }: { list: typeof screens }) {
+  const [trash, setTrash] = useState<TrashState>(null)
+  // The version of the list: a restore asks again, also when it changed no
+  // screen of the list (a file of the trash was missing).
+  const [asked, setAsked] = useState(0)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [refusals, setRefusals] = useState<{ folder: string; reasons: string[] } | null>(null)
+  useEffect(() => {
+    let live = true
+    void screensClient.trash().then((result) => {
+      if (live) setTrash(result.status === 'loaded' ? { items: result.items } : { error: result.error })
+    })
+    return () => {
+      live = false
+    }
+  }, [asked, list])
+
+  const restore = async (folder: string) => {
+    setBusy(folder)
+    const result = await runScreenAction({ action: 'restore', folder }, list)
+    setBusy(null)
+    setRefusals(
+      result.status === 'applied' ? null : { folder, reasons: result.status === 'refused' ? result.refusals : [result.error] },
+    )
+    setAsked((count) => count + 1)
+  }
+
+  if (trash === null || ('items' in trash && trash.items.length === 0)) return null
+  return (
+    <section className="border-t border-[color:var(--editor-line)] pb-1" data-project-trash="">
+      <h3 className="m-0 truncate px-3 pt-2 pb-1 text-xs font-semibold">Deleted screens</h3>
+      {'error' in trash ? (
+        <p className="m-0 px-3 py-1 text-[11px] text-[color:var(--destructive)]">The trash cannot be read: {trash.error}</p>
+      ) : (
+        <ul className="m-0 list-none p-0">
+          {trash.items.map((item) => (
+            <li key={item.folder} className="flex min-h-7 flex-col justify-center px-3 py-1 text-xs" data-project-deleted={item.folder}>
+              <span className="flex w-full min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate font-mono" title={item.files.join('\n')}>
+                  {item.screen}
+                </span>
+                <span className="shrink-0 text-[11px] text-[color:var(--muted-foreground)] tabular-nums" title={item.time}>
+                  {deletedAt(item.time)}
+                </span>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  disabled={busy !== null}
+                  title={`Put the files of ${item.screen} back: ${counted(item.files.length, 'file', 'files')}`}
+                  onClick={() => void restore(item.folder)}
+                  data-project-restore={item.folder}
+                >
+                  <ArrowCounterClockwiseIcon aria-hidden />
+                  Restore
+                </Button>
+              </span>
+              {refusals?.folder === item.folder && (
+                <span className="w-full text-[11px] text-[color:var(--destructive)]" role="alert" data-project-restore-refused="">
+                  Nothing changed: {refusals.reasons.join('; ')}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  )
+}
+
+// The time of a delete, short: the day and the time of the day.
+function deletedAt(time: string): string {
+  const date = new Date(time)
+  if (Number.isNaN(date.getTime())) return time
+  return date.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 }
 
 function Row({ row, listed, onOpen }: { row: ProjectRow; listed: boolean; onOpen: () => void }) {

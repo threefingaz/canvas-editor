@@ -120,11 +120,15 @@ export function exportReport(target: string, count: number, lockFailure: string 
     '',
     'Next, in that folder:',
     '  npm install',
+    '  npm run init -- --library <package>@<range>',
+    '  npm install',
     '  npm run dev',
     'Then:',
-    '  1. Connect a library: give the agent this sentence:',
+    '  1. Connect a library: the two commands in the middle do it (the npm package of the components, for example @mui/material@^9).',
+    '     Or give the agent this sentence, and it runs them:',
     `       ${connectSentence}`,
-    '  2. Create a screen: ask the agent for the screen; it follows "How to create a screen" in AGENTS.md.',
+    '     npm run status says the level of the library and the next step.',
+    '  2. Create a screen: ask the agent for the screen; it follows the skill canvas-screen, which AGENTS.md names.',
     '  3. Build the site: npm run build writes it into dist/, and npm run preview serves it.',
   ].join('\n')
 }

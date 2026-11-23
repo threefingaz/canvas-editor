@@ -142,12 +142,16 @@ export function htmlPackImports(html: string, declared: readonly string[]): Pack
   return found
 }
 
-// The packages that a `package.json` declares: each package that it lists.
+// The packages that a `package.json` declares: its own name and each package
+// that it lists.
 // Throws for a file that is not valid JSON.
 export function declaredPackages(packageJson: string): string[] {
   const data: unknown = JSON.parse(packageJson)
   if (!isRecord(data)) return []
   const names = new Set<string>()
+  // The name of the tool itself: `canvas-editor/tokens` is an alias of the
+  // tool (`react-resolve.ts`), not a package of a pack.
+  if (typeof data.name === 'string') names.add(data.name)
   for (const field of ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies']) {
     const list = data[field]
     if (isRecord(list)) {

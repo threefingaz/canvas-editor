@@ -1,10 +1,10 @@
-import { agentAddress, type AgentAnswer } from '../../requests/api.ts'
+import { agentAddress, type AgentAnswer, type AgentWayAnswer } from '../../requests/api.ts'
 import type { CopyState } from '../copy.ts'
 
-// The pure parts of the button "Send to the agent": the call of the dev
-// server, which starts the command of the code editor that opens the chat of
-// the agent with the fixed sentence, and the texts of the button for each
-// state.
+// The pure parts of the buttons that give the sentence to the agent: the way
+// that the dev server says (`GET`), the call that starts the command of the
+// way (`POST`), which opens the chat of the agent with the fixed sentence,
+// and the texts of the buttons for each state.
 
 export type SendState =
   | { kind: 'idle' }
@@ -32,11 +32,34 @@ export function answerOf(value: unknown): AgentAnswer {
   return { started: false, reason: typeof reason === 'string' && reason !== '' ? reason : noAnswer }
 }
 
-// The part of `fetch` that the call needs.
+// The part of `fetch` that the calls need.
 export type Fetch = (
   address: string,
-  init: { method: 'POST' },
+  init: { method: 'GET' | 'POST' },
 ) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>
+
+// The clipboard is the base: it always works, thus it is the way before the
+// answer and after a failed one.
+export const clipboardWay: AgentWayAnswer = { way: 'clipboard' }
+
+// The way from the JSON of the dev server. A different form is the clipboard.
+export function wayOf(value: unknown): AgentWayAnswer {
+  if (typeof value !== 'object' || value === null) return clipboardWay
+  const { way, preset } = value as { way?: unknown; preset?: unknown }
+  if (way !== 'command') return clipboardWay
+  return { way: 'command', preset: typeof preset === 'string' && preset !== '' ? preset : null }
+}
+
+// Asks the dev server which way holds. It never rejects: an error is the
+// clipboard.
+export async function agentWay(fetch: Fetch): Promise<AgentWayAnswer> {
+  try {
+    const response = await fetch(agentAddress, { method: 'GET' })
+    return response.ok ? wayOf(await response.json()) : clipboardWay
+  } catch {
+    return clipboardWay
+  }
+}
 
 // Asks the dev server to start the command. It sends no content: the command
 // and the sentence are fixed on the server. It never rejects: each error is
@@ -67,20 +90,42 @@ export function sendText(state: SendState, copy: CopyState = 'idle'): string {
 
 // The full text of the state, for the tooltip and for a screen reader.
 // `copy` is the state of the copy that a failure starts: when the clipboard
-// fails too, the text gives the sentence itself.
-export function sendLabel(state: SendState, copy: CopyState, sentence: string): string {
+// fails too, the text gives the sentence itself. `preset` is the name of the
+// preset of the way, or null for a command of the user.
+export function sendLabel(state: SendState, copy: CopyState, sentence: string, preset: string | null = null): string {
   if (state.kind === 'sending') return 'The agent command starts.'
-  if (state.kind === 'sent') return 'Sent to the agent. The chat of the agent opens in the code editor.'
+  if (state.kind === 'sent') return 'Sent to the agent. The chat of the agent opens with the sentence.'
   if (state.kind === 'failed') {
     const start = `The agent command did not start (${state.reason}).`
     return copy === 'failed'
       ? `${start} Cannot copy to the clipboard. Give the agent: ${sentence}`
       : `${start} The sentence is copied: paste it into the chat of the agent.`
   }
-  return 'Open the chat of the agent in the code editor with the sentence for the agent'
+  const by = preset === null ? 'the command of canvas.config.ts' : `the preset ${preset}`
+  return `Open the chat of the agent with the sentence for the agent, by ${by}`
 }
 
 // The text that a screen reader announces: only a result, not the idle state.
 export function sendStatus(state: SendState, copy: CopyState, sentence: string): string {
   return state.kind === 'sent' || state.kind === 'failed' ? sendLabel(state, copy, sentence) : ''
+}
+
+// The short text of the one button of the clipboard way.
+export function copyText(copy: CopyState): string {
+  if (copy === 'copied') return 'Copied: paste it in the chat of the agent'
+  if (copy === 'failed') return 'Not copied'
+  return 'Copy for the agent'
+}
+
+// The full text of the one button of the clipboard way. A failure gives the
+// sentence: the user can still give it by hand.
+export function copyLabel(copy: CopyState, sentence: string): string {
+  if (copy === 'copied') return 'The sentence is copied: paste it into the chat of the agent.'
+  if (copy === 'failed') return `Cannot copy to the clipboard. Give the agent: ${sentence}`
+  return 'Copy the sentence for the agent, then paste it into the chat of the agent'
+}
+
+// The text that a screen reader announces for the one button: only a result.
+export function copyStatus(copy: CopyState, sentence: string): string {
+  return copy === 'idle' ? '' : copyLabel(copy, sentence)
 }

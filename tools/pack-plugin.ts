@@ -16,12 +16,15 @@ import { messageOf } from '../src/tokens/format.ts'
 import { packChange, providerPath, readPackState, touchesPackState, type Pack } from './pack.ts'
 import { fileEvent } from './watch.ts'
 
-export function packPlugin(pack: Pack | null): Plugin {
+// `project` is the project root (`project.ts`): the packs are in its `packs/`.
+// `label` names the server in the output: `canvas dev` has two (the dev
+// server of the editor and the frame server), and each one restarts itself.
+export function packPlugin(pack: Pack | null, project: string, label = 'dev server'): Plugin {
   return {
     name: 'canvas-pack',
     apply: 'serve',
     configureServer(server) {
-      const root = normalizePath(server.config.root)
+      const root = normalizePath(project)
       const logger = server.config.logger
       const hasProvider = (next: Pack) => existsSync(providerPath(next, root))
       // One restart for a burst of events (a folder and its manifest). A
@@ -48,7 +51,7 @@ export function packPlugin(pack: Pack | null): Plugin {
         } else {
           restarting = true
           shown = ''
-          logger.info('canvas library: the library pack changed, the dev server restarts', { timestamp: true })
+          logger.info(`canvas library: the library pack changed, the ${label} restarts`, { timestamp: true })
           server
             .restart()
             .catch((error: unknown) => logger.error(`canvas library: the restart failed: ${messageOf(error)}`, { timestamp: true }))

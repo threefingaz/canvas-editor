@@ -10,7 +10,8 @@
 // the exit code 1.
 
 import { isRecord } from '../src/tokens/format.ts'
-import { packLibraryFolder, tokensEntryPath, type Pack, type PackState } from './pack.ts'
+import { posix } from 'node:path'
+import { librarySources, packLibraryFolder, tokensEntryPath, type Pack, type PackState } from './pack.ts'
 
 export type TokenAction =
   | { kind: 'load'; path: string }
@@ -31,10 +32,14 @@ export function tokenAction(state: PackState, root: string, tokensFile: string):
   }
 }
 
-// Pure: the library folder of the pack that the token plugin watches,
-// relative to the project root, or null when there is no pack.
-export function watchedLibraryFolder(pack: Pack | null): string | null {
-  return pack === null ? null : packLibraryFolder(pack)
+// Pure: the folders that the token plugin watches, absolute with `/`: the
+// library folder of the pack, and each folder source of the pack (a folder of
+// the host, whose stylesheets or theme a token entry of level 2 can read).
+// None with no pack. `project` and `host` are absolute with `/`.
+export function watchedFolders(pack: Pack | null, project: string, host: string): string[] {
+  if (pack === null) return []
+  const sources = librarySources(pack, project, host).folders.map((folder) => posix.join(project, folder))
+  return [posix.join(project, packLibraryFolder(pack)), ...sources]
 }
 
 // The tokens from the module of a token entry, which a dynamic import gives
@@ -44,4 +49,28 @@ export async function entryTokens(module: unknown, path: string): Promise<unknow
   const value = isRecord(module) ? module.tokens : undefined
   if (typeof value !== 'function') throw new Error(`${path} must export a function tokens()`)
   return await value()
+}
+
+// The fields of a token and of a media value of the token format
+// (`parseTokens` in `src/tokens/format.ts`).
+const tokenFields = new Set(['id', 'group', 'name', 'value', 'code', 'cssVar', 'factor', 'selector', 'media'])
+const mediaFields = new Set(['query', 'value'])
+
+// Pure: the first field of the entry that the token format does not have, as
+// `token <n> "<id>" has the field "<name>"`, or null. The script writes the
+// tokens as the entry gives them (the sequence of the fields of the pack), thus
+// a field that `parseTokens` leaves out would go into the file unchecked.
+export function unknownField(entry: readonly unknown[]): string | null {
+  for (const [index, token] of entry.entries()) {
+    if (!isRecord(token)) continue
+    const label = `token ${index + 1}${typeof token.id === 'string' ? ` "${token.id}"` : ''}`
+    const field = Object.keys(token).find((key) => !tokenFields.has(key))
+    if (field !== undefined) return `${label} has the field "${field}", which the token format does not have`
+    const media = Array.isArray(token.media) ? token.media : []
+    for (const value of media) {
+      const extra = isRecord(value) ? Object.keys(value).find((key) => !mediaFields.has(key)) : undefined
+      if (extra !== undefined) return `${label} has a media value with the field "${extra}", which the token format does not have`
+    }
+  }
+  return null
 }

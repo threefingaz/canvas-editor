@@ -35,6 +35,21 @@ describe('createBubbleStore', () => {
   })
 })
 
+describe('dropDrafts', () => {
+  test('removes each draft of one screen, and keeps the drafts of the others', () => {
+    const store = createBubbleStore()
+    const element = { screenId: 'onboarding/welcome', loc: 'screens/onboarding/welcome.tsx:12:7' }
+    const other = { screenId: 'onboarding/welcome-mobile', loc: null }
+    store.setDraft(draftKey(target), 'On the screen')
+    store.setDraft(draftKey(element), 'On the button')
+    store.setDraft(draftKey(other), 'Keep')
+    store.dropDrafts('onboarding/welcome')
+    expect(store.draft(draftKey(target))).toBe('')
+    expect(store.draft(draftKey(element))).toBe('')
+    expect(store.draft(draftKey(other))).toBe('Keep')
+  })
+})
+
 describe('followSelection', () => {
   const at = (loc: string, node: object): Selected => ({
     screenId: 'onboarding/welcome',

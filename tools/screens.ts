@@ -10,8 +10,10 @@ import { parseSync } from 'vite'
 import { config } from '../canvas.config.ts'
 import { relationOf } from '../src/related/groups.ts'
 import { messageOf } from '../src/tokens/format.ts'
-import type { Pack } from './pack.ts'
-import { linkIds, screenFacts } from './screen-facts.ts'
+import { flowOrders, orderScreens, type FlowError, type FlowFile } from './flow.ts'
+import type { LibrarySources } from './jsx.ts'
+import { levelOf, type Level, type Pack } from './pack.ts'
+import { linkIds, screenFacts, type TextRange } from './screen-facts.ts'
 
 // `stateOf` and `optionOf` are the id of the base screen of a state or of an
 // option. A file has at most one of them; a screen with neither is a base.
@@ -97,11 +99,9 @@ function propertyName(property: Node): string | undefined {
   return undefined
 }
 
-export function readScreenMeta(
-  code: string,
-  file: string,
-  widths: readonly number[] = config.widths,
-): ScreenMeta {
+// The object literal of `meta`. Throws for a syntax error, a file with no
+// `meta`, and a `meta` that is not an object literal.
+function metaObject(code: string, file: string): Node {
   const result = parseSync(file, code)
   if (result.errors.length > 0) fail(file, result.errors[0].message)
 
@@ -110,6 +110,39 @@ export function readScreenMeta(
 
   const object = unwrap(init)
   if (object.type !== 'ObjectExpression') fail(file, '`meta` must be an object literal')
+  return object
+}
+
+// The fields of `meta` whose text literal the screen actions replace.
+export const metaTextFields = ['title', 'stateOf', 'optionOf'] as const
+export type MetaTextField = (typeof metaTextFields)[number]
+
+// A text literal of `meta`: its range with its quotes, and its text.
+export type MetaLiteral = TextRange & { value: string }
+
+// The literal of `title`, `stateOf` and `optionOf` in `meta`, for each field
+// that the file writes as a text literal. Throws as `readScreenMeta` does for
+// a file with no valid `meta`.
+export function metaRanges(code: string, file: string): Partial<Record<MetaTextField, MetaLiteral>> {
+  const ranges: Partial<Record<MetaTextField, MetaLiteral>> = {}
+  for (const property of metaObject(code, file).properties as Node[]) {
+    if (property.type !== 'Property') continue
+    const name = propertyName(property)
+    const value = property.value as Node & { start: number; end: number }
+    if (!(metaTextFields as readonly string[]).includes(name ?? '')) continue
+    if (value.type === 'Literal' && typeof value.value === 'string') {
+      ranges[name as MetaTextField] = { start: value.start, end: value.end, value: value.value }
+    }
+  }
+  return ranges
+}
+
+export function readScreenMeta(
+  code: string,
+  file: string,
+  widths: readonly number[] = config.widths,
+): ScreenMeta {
+  const object = metaObject(code, file)
 
   const values = new Map<string, unknown>()
   const names = new Set<string>()
@@ -161,16 +194,6 @@ export function screenEntry(file: string, meta: ScreenMeta, screensFolder: strin
     ...(meta.optionOf === undefined ? {} : { optionOf: meta.optionOf }),
     links: [],
   }
-}
-
-function compare(a: string, b: string) {
-  return a < b ? -1 : a > b ? 1 : 0
-}
-
-// By flow, then by name. A plain comparison of code points, thus the order
-// does not depend on the locale of the machine.
-export function sortScreens(screens: readonly ScreenEntry[]): ScreenEntry[] {
-  return [...screens].sort((a, b) => compare(a.flow, b.flow) || compare(a.name, b.name))
 }
 
 // The relations that break a rule of the list: a map from the id of a screen
@@ -226,46 +249,69 @@ function withRelationError(entry: ScreenEntry, problem: string): ScreenEntry {
 // The list of the virtual module. A file with an error gives an entry with
 // the error text, thus one broken screen does not break the editor. A broken
 // relation gives an entry with `relationError`, not an error: the screen
-// stays visible. `libraryPackage` is the npm package of the library, or null
-// with no library; the links of a file do not depend on it.
+// stays visible. `library` is the sources of the library, or null with no
+// library; the links of a file do not depend on it. The list is in
+// the sequence of `orderScreens`: by flow, then by the `flow.json` of each flow
+// (`flowFiles`; a file that is not valid counts as no file), then by name.
 export function screenList(
   files: readonly ScreenFile[],
   widths: readonly number[] = config.widths,
   screensFolder: string = config.screens,
-  libraryPackage: string | null = null,
+  library: LibrarySources | null = null,
+  flowFiles: readonly FlowFile[] = [],
 ): ScreenEntry[] {
   const entries = files.map(({ file, code }) => {
     try {
       const entry = screenEntry(file, readScreenMeta(code, file, widths), screensFolder)
-      return { ...entry, links: linkIds(screenFacts(code, file, libraryPackage)) }
+      return { ...entry, links: linkIds(screenFacts(code, file, library)) }
     } catch (error) {
       const fallback = screenEntry(file, { title: '', width: widths[0] }, screensFolder)
       return { ...fallback, title: fallback.name, error: messageOf(error) }
     }
   })
   const problems = relationProblems(entries)
-  return sortScreens(
+  return orderScreens(
     entries.map((entry) => {
       const problem = problems.get(entry.id)
       return problem === undefined ? entry : withRelationError(entry, problem)
     }),
+    flowOrders(flowFiles),
   )
 }
 
-// The library that the editor gets with the list: the name of the pack, or
-// null when no library is connected.
-export type LibraryInfo = { name: string } | null
+// The library that the editor gets with the list: the name of the pack and
+// its level (`levelOf`), or null when no library is connected. `tokens` are
+// the tokens of the token file of the project, or null when it has no file or
+// a file that is not valid.
+export type LibraryInfo = { name: string; level: Exclude<Level, 'none'> } | null
 
-export function libraryInfo(pack: Pack | null): LibraryInfo {
-  return pack === null ? null : { name: pack.name }
+export function libraryInfo(pack: Pack | null, tokens: readonly unknown[] | null = null): LibraryInfo {
+  const level = levelOf(pack, tokens === null ? null : tokens.length)
+  return pack === null || level === 'none' ? null : { name: pack.name, level }
 }
 
+// The settings of the project that the editor needs: the widths of a frame
+// (`widths` of the `canvas.config.ts` of the project), and the path of the
+// guide of the project relative to the folder where the agent works, which
+// the fixed sentence names (`AGENTS.md`, `canvas/AGENTS.md`).
+export type ProjectInfo = { widths: readonly number[]; guide: string }
+
+export const toolProject: ProjectInfo = { widths: config.widths, guide: 'AGENTS.md' }
+
 // The text of the virtual module `virtual:canvas-screens` (its type is in
-// `src/screens.d.ts`).
-export function screensModuleCode(screens: readonly ScreenEntry[], library: LibraryInfo): string {
+// `src/screens.d.ts`). `flowErrors` are the `flow.json` files that are not
+// valid: the canvas shows each one at the name of its row.
+export function screensModuleCode(
+  screens: readonly ScreenEntry[],
+  library: LibraryInfo,
+  flowErrors: readonly FlowError[] = [],
+  project: ProjectInfo = toolProject,
+): string {
   return [
     `export const screens = ${JSON.stringify(screens, null, 2)}`,
     `export const library = ${JSON.stringify(library)}`,
+    `export const flowErrors = ${JSON.stringify(flowErrors)}`,
+    `export const project = ${JSON.stringify(project)}`,
     '',
   ].join('\n')
 }

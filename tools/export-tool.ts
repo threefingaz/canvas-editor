@@ -1,5 +1,6 @@
-// Writes the clean tool into a new folder: `npm run export -- <folder>`.
-// Node runs this file directly; it strips the types. The rules of the export
+// Writes the clean tool into a new folder: `canvas export <folder>`. The
+// command (`tools/cli.ts`) loads this file through the module runner of Vite,
+// which strips the types. The rules of the export
 // are in `export.ts`.
 
 import { spawnSync } from 'node:child_process'

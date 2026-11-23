@@ -9,6 +9,7 @@ import {
 } from '@phosphor-icons/react'
 import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
 import type { ScreenEntry } from 'virtual:canvas-screens'
+import { frameAddress, frameBase } from '../../frame/screen-id.ts'
 import { screenHash } from '../../frame/screen-link.ts'
 import { deviationCount } from '../../requests/format.ts'
 import { relationOf } from '../../related/groups.ts'
@@ -25,6 +26,7 @@ import type { TabEvent } from '../inspector/tabs.ts'
 import { useIssues } from '../issues/collect.ts'
 import { useScreenIssues } from '../issues/store.ts'
 import { usePreview } from '../preview/use-preview.ts'
+import { ScreenMenu } from '../screens/ScreenMenu.tsx'
 import { toFramePoint } from '../selection/geometry.ts'
 import { cn } from '../ui/lib/utils.ts'
 import { frameShadow } from './edge.ts'
@@ -34,7 +36,8 @@ import { useMeasureRects } from './use-screen-rects.ts'
 import type { Point } from './viewport.ts'
 
 // One screen on the canvas: its title above, and an iframe with
-// `frame.html?screen=<id>` at the width of the screen. The height follows the
+// `/__frame/frame.html?screen=<id>` (`frameAddress`, served by the frame
+// server of `canvas dev`) at the width of the screen. The height follows the
 // content of the frame document: it is measured at the least height of the
 // layout (`measureHeight` in `layout.ts`) on load, on a size change of the
 // root, and on a change of the frame document.
@@ -78,7 +81,9 @@ import type { Point } from './viewport.ts'
 // prototype site, in a new tab. The title of an option has the button "Keep
 // this option" (`keepBase`), off with the reason of `keepState`; while the
 // base has an open `keep` of the option, the button says so and the frame
-// has a mark.
+// has a mark. The last part of the row is the menu of the screen actions
+// (`ScreenMenu`: rename, title, flow, move in the row, delete); it is the
+// last action to go out, and there is none with the Preview switch on.
 //
 // The measure: a child that renders nothing measures the targets of the
 // edits of the screen for the pins and the marks of the canvas
@@ -254,7 +259,7 @@ export function Frame({
             className="block w-full border-0 bg-white"
             style={{ height: defaultFrameHeight }}
             onLoad={(event) => attach(event.currentTarget)}
-            src={`/frame.html?${new URLSearchParams({ screen: screen.id })}`}
+            src={frameAddress(screen.id)}
             tabIndex={-1}
             title={screen.title}
           />
@@ -330,6 +335,7 @@ function Placed({
     pins: pinsRoom > 0,
     asked: hasAsked,
     keep: keep !== null,
+    menu: !operating,
   })
   const shown = new Set(titleParts(box.width * scale, present, { pins: pinsRoom }))
   return (
@@ -430,7 +436,7 @@ function Placed({
         {shown.has('actions') && (
           <a
             className="flex shrink-0 items-center text-inherit hover:text-[color:var(--foreground)]"
-            href={`/${siteEntry}${screenHash(box.screen.id)}`}
+            href={`${frameBase}${siteEntry}${screenHash(box.screen.id)}`}
             target="_blank"
             rel="noreferrer"
             title="Open as a full page"
@@ -440,6 +446,7 @@ function Placed({
             <ArrowSquareOutIcon className="size-3.5" aria-hidden />
           </a>
         )}
+        {shown.has('menu') && <ScreenMenu screenId={box.screen.id} />}
       </div>
       {children}
     </div>

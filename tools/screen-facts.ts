@@ -34,7 +34,7 @@
 import { parseSync, Visitor } from 'vite'
 import { screenIdFromHash } from '../src/frame/screen-link.ts'
 import type { Origin } from '../src/requests/format.ts'
-import { fragmentNames, importSources, isFragment, originOf, position } from './jsx.ts'
+import { fragmentNames, importSources, isFragment, originOf, position, type LibrarySources } from './jsx.ts'
 
 export type Place = { line: number; column: number }
 
@@ -44,8 +44,14 @@ export type ElementFact = Place & { tag: string; origin: Origin }
 // `number` is true for a number that stands for pixels (`fontSize: 14`).
 export type RawFact = Place & { tag: string; attribute: string; text: string; number?: true }
 
-// `id` is the screen id of the address `href`.
-export type LinkFact = Place & { tag: string; href: string; id: string }
+// The offsets of a text literal in the code, with its quotes: `code.slice(start,
+// end)` is `"#/flow/next"`. The screen actions replace it (`rewriteIds` in
+// `screen-ops.ts`).
+export type TextRange = { start: number; end: number }
+
+// `id` is the screen id of the address `href`; `range` is the place of the
+// literal of the address.
+export type LinkFact = Place & { tag: string; href: string; id: string; range: TextRange }
 
 export type ScreenFacts = {
   elements: ElementFact[]
@@ -139,7 +145,8 @@ const noValue: ReadonlySet<string> = new Set([
 type Node = { type: string; start: number; end: number; [key: string]: unknown }
 
 // A text literal of an attribute value; `nested` when it is in an object.
-type Literal = { text: string; nested: boolean }
+// `start` and `end` are the offsets of the literal with its quotes.
+type Literal = TextRange & { text: string; nested: boolean }
 
 // The text literals of an attribute value, at each depth of an object, an
 // array, a condition and the arguments of a call. A nested JSX element is not
@@ -148,11 +155,13 @@ function literalTexts(node: Node | null | undefined, into: Literal[], nested = f
   if (!node) return
   switch (node.type) {
     case 'Literal':
-      if (typeof node.value === 'string') into.push({ text: node.value, nested })
+      if (typeof node.value === 'string') into.push({ text: node.value, nested, start: node.start, end: node.end })
       return
     case 'TemplateLiteral': {
       const quasis = node.quasis as { value: { cooked: string | null } }[]
-      if ((node.expressions as Node[]).length === 0 && quasis[0]?.value.cooked) into.push({ text: quasis[0].value.cooked, nested })
+      if ((node.expressions as Node[]).length === 0 && quasis[0]?.value.cooked) {
+        into.push({ text: quasis[0].value.cooked, nested, start: node.start, end: node.end })
+      }
       return
     }
     case 'JSXExpressionContainer':
@@ -297,7 +306,8 @@ export type TagValues = {
   // `number` is true for a number that stands for pixels; then `text` is
   // `<key>: <number>`.
   raw: { attribute: string; text: string; number?: true }[]
-  hrefs: string[]
+  // The text literals of the `href` attribute, with their places.
+  hrefs: (TextRange & { text: string })[]
   // The names of the attributes that are a handler (`onClick`).
   handlers: string[]
   // The element has a `className` attribute.
@@ -323,7 +333,7 @@ export function tagValues(node: { attributes: readonly unknown[] }, code: string
     if (name === 'style') values.style = true
     if (name === 'className') values.className = true
     if (/^on[A-Z]/.test(name) && (attribute.value as Node | null)?.type === 'JSXExpressionContainer') values.handlers.push(name)
-    if (name === 'href') values.hrefs.push(...texts.map((literal) => literal.text))
+    if (name === 'href') values.hrefs.push(...texts.map(({ text, start, end }) => ({ text, start, end })))
     if (noValue.has(name)) continue
     for (const { text, nested } of texts) {
       if (!isRawValue(text, nested)) continue
@@ -356,10 +366,10 @@ export function tagValues(node: { attributes: readonly unknown[] }, code: string
 const placeholder = /lorem ipsum/i
 
 // Throws with the message of the parser when the code has a syntax error.
-// `libraryPackage` is the npm package of the library, or null when no library
+// `library` is the sources of the library, or null when no library
 // is connected: then no element has the origin `library`. `scale` is the list
 // of the scale keys of the pack, or null.
-export function screenFacts(code: string, file: string, libraryPackage: string | null, scale: ScaleKeys = null): ScreenFacts {
+export function screenFacts(code: string, file: string, library: LibrarySources | null, scale: ScaleKeys = null): ScreenFacts {
   const { program, errors } = parseSync(file, code)
   if (errors.length > 0) throw new Error(`${file}: ${errors[0].message}`)
 
@@ -379,7 +389,7 @@ export function screenFacts(code: string, file: string, libraryPackage: string |
       if (isFragment(name, fragments)) return
       const tag = name.replaceAll(/\s+/g, '')
       const place = position(code, node.start)
-      facts.elements.push({ ...place, tag, origin: originOf(tag, imports, libraryPackage) })
+      facts.elements.push({ ...place, tag, origin: originOf(tag, imports, library, file) })
 
       const values = tagValues(node, code, scale)
       if (values.style) facts.styles.push({ ...place, tag })
@@ -387,9 +397,9 @@ export function screenFacts(code: string, file: string, libraryPackage: string |
       if (values.sets) facts.sets.push(place)
       for (const raw of values.raw) facts.raw.push({ ...place, tag, ...raw })
       for (const handler of values.handlers) facts.behavior.push({ ...place, text: `${tag}: the handler \`${handler}\`` })
-      for (const href of values.hrefs) {
+      for (const { text: href, start, end } of values.hrefs) {
         const id = screenIdFromHash(href)
-        if (id !== null) facts.links.push({ ...place, tag, href, id })
+        if (id !== null) facts.links.push({ ...place, tag, href, id, range: { start, end } })
       }
     },
     JSXText(node) {

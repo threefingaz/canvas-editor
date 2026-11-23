@@ -1,7 +1,6 @@
 import { WarningCircleIcon, XIcon } from '@phosphor-icons/react'
 import { useEffect, useState } from 'react'
-import { screens } from 'virtual:canvas-screens'
-import { config } from '../../../canvas.config.ts'
+import { project, screens } from 'virtual:canvas-screens'
 import type { Edit } from '../../requests/format.ts'
 import type { FrameBox } from '../canvas/layout.ts'
 import type { View } from '../canvas/viewport.ts'
@@ -192,7 +191,7 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
         ? {
             presets: screenPresets(
               box.screen,
-              config.widths,
+              project.widths,
               screens.some((screen) => screen.stateOf === screenId),
             ),
             links: [],

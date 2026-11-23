@@ -1,9 +1,9 @@
 import { describe, expect, test } from 'vitest'
 import type { PackState } from './pack.ts'
-import { entryTokens, tokenAction, watchedLibraryFolder } from './token-state.ts'
+import { entryTokens, tokenAction, unknownField, watchedFolders } from './token-state.ts'
 
 const root = '/project'
-const one = { kind: 'one', pack: { name: 'sample', package: 'sample-ui', folder: 'packs/sample' } } as const satisfies PackState
+const one = { kind: 'one', pack: { name: 'sample', sources: ['sample-ui'], folder: 'packs/sample' } } as const satisfies PackState
 
 describe('tokenAction', () => {
   test('a pack loads the token entry of the pack', () => {
@@ -36,13 +36,15 @@ describe('tokenAction', () => {
   })
 })
 
-describe('watchedLibraryFolder', () => {
-  test('a pack gives its library folder', () => {
-    expect(watchedLibraryFolder(one.pack)).toBe('packs/sample/library')
+describe('watchedFolders', () => {
+  test('a pack gives its library folder, and each folder source in the host', () => {
+    expect(watchedFolders(one.pack, '/h/canvas', '/h')).toEqual(['/h/canvas/packs/sample/library'])
+    const folders = { ...one.pack, sources: ['sample-ui', './src/ui', '/abs/theme'] }
+    expect(watchedFolders(folders, '/h/canvas', '/h')).toEqual(['/h/canvas/packs/sample/library', '/h/src/ui', '/abs/theme'])
   })
 
   test('no pack gives no folder', () => {
-    expect(watchedLibraryFolder(null)).toBeNull()
+    expect(watchedFolders(null, '/h/canvas', '/h')).toEqual([])
   })
 })
 
@@ -64,5 +66,18 @@ describe('entryTokens', () => {
     await expect(entryTokens({}, path)).rejects.toThrow(error)
     await expect(entryTokens({ tokens: [] }, path)).rejects.toThrow(error)
     await expect(entryTokens(null, path)).rejects.toThrow(error)
+  })
+})
+
+describe('unknownField', () => {
+  const token = { id: 'c.primary', group: 'color', name: 'primary', value: '#000', code: 'primary' }
+
+  test('null for the fields of the format', () => {
+    expect(unknownField([token, { ...token, id: 'b', cssVar: '--b', media: [{ query: '(min-width: 1px)', value: '#fff' }] }])).toBeNull()
+  })
+
+  test('names the first field that the format does not have', () => {
+    expect(unknownField([token, { ...token, id: 'b', note: 'x' }])).toBe('token 2 "b" has the field "note", which the token format does not have')
+    expect(unknownField([{ ...token, media: [{ query: 'q', value: 'v', when: 1 }] }])).toContain('a media value with the field "when"')
   })
 })

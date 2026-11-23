@@ -145,7 +145,7 @@ describe('htmlPackImports', () => {
 })
 
 describe('declaredPackages', () => {
-  test('gives each package that the file lists', () => {
+  test('gives the name of the tool and each package that the file lists', () => {
     const text = JSON.stringify({
       name: 'canvas-editor',
       dependencies: { react: '^19.0.0' },
@@ -153,7 +153,7 @@ describe('declaredPackages', () => {
       peerDependencies: { 'lib-styles': '^2.0.0' },
       optionalDependencies: { '@lib/extra': '^1.0.0' },
     })
-    expect(declaredPackages(text)).toEqual(['@lib/extra', 'lib-styles', 'react', 'vite'])
+    expect(declaredPackages(text)).toEqual(['@lib/extra', 'canvas-editor', 'lib-styles', 'react', 'vite'])
   })
 
   test('gives nothing for a file with no packages', () => {
@@ -166,9 +166,10 @@ describe('declaredPackages', () => {
 })
 
 // The check of the repository: each code file of the core, its tests too (the
-// export keeps them), the root config files and the two HTML entries.
+// export keeps them), the command in `bin/`, the root config files and the
+// HTML entries.
 const root = fileURLToPath(new URL('..', import.meta.url))
-const coreFolders = ['src', 'tools']
+const coreFolders = ['src', 'tools', 'bin']
 const rootFiles = ['vite.config.ts', 'vitest.config.ts', 'canvas.config.ts']
 const htmlFiles = ['index.html', 'frame.html', 'site.html']
 
@@ -177,7 +178,7 @@ function codeFiles(folder: string): string[] {
   for (const entry of readdirSync(folder, { withFileTypes: true })) {
     const path = join(folder, entry.name)
     if (entry.isDirectory()) files.push(...codeFiles(path))
-    else if (/\.(ts|tsx)$/.test(entry.name)) files.push(path)
+    else if (/\.(ts|tsx|js)$/.test(entry.name)) files.push(path)
   }
   return files
 }

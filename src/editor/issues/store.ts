@@ -15,6 +15,9 @@ export type IssuesStore = {
   // list until its content changes.
   get: (screenId: string) => Issue[] | undefined
   set: (screenId: string, issues: Issue[]) => void
+  // Takes the issues of a screen out, after a screen action gave it a new id
+  // or deleted it.
+  drop: (screenId: string) => void
   subscribe: (listener: () => void) => () => void
 }
 
@@ -35,6 +38,13 @@ export function createIssuesStore(): IssuesStore {
       const current = screens[screenId]
       if (current !== undefined && sameIssues(current, issues)) return
       screens = { ...screens, [screenId]: issues }
+      for (const listener of listeners) listener()
+    },
+    drop: (screenId) => {
+      if (!(screenId in screens)) return
+      const next = { ...screens }
+      delete next[screenId]
+      screens = next
       for (const listener of listeners) listener()
     },
     subscribe: (listener) => {

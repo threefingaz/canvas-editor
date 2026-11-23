@@ -9,11 +9,15 @@ import {
   type RequestFile,
   type Target,
 } from '../../requests/format.ts'
+import type { ScreenAction } from '../../requests/api.ts'
+import { createBubbleStore } from '../comments/bubble-store.ts'
 import type { Item } from '../edits/model.ts'
 import { createEditsStore, type Screens } from '../edits/store.ts'
 import { createIssuesStore } from '../issues/store.ts'
 import type { IssuesSaved, Loaded, RequestsClient, Saved } from './client.ts'
 import { createErrorList } from './file-errors.ts'
+import type { ActionResult } from '../screens/client.ts'
+import { runAction } from '../screens/follow.ts'
 import {
   changedScreens,
   createIssuesSync,
@@ -540,6 +544,239 @@ describe('createSync', () => {
     await vi.advanceTimersByTimeAsync(0)
     expect(server.calls).toEqual(['load onboarding/welcome'])
   })
+
+  test('saveState: pending in the save delay and during a call, saved after the save, failed after a failed save', async () => {
+    const { server, store, sync } = setup()
+    expect(sync.saveState(welcome.id)).toBe('saved')
+    sync.setScreens([welcome])
+    expect(sync.saveState(welcome.id)).toBe('pending')
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+    store.apply(welcome.id, edit('e1'))
+    expect(sync.saveState(welcome.id)).toBe('pending')
+    server.hold()
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(sync.saveState(welcome.id)).toBe('pending')
+    server.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+    server.fail('offline')
+    store.apply(welcome.id, edit('e2', text('Hi'), 20))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(sync.saveState(welcome.id)).toBe('failed')
+    server.fail(null)
+    store.undo()
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+  })
+
+  test('saveState: a failed load with no edits is saved; with edits it is failed', async () => {
+    const { server, store, sync } = setup()
+    server.fail('offline')
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+    store.apply(welcome.id, edit('e1'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(sync.saveState(welcome.id)).toBe('failed')
+  })
+
+  test('replaceScreens: a dropped id stops at once and is not loaded again while the list still has it', async () => {
+    const { server, store, sync, errors } = setup()
+    server.write(welcome.id, [edit('e1')])
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(0)
+    server.fail('offline')
+    store.apply(profile.id, edit('p1'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(errors.at(-1)!.has(`requests:${profile.id}`)).toBe(true)
+    server.fail(null)
+    server.calls.length = 0
+
+    // The action renamed `profile` to `account`; the list comes later.
+    server.remove(profile.id)
+    const account = { id: 'settings/account', file: 'screens/settings/account.tsx' }
+    server.write(account.id, [edit('p1')])
+    sync.replaceScreens([profile.id], [account.id])
+    expect(errors.at(-1)!.has(`requests:${profile.id}`)).toBe(false)
+    store.replace(profile.id, [])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    // The old id is not saved, and the new id is not in the list yet.
+    expect(server.calls).toEqual([])
+    expect(sync.saveState(profile.id)).toBe('saved')
+
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.calls).toEqual([])
+    sync.setScreens([welcome, account])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(server.calls).toEqual([`load ${account.id}`])
+    expect(store.get(account.id).map((value) => value.edit.id)).toEqual(['p1'])
+  })
+
+  test('replaceScreens with bases: a change and a discard made while a rename ran win over the moved file', async () => {
+    const { server, store, sync } = setup()
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    const account = { id: 'settings/account', file: 'screens/settings/account.tsx' }
+    // The moved file has a and b; meanwhile the user changed a and discarded b.
+    server.write(account.id, [edit('a', text('Hi')), edit('b', undefined, 30)])
+    sync.replaceScreens([], [account.id], new Map([[account.id, [edit('a', text('Hi')), edit('b', undefined, 30)]]]))
+    store.replace(account.id, [edit('a', text('Hello'))])
+    sync.setScreens([welcome, account])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.get(account.id).map((value) => value.edit)).toEqual([edit('a', text('Hello'))])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.edits(account.id)).toEqual(['a'])
+    expect(sync.saveState(account.id)).toBe('saved')
+  })
+
+  test('replaceScreens: a new id of the list loads its file again; an id that comes back is loaded', async () => {
+    const { server, store, sync } = setup()
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(0)
+    server.calls.length = 0
+    // The list came before the answer: the new id is loaded already.
+    server.write(welcome.id, [edit('e1')])
+    sync.replaceScreens([], [welcome.id])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(server.calls).toEqual([`load ${welcome.id}`])
+    expect(store.get(welcome.id).map((value) => value.edit.id)).toEqual(['e1'])
+
+    // A delete and a restore before the list changes.
+    server.calls.length = 0
+    sync.replaceScreens([profile.id], [])
+    sync.replaceScreens([], [profile.id])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(server.calls).toEqual([`load ${profile.id}`])
+  })
+})
+
+// A rename of `welcome` to `start` with the sync of the editor, in each order
+// of the answer of the action and the new list of the dev server, with a user
+// change while the action runs.
+describe('createSync with a rename', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  const start = { id: 'onboarding/start', file: 'screens/onboarding/start.tsx' }
+  const note = (id: string, words = 'Add a state'): Edit => ({ id, target: null, width: 1440, change: { kind: 'comment', text: words } })
+  const rename: ScreenAction = { action: 'rename', screen: welcome.id, flow: 'onboarding', name: 'start' }
+  const applied: ActionResult = {
+    status: 'applied',
+    plan: { action: 'rename', screen: welcome.id, screens: [{ from: welcome.id, to: start.id }], linkedBy: [], moves: [], writes: [], removes: [] },
+  }
+
+  type Order = 'answer first' | 'list first' | 'list first, load of the new id not done'
+  type Change = 'nothing' | 'a new item' | 'a new text' | 'a discard'
+  const orders: Order[] = ['answer first', 'list first', 'list first, load of the new id not done']
+  const changes: [Change, (store: ReturnType<typeof createEditsStore>) => void, Edit[]][] = [
+    ['nothing', () => {}, [note('e1'), note('e2')]],
+    ['a new item', (store) => store.apply(welcome.id, note('e3', 'New')), [note('e1'), note('e2'), note('e3', 'New')]],
+    ['a new text', (store) => store.changeComment(welcome.id, 'e1', 'Changed'), [note('e1', 'Changed'), note('e2')]],
+    ['a discard', (store) => store.discard(welcome.id, 'e2'), [note('e1')]],
+  ]
+  const cases = orders.flatMap((order) => changes.map(([name, change, expected]) => [order, name, change, expected] as const))
+
+  test.each(cases)('%s, with %s while it runs: the edits come to the new id and its file', async (order, _name, change, expected) => {
+    const { server, store, sync, outside } = setup()
+    server.write(welcome.id, [note('e1'), note('e2')])
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(store.get(welcome.id)).toHaveLength(2)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+
+    let answer: (result: ActionResult) => void = () => {}
+    const run = vi.fn(
+      () =>
+        new Promise<ActionResult>((resolve) => {
+          answer = resolve
+        }),
+    )
+    const issuesSync = { setScreens: () => {}, stop: () => {}, replaceScreens: () => {} }
+    const done = runAction(rename, {
+      sync: { requests: sync, issues: issuesSync },
+      edits: store,
+      issues: createIssuesStore(),
+      drafts: createBubbleStore(),
+      report: () => {},
+      client: { run },
+      list: [
+        { id: welcome.id, flow: 'onboarding' },
+        { id: profile.id, flow: 'settings' },
+      ],
+    })
+
+    // The server moves the request file and tells about both files.
+    server.write(start.id, [note('e1'), note('e2')])
+    server.remove(welcome.id)
+    outside(welcome.id)
+    outside(start.id)
+    await vi.advanceTimersByTimeAsync(0)
+    if (order !== 'answer first') {
+      sync.setScreens([start, profile])
+      await vi.advanceTimersByTimeAsync(0)
+    }
+    change(store)
+    await vi.advanceTimersByTimeAsync(saveDelay * 2)
+    // Nothing is written while the action runs.
+    expect(server.edits(welcome.id)).toEqual([])
+    expect(server.edits(start.id)).toEqual(['e1', 'e2'])
+
+    if (order === 'list first, load of the new id not done') server.hold()
+    answer(applied)
+    expect(await done).toBe(applied)
+    if (order === 'answer first') sync.setScreens([start, profile])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    server.release()
+    await vi.advanceTimersByTimeAsync(saveDelay * 2)
+
+    expect(store.get(welcome.id)).toEqual([])
+    expect(store.get(start.id).map((value) => value.edit)).toEqual(expected)
+    expect(server.edits(start.id)).toEqual(ids(expected))
+    const file = JSON.parse(await server.client.loadRequest(start.id).then((loaded) => (loaded.status === 'loaded' ? loaded.hash : '')))
+    expect((file as RequestFile).edits).toEqual(expected)
+    expect(server.edits(welcome.id)).toEqual([])
+    expect(sync.saveState(start.id)).toBe('saved')
+  })
+
+  test('a refused action ends the hold: the changes made meanwhile are saved at the old id', async () => {
+    const { server, store, sync } = setup()
+    server.write(welcome.id, [note('e1')])
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    let answer: (result: ActionResult) => void = () => {}
+    const run = () =>
+      new Promise<ActionResult>((resolve) => {
+        answer = resolve
+      })
+    const issuesSync = { setScreens: () => {}, stop: () => {}, replaceScreens: () => {} }
+    const done = runAction(rename, {
+      sync: { requests: sync, issues: issuesSync },
+      edits: store,
+      issues: createIssuesStore(),
+      drafts: createBubbleStore(),
+      report: () => {},
+      client: { run },
+      list: [{ id: welcome.id, flow: 'onboarding' }],
+    })
+    store.apply(welcome.id, note('e2'))
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(saveDelay * 2)
+    expect(server.edits(welcome.id)).toEqual(['e1'])
+    // A new screen of the list waits for the end of the hold.
+    expect(server.calls).not.toContain(`load ${profile.id}`)
+    answer({ status: 'refused', refusals: ['no'] })
+    expect(await done).toEqual({ status: 'refused', refusals: ['no'] })
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.edits(welcome.id)).toEqual(['e1', 'e2'])
+    expect(server.calls).toContain(`load ${profile.id}`)
+  })
 })
 
 describe('issuesFileOf', () => {
@@ -636,6 +873,24 @@ describe('createIssuesSync', () => {
     expect(saved()).toEqual(['onboarding/welcome no-token', 'settings/profile '])
     await finishAll()
     expect(errors.at(-1)).toEqual(new Map())
+  })
+
+  test('replaceScreens: a dropped id saves nothing more while the list still has it; a new id is saved', async () => {
+    const { store, sync, saved, finishAll, errors } = setupIssues()
+    const account = { id: 'settings/account', file: 'screens/settings/account.tsx' }
+    sync.setScreens([welcome, profile])
+    store.set(profile.id, [gap])
+    store.set(welcome.id, [gap])
+    await finishAll({ status: 'error', error: 'offline' })
+    expect(errors.at(-1)!.has(`issues:${profile.id}`)).toBe(true)
+    sync.replaceScreens([profile.id], [account.id])
+    expect(errors.at(-1)!.has(`issues:${profile.id}`)).toBe(false)
+    store.set(profile.id, [error])
+    sync.setScreens([welcome, profile])
+    expect(saved().filter((line) => line.startsWith(profile.id))).toEqual([])
+    sync.setScreens([welcome, account])
+    store.set(account.id, [error])
+    expect(saved().at(-1)).toBe('settings/account render-error')
   })
 
   test('a removed screen and a stopped sync save nothing more', async () => {

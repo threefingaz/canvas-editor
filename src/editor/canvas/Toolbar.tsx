@@ -20,8 +20,9 @@ import { maxScale, minScale } from './viewport.ts'
 
 // The floating bar at the bottom center of the canvas: the Preview switch
 // (`operate.ts`), which says next to it that Preview is on, undo and redo of
-// the edits of all screens, the button "Copy for the agent" with the count of
-// the changes as a badge, an error of the save of the request
+// the edits of all screens, the buttons that give the sentence to the agent
+// with the count of the changes as a badge (`RequestsButton.tsx`: "Copy for
+// the agent", or "Send to the agent" and a copy button), an error of the save of the request
 // files, the switch of the markers of the elements that are not from the
 // library, the switch of the arrows of the links between the screens
 // (`FlowLayer.tsx`), the zoom, and the theme of the editor. The zoom keeps the

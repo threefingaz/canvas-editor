@@ -1,13 +1,15 @@
 import { Suspense, lazy, useEffect, type ComponentType, type LazyExoticComponent } from 'react'
 import { LibraryProvider } from 'virtual:canvas-library'
 // The list is imported here only for the dev server: a new screen file changes
-// the list, the update of the list refreshes this module, and the glob below
-// then has the new file. A module with no import of the list keeps the old
-// glob until a full reload.
+// the list, the update of the list refreshes this module, and the map of the
+// screen modules below then has the new file (the screens plugin gives its
+// address a new query). A module with no import of the list keeps the old map
+// until a full reload.
 import 'virtual:canvas-screens'
 import type { ScreenEntry } from 'virtual:canvas-screens'
+import { modules } from 'virtual:canvas-screen-modules'
 import { RenderError } from '../frame/RenderError.tsx'
-import { screenModuleKey, screensChangedEvent } from '../frame/screen-id.ts'
+import { screenLoader, screensChangedEvent } from '../frame/screen-id.ts'
 import { UnknownScreen } from './UnknownScreen.tsx'
 
 // One screen of the prototype site as the full page: the screen in the wrapper
@@ -17,16 +19,10 @@ import { UnknownScreen } from './UnknownScreen.tsx'
 // screen, thus the index and the page of an unknown screen get no styles of
 // the library.
 
-type ScreenModule = { default: ComponentType }
-
-// The pattern must be a literal for the dev server. It is the screens folder
-// of `canvas.config.ts` (see `screenModuleKey`).
-const modules = import.meta.glob<ScreenModule>('/screens/**/*.tsx')
-
-// One lazy component for each screen module; it loads the module only when it
-// renders the first time.
+// One lazy component for each screen module, by the id of the screen; it
+// loads the module only when it renders the first time.
 const components: Record<string, LazyExoticComponent<ComponentType>> = Object.fromEntries(
-  Object.entries(modules).map(([key, load]) => [key, lazy(load)]),
+  Object.entries(modules).map(([id, load]) => [id, lazy(load)]),
 )
 
 export function ScreenPage({ screen }: { screen: ScreenEntry }) {
@@ -44,9 +40,8 @@ export function ScreenPage({ screen }: { screen: ScreenEntry }) {
     return () => hot.off(screensChangedEvent, onChange)
   }, [id])
 
-  const key = screenModuleKey(id, Object.keys(components))
-  if (key === null) return <UnknownScreen id={id} />
-  const Screen = components[key]
+  if (screenLoader(id, components) === null) return <UnknownScreen id={id} />
+  const Screen = components[id]
   return (
     <RenderError key={id} screen={id}>
       <Suspense fallback={null}>

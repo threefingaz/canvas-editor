@@ -1,18 +1,20 @@
 import { parseSync } from 'vite'
 import { describe, expect, test } from 'vitest'
+import { config } from '../canvas.config.ts'
 import {
   affectedScreenIds,
   folderPrefix,
   idInFolder,
   inFolder,
   libraryInfo,
+  metaRanges,
   readScreenMeta,
   relationProblems,
   screenEntry,
   screenIdOf,
   screenList,
   screensModuleCode,
-  sortScreens,
+  toolProject,
   type GraphNode,
   type ScreenEntry,
 } from './screens.ts'
@@ -144,6 +146,24 @@ export const meta = { title: 'W', width: 1440, ${field}: ${value} }`)
   })
 })
 
+describe('metaRanges', () => {
+  test('gives the range of each text literal of title, stateOf and optionOf, with its quotes', () => {
+    const code = screen(`export const meta = { title: "A \\"b\\"", width: 1440, 'stateOf': 'onboarding/x' } as const`)
+    const ranges = metaRanges(code, file)
+    expect(code.slice(ranges.title!.start, ranges.title!.end)).toBe('"A \\"b\\""')
+    expect(code.slice(ranges.stateOf!.start, ranges.stateOf!.end)).toBe("'onboarding/x'")
+    expect(ranges.optionOf).toBeUndefined()
+  })
+
+  test('gives no range for a field that is not a text literal', () => {
+    expect(metaRanges(screen('export const meta = { title: `T`, width: 1440, optionOf: id }'), file)).toEqual({})
+  })
+
+  test('throws for a file with no meta', () => {
+    expect(() => metaRanges('export default 1', file)).toThrow(file)
+  })
+})
+
 describe('screenEntry', () => {
   const meta = { title: 'Welcome', width: 1440 }
 
@@ -196,34 +216,6 @@ describe('screenEntry', () => {
   })
 })
 
-describe('sortScreens', () => {
-  function entry(flow: string, name: string): ScreenEntry {
-    const id = flow ? `${flow}/${name}` : name
-    return { id, flow, name, title: name, width: 1440, file: `screens/${id}.tsx`, links: [] }
-  }
-
-  test('sorts by flow, then by name', () => {
-    const sorted = sortScreens([
-      entry('onboarding', 'welcome'),
-      entry('', 'home'),
-      entry('account', 'profile'),
-      entry('onboarding', 'start'),
-    ])
-    expect(sorted.map((screen) => screen.id)).toEqual([
-      'home',
-      'account/profile',
-      'onboarding/start',
-      'onboarding/welcome',
-    ])
-  })
-
-  test('does not change the list that is given', () => {
-    const list = [entry('b', 'x'), entry('a', 'y')]
-    sortScreens(list)
-    expect(list.map((screen) => screen.id)).toEqual(['b/x', 'a/y'])
-  })
-})
-
 describe('screenList', () => {
   test('gives an entry for each file, sorted by flow and name', () => {
     const list = screenList(
@@ -245,6 +237,28 @@ describe('screenList', () => {
         links: [],
       },
     ])
+  })
+
+  test('sorts each flow by its flow.json and keeps a state with its base', () => {
+    const meta = (title: string, more = '') => screen(`export const meta = { title: '${title}', width: 1440${more} }`)
+    const list = screenList(
+      [
+        { file: 'screens/a/alpha.tsx', code: meta('Alpha') },
+        { file: 'screens/a/beta.tsx', code: meta('Beta') },
+        { file: 'screens/a/beta-error.tsx', code: meta('Beta, error', ", stateOf: 'a/beta'") },
+        { file: 'screens/b/one.tsx', code: meta('One') },
+        { file: 'screens/b/two.tsx', code: meta('Two') },
+      ],
+      widths,
+      undefined,
+      null,
+      [
+        { flow: 'a', file: 'screens/a/flow.json', text: '{ "order": ["beta", "alpha"] }' },
+        { flow: 'b', file: 'screens/b/flow.json', text: '{ "order": "two" }' },
+      ],
+    )
+    // The file of `b` is not valid: the row has the sequence by name.
+    expect(list.map((entry) => entry.id)).toEqual(['a/beta', 'a/beta-error', 'a/alpha', 'b/one', 'b/two'])
   })
 
   test('gives the links of a file, each one time, in the order of the code', () => {
@@ -306,7 +320,7 @@ export default () => <div><a href="#/b/two">x</a><a href="#/b/one">y</a><a href=
       ],
       widths,
     )
-    const [error, x, y] = list
+    const [error, x, y] = ['a/error', 'a/x', 'a/y'].map((id) => list.find((entry) => entry.id === id)!)
     // The broken state shows as a base screen with its cause.
     expect(error).toMatchObject({ id: 'a/error', relationError: "`stateOf`: no screen has the id 'a/gone'" })
     expect('stateOf' in error).toBe(false)
@@ -409,13 +423,20 @@ describe('relationProblems', () => {
 })
 
 describe('libraryInfo', () => {
-  test('gives the name of the one pack', () => {
-    const pack = { name: 'kit', package: '@acme/kit', folder: 'packs/kit' }
-    expect(libraryInfo(pack)).toEqual({ name: 'kit' })
+  const pack = { name: 'kit', sources: ['@acme/kit'], folder: 'packs/kit' }
+
+  test('gives the name of the one pack and its level', () => {
+    expect(libraryInfo(pack, [{ id: 'palette.primary' }])).toEqual({ name: 'kit', level: 'ready' })
+    expect(libraryInfo(pack, null)).toEqual({ name: 'kit', level: 'ready' })
+  })
+
+  test('a pack with an empty token file is connected', () => {
+    expect(libraryInfo(pack, [])).toEqual({ name: 'kit', level: 'connected' })
   })
 
   test('gives null with no pack', () => {
     expect(libraryInfo(null)).toBeNull()
+    expect(libraryInfo(null, [])).toBeNull()
   })
 })
 
@@ -433,23 +454,34 @@ describe('screensModuleCode', () => {
   }
 
   test('with a pack, carries the screens and the name of the library', () => {
-    const code = screensModuleCode([home], { name: 'kit' })
-    expect(exportsOf(code)).toEqual({ screens: [home], library: { name: 'kit' } })
+    const code = screensModuleCode([home], { name: 'kit', level: 'ready' })
+    expect(exportsOf(code)).toEqual({ screens: [home], library: { name: 'kit', level: 'ready' }, flowErrors: [], project: toolProject })
     expect(code.endsWith('\n')).toBe(true)
   })
 
   test('with no pack, carries the screens and a null library', () => {
     const code = screensModuleCode([home], null)
-    expect(exportsOf(code)).toEqual({ screens: [home], library: null })
+    expect(exportsOf(code)).toEqual({ screens: [home], library: null, flowErrors: [], project: toolProject })
     expect(code).toContain('export const library = null\n')
   })
 
   test('with no screens, carries an empty list', () => {
-    expect(exportsOf(screensModuleCode([], null))).toEqual({ screens: [], library: null })
+    expect(exportsOf(screensModuleCode([], null))).toEqual({ screens: [], library: null, flowErrors: [], project: toolProject })
+  })
+
+  test('carries the flow files that are not valid', () => {
+    const error = { flow: 'onboarding', file: 'screens/onboarding/flow.json', error: 'the name "a" is two times in `order`' }
+    expect(exportsOf(screensModuleCode([home], null, [error])).flowErrors).toEqual([error])
+  })
+
+  test('carries the widths and the guide of the project; the tool gives its own with none', () => {
+    expect(toolProject).toEqual({ widths: config.widths, guide: 'AGENTS.md' })
+    const project = { widths: [1280, 375], guide: 'canvas/AGENTS.md' }
+    expect(exportsOf(screensModuleCode([home], null, [], project)).project).toEqual(project)
   })
 
   test('is valid module code', () => {
-    const result = parseSync('virtual.js', screensModuleCode([home], { name: 'kit' }))
+    const result = parseSync('virtual.js', screensModuleCode([home], { name: 'kit', level: 'ready' }))
     expect(result.errors).toEqual([])
   })
 })

@@ -12,8 +12,8 @@ export type FlowGroup = { flow: string; groups: IndexGroup[] }
 
 // One group for each flow, in the order of the first screen of each flow; in
 // a flow, the groups of `screenGroups`, in the order of the list. The list of
-// `virtual:canvas-screens` is in the order of `sortScreens` (by flow, then by
-// name), thus the groups are too. A flow in a sub folder (`onboarding/forms`)
+// `virtual:canvas-screens` is in the order of `orderScreens` (by flow, then by
+// the `flow.json` of the flow, then by name), thus the groups are too. A flow in a sub folder (`onboarding/forms`)
 // is a group of its own. A flow with no group left has no heading.
 export function flowGroups(screens: readonly ScreenEntry[]): FlowGroup[] {
   const flows = new Map<string, ScreenEntry[]>()

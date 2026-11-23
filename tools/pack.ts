@@ -6,9 +6,11 @@
 // library. More than one, or a manifest that is not valid: an error that names
 // the cause, and the tool stops.
 
-import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { isRecord, messageOf } from '../src/tokens/format.ts'
+import type { LibrarySources } from './jsx.ts'
+import { isFolder } from './project.ts'
 
 // The folder of the packs, relative to the project root.
 export const packsFolder = 'packs'
@@ -30,9 +32,13 @@ export const noPackVariable = 'CANVAS_NO_PACK'
 export type Pack = {
   // The short name, the same as the folder name: 'demo'.
   name: string
-  // The npm package from which a component must be imported to count as
-  // "from the library". A path below it counts too.
-  package: string
+  // The sources of the library (`"sources"` in the manifest): the npm
+  // packages, and the folders of code of the host, from which a component
+  // must be imported to count as "from the library". A path below a package
+  // or in a folder counts too. A folder starts with `./` or `../` and is
+  // relative to the host root (`project.ts`): `./src/design-system`. The
+  // older field `"package"` is a list of one.
+  sources: string[]
   // The folder of the pack, relative to the project root: 'packs/demo'.
   folder: string
   // The keys of the style object of the library, and the props of the same
@@ -65,8 +71,8 @@ function readManifest(found: FoundManifest): Pack | string {
   } catch (error) {
     return `${path} is not valid JSON: ${messageOf(error)}`
   }
-  if (!isRecord(data)) return `${path} must be an object with "name" and "package"`
-  const { name, package: packageName } = data
+  if (!isRecord(data)) return `${path} must be an object with "name" and "sources"`
+  const { name, package: packageName, sources } = data
   if (typeof name !== 'string' || name === '') return `${path} has no "name"`
   if (!namePattern.test(name)) {
     return `${path}: the name "${name}" must have only lowercase letters, numbers and hyphens`
@@ -74,17 +80,66 @@ function readManifest(found: FoundManifest): Pack | string {
   if (name !== found.folder) {
     return `${path}: the name "${name}" must be the same as the folder name "${found.folder}"`
   }
-  if (typeof packageName !== 'string' || packageName === '') return `${path} has no "package"`
+  if (packageName !== undefined && (typeof packageName !== 'string' || packageName === '')) {
+    return `${path}: "package" must be the name of an npm package`
+  }
+  if (sources !== undefined && !(Array.isArray(sources) && sources.every((source) => typeof source === 'string' && source !== ''))) {
+    return `${path}: "sources" must be a list of npm packages and folders`
+  }
+  const all = [...new Set([...(packageName === undefined ? [] : [packageName]), ...((sources as string[] | undefined) ?? [])])]
+  if (all.length === 0) return `${path} has no "sources"`
   const { scaleKeys } = data
   if (scaleKeys !== undefined && !(Array.isArray(scaleKeys) && scaleKeys.every((key) => typeof key === 'string' && key !== ''))) {
     return `${path}: "scaleKeys" must be a list of texts`
   }
   return {
     name,
-    package: packageName,
+    sources: all,
     folder: `${packsFolder}/${found.folder}`,
     ...(scaleKeys === undefined ? {} : { scaleKeys: scaleKeys as string[] }),
   }
+}
+
+// True for an absolute folder: `/…`, or a drive of Windows (`C:/…`, `C:\…`).
+export function isAbsoluteSource(source: string): boolean {
+  return source.startsWith('/') || /^[A-Za-z]:[\\/]/.test(source)
+}
+
+// True for a source of the manifest that is a folder: it starts with `./`,
+// `../`, `/` or a drive of Windows. A name of an npm package cannot.
+export function isFolderSource(source: string): boolean {
+  return source.startsWith('./') || source.startsWith('../') || isAbsoluteSource(source)
+}
+
+// Pure: the sources of a pack as the element-to-code step and the check read
+// them (`originOf` in `jsx.ts`): the packages, and each folder relative to the
+// project root. A folder of the manifest is relative to the host root (an
+// absolute path stays as it is). `project` and `host` are absolute, with `/`
+// between the parts.
+export function librarySources(pack: Pack, project: string, host: string): LibrarySources {
+  const packages = pack.sources.filter((source) => !isFolderSource(source))
+  const folders = pack.sources
+    .filter(isFolderSource)
+    .map((source) => posix.relative(project, isAbsoluteSource(source) ? source.replaceAll('\\', '/') : posix.join(host, source)) || '.')
+  return { packages, folders }
+}
+
+// The level of the library of a project:
+//
+// - `none`: no library is connected (no pack);
+// - `connected`: the pack is there and the token file has no token. The
+//   screens render with the library, and the editor has no token controls and
+//   counts no value as a deviation (level 1 of the setup);
+// - `ready`: the tokens are set up (level 2). A project whose token file is
+//   not written yet, or not valid, is at this level too: the editor then
+//   shows the error of the file, which `canvas tokens` fixes.
+export type Level = 'none' | 'connected' | 'ready'
+
+// Pure: the level from the pack and the count of the tokens of the token file
+// of the project (null for no file, or a file that is not valid).
+export function levelOf(pack: Pack | null, tokenCount: number | null): Level {
+  if (pack === null) return 'none'
+  return tokenCount === 0 ? 'connected' : 'ready'
 }
 
 // Pure: the state from the manifests that were found.
@@ -99,14 +154,6 @@ export function choosePack(found: FoundManifest[]): PackState {
   }
   const pack = readManifest(found[0])
   return typeof pack === 'string' ? { kind: 'error', message: pack } : { kind: 'one', pack }
-}
-
-function isFolder(path: string): boolean {
-  try {
-    return statSync(path).isDirectory()
-  } catch {
-    return false
-  }
 }
 
 // Reads `packs/*/pack.json` under `root`. `CANVAS_NO_PACK=1` gives `none`.
@@ -204,7 +251,7 @@ export function packChange(
     pack === null || current === null
       ? pack === current
       : pack.name === current.name &&
-        pack.package === current.package &&
+        JSON.stringify(pack.sources) === JSON.stringify(current.sources) &&
         pack.folder === current.folder &&
         // A new list of scale keys changes the marks of the elements.
         JSON.stringify(pack.scaleKeys ?? null) === JSON.stringify(current.scaleKeys ?? null)

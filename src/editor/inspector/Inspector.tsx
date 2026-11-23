@@ -11,7 +11,7 @@ import {
   SquaresFourIcon,
 } from '@phosphor-icons/react'
 import { Fragment, useEffect, useMemo, useReducer, useState, type ReactNode } from 'react'
-import { screens, type ScreenEntry } from 'virtual:canvas-screens'
+import { library, screens, type ScreenEntry } from 'virtual:canvas-screens'
 import type { Edit, Target } from '../../requests/format.ts'
 import { messageOf } from '../../tokens/format.ts'
 import { bubble } from '../comments/bubble-store.ts'
@@ -486,6 +486,8 @@ function ElementView({ selected }: { selected: Selected }) {
 }
 
 // The count of the values with no token link and the sections of the values.
+// At the level `connected` of the library (its tokens are not set up), a note
+// in place of the count: the rows then have no token control.
 // With no `onEdit` (an element with no place in the code) the values are
 // read-only.
 type StylesProps = {
@@ -518,7 +520,12 @@ function StylesView({ node, onEdit, split, onSplit, content }: StylesProps) {
           </Alert>
         </div>
       )}
-      {model && (
+      {model && library?.level === 'connected' && (
+        <p className="m-0 shrink-0 px-3 pb-2 text-xs text-[color:var(--muted-foreground)]" data-no-tokens-note="">
+          The tokens are not set up: the values have no token controls yet, and no value counts as a deviation.
+        </p>
+      )}
+      {model && library?.level !== 'connected' && (
         <p className="m-0 shrink-0 px-3 pb-2 text-xs" data-no-token-count={model.noToken}>
           {model.noToken === 0 ? (
             <span className="text-[color:var(--muted-foreground)]">Each value uses a token.</span>

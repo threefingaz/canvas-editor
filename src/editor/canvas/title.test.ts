@@ -8,7 +8,7 @@ const need = (parts: readonly TitlePart[], icon = false) =>
   parts.reduce((sum, part) => (part === 'title' ? sum : sum + partWidth[part] + titleGap), 0)
 
 const base: TitlePart[] = ['title', 'width', 'issues', 'actions']
-const all: TitlePart[] = ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'keep', 'actions']
+const all: TitlePart[] = ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'keep', 'actions', 'menu']
 
 describe('titleParts', () => {
   test('all parts fit: each stays, in the order of the row', () => {
@@ -19,12 +19,13 @@ describe('titleParts', () => {
   test('the parts go out one step after the other, in a fixed order', () => {
     const steps: TitlePart[][] = [
       all,
-      ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked'],
-      ['mark', 'title', 'options', 'relation', 'issues', 'pins', 'asked'],
-      ['mark', 'title', 'options', 'issues', 'pins', 'asked'],
-      ['mark', 'title', 'options', 'issues', 'pins'],
-      ['mark', 'title', 'issues', 'pins'],
-      ['mark', 'title', 'issues'],
+      ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'menu'],
+      ['mark', 'title', 'options', 'relation', 'issues', 'pins', 'asked', 'menu'],
+      ['mark', 'title', 'options', 'issues', 'pins', 'asked', 'menu'],
+      ['mark', 'title', 'options', 'issues', 'pins', 'menu'],
+      ['mark', 'title', 'issues', 'pins', 'menu'],
+      ['mark', 'title', 'issues', 'menu'],
+      ['mark', 'title', 'menu'],
       ['mark', 'title'],
       ['title'],
     ]
@@ -34,6 +35,12 @@ describe('titleParts', () => {
       expect(titleParts(width, all)).toEqual(steps[index])
       expect(titleParts(width - 1, all)).toEqual(steps[index + 1])
     }
+  })
+
+  test('the menu is the last action to go out: after the counts, before the mark', () => {
+    const parts: TitlePart[] = ['mark', 'title', 'width', 'issues', 'actions', 'menu']
+    expect(titleParts(need(['mark', 'title', 'issues', 'menu']) - 1, parts)).toEqual(['mark', 'title', 'menu'])
+    expect(titleParts(need(['mark', 'title', 'menu']) - 1, parts)).toEqual(['mark', 'title'])
   })
 
   test('the title never goes out', () => {
@@ -107,15 +114,19 @@ describe('pinsWidth', () => {
 })
 
 describe('presentParts', () => {
-  const none = { related: false, options: false, relationError: false, pins: false, asked: false, keep: false }
+  const none = { related: false, options: false, relationError: false, pins: false, asked: false, keep: false, menu: false }
 
   test('a base screen with nothing more has the title, the width, the issues and the actions', () => {
     expect(presentParts(none)).toEqual(['title', 'width', 'issues', 'actions'])
   })
 
   test('each part that the frame has, in the order of the row', () => {
-    const every = { related: true, options: true, relationError: true, pins: true, asked: true, keep: true }
+    const every = { related: true, options: true, relationError: true, pins: true, asked: true, keep: true, menu: true }
     expect(presentParts(every)).toEqual(all)
+  })
+
+  test('the menu of the screen actions is last, and only when the frame has it', () => {
+    expect(presentParts({ ...none, menu: true })).toEqual(['title', 'width', 'issues', 'actions', 'menu'])
   })
 
   test('pins and the mark of the asked options only when the frame has them', () => {

@@ -54,7 +54,7 @@ export default function Screen() {
 `
 
 describe('screenFacts', () => {
-  const facts = screenFacts(code, 'screens/flow/t.tsx', '@lib/core')
+  const facts = screenFacts(code, 'screens/flow/t.tsx', { packages: ['@lib/core'], folders: [] })
 
   it('gives each element but a fragment, with its origin', () => {
     expect(facts.elements.map((element) => `${element.tag} ${element.origin}`)).toEqual([
@@ -89,6 +89,13 @@ describe('screenFacts', () => {
   it('gives the literal links to a screen', () => {
     expect(facts.links.map((link) => `${link.line} ${link.id}`)).toEqual(['11 flow/next', '12 flow/next'])
     expect(linkIds(facts)).toEqual(['flow/next'])
+  })
+
+  it('gives the range of the literal of each link, with its quotes', () => {
+    const source = "const a = <><Button href=\"#/a/b\" /><Link href={wide ? '#/a/c' : `#/a/d`} /><Link href={`#/${id}`} /></>"
+    const links = screenFacts(source, 'screens/a.tsx', null).links
+    expect(links.map((link) => source.slice(link.range.start, link.range.end))).toEqual(['"#/a/b"', "'#/a/c'", '`#/a/d`'])
+    expect(links.map((link) => link.id)).toEqual(['a/b', 'a/c', 'a/d'])
   })
 
   it('gives the places of the elements that set a value in the file', () => {

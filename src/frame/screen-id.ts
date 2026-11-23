@@ -21,13 +21,20 @@ export function screenIdFromSearch(search: string): string | null {
   return id ? id : null
 }
 
-// Gives the key of the screen module in the list of `import.meta.glob`, or null
-// when no module has this id. The id is only a key in this list, thus an id
-// that points out of the screens folder finds no module. The folder is a
-// literal here and in the globs of `main.tsx` and of
-// `src/site/ScreenPage.tsx`; a test checks that it is the folder of
-// `canvas.config.ts`.
-export function screenModuleKey(id: string, keys: readonly string[]): string | null {
-  const key = `/screens/${id}.tsx`
-  return keys.includes(key) ? key : null
+// The address of the frame server (`tools/react-resolve.ts`): the editor
+// server gives each address below it to the server of the frames and the
+// site, which runs on the React of the project.
+export const frameBase = '/__frame/'
+
+// The address of the frame of a screen.
+export function frameAddress(id: string): string {
+  return `${frameBase}frame.html?${new URLSearchParams({ screen: id })}`
+}
+
+// The loader of the module of a screen in the map of
+// `virtual:canvas-screen-modules` (`tools/screen-modules.ts`), or null when no
+// screen file has this id. The id is only a key of the map, thus an id that
+// points out of the screens folder finds no module.
+export function screenLoader<T>(id: string, modules: Readonly<Record<string, T>>): T | null {
+  return Object.hasOwn(modules, id) ? modules[id] : null
 }

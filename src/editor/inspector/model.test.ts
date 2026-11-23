@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { TextStyle, Token } from '../../tokens/format.ts'
 import { styleProperties, type ElementStyles, type StyleProperty } from '../tokens/read-styles.ts'
+import { screenIssues } from '../issues/model.ts'
 import { colorText, groupTokens, inspectorModel, type InspectorModel } from './model.ts'
 
 const font = 'system-ui, sans-serif'
@@ -157,6 +158,31 @@ function labels(model: InspectorModel, title: string) {
 }
 
 describe('inspectorModel', () => {
+  // The level `connected` of a library (`levelOf` in `tools/pack.ts`): the
+  // token file has no token. No value has a token control or counts as a
+  // deviation; the inspector shows a note in place of the count.
+  test('with no tokens, no row misses a token, and the Issues list has no no-token issue', () => {
+    const model = inspectorModel(
+      styles({
+        computed: {
+          'background-color': 'rgb(31, 79, 216)',
+          'padding-top': '13px',
+          'padding-right': '13px',
+          'padding-bottom': '13px',
+          'padding-left': '13px',
+        },
+      }),
+      [],
+    )
+    const rows = model.sections.flatMap((entry) => entry.rows)
+    expect(rows.length).toBeGreaterThan(0)
+    expect(model.noToken).toBe(0)
+    expect(rows.every((row) => !row.missing && row.tokens.length === 0)).toBe(true)
+    const target = { file: 'screens/a.tsx', line: 1, column: 1, tag: 'Box', origin: 'library' as const, element: 'div', copies: 1, label: '' }
+    const issues = screenIssues([{ target, rows, links: [], set: true }], null, null)
+    expect(issues.filter((issue) => issue.kind === 'no-token')).toEqual([])
+  })
+
   test('the sections come in a fixed sequence', () => {
     const model = inspectorModel(
       styles({

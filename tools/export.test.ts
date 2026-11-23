@@ -83,6 +83,14 @@ describe('exportReport', () => {
     expect(text).not.toContain('not committed')
   })
 
+  test('names the command that connects a library before the dev server', () => {
+    const text = exportReport('/out/tool', 12, null, 0)
+    const init = text.indexOf('npm run init -- --library <package>@<range>')
+    expect(init).toBeGreaterThan(text.indexOf('npm install'))
+    expect(init).toBeLessThan(text.indexOf('npm run dev'))
+    expect(text).toContain('npm run status')
+  })
+
   test('names the three things to do next, in their sequence', () => {
     const text = exportReport('/out/tool', 12, null, 0)
     const connect = text.indexOf('1. Connect a library')
@@ -93,7 +101,7 @@ describe('exportReport', () => {
     expect(site).toBeGreaterThan(screen)
     expect(text.indexOf(connectSentence)).toBeGreaterThan(connect)
     expect(text.indexOf(connectSentence)).toBeLessThan(screen)
-    expect(text).toContain('"How to create a screen" in AGENTS.md')
+    expect(text).toContain('the skill canvas-screen, which AGENTS.md names')
     expect(text).toContain('npm run build writes it into dist/, and npm run preview serves it.')
   })
 
