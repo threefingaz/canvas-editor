@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { cropOf } from './part.ts'
 import {
   defaultFrameHeight,
   errorFrameHeight,
@@ -11,6 +12,7 @@ import {
   measureHeight,
   optionGap,
   rowGap,
+  shownRect,
   type LayoutScreen,
   type MeasuredFrame,
 } from './layout.ts'
@@ -210,6 +212,66 @@ describe('layoutFrames', () => {
 
   test('gives empty bounds for no screens', () => {
     expect(layoutFrames([], none)).toEqual({ frames: [], bounds: { x: 0, y: 0, width: 0, height: 0 } })
+  })
+})
+
+describe('layoutFrames with the part of an option', () => {
+  const screens = [
+    screen('a/one', 1440),
+    option('a/one-option-1', 1440, 'a/one'),
+    option('a/one-option-2', 1440, 'a/one'),
+    screen('a/two', 390),
+  ]
+  const heights = new Map([['a/one', 1000]])
+  const part = { x: 400, y: 300, width: 600, height: 200 }
+  const crop = cropOf(part, { width: 1440, height: defaultFrameHeight })
+
+  test('a frame with a part keeps the size of its iframe and gets the crop', () => {
+    const { frames } = layoutFrames(screens, heights, new Map([['a/one-option-1', part]]))
+    // The title row has the width of the column: the base is the widest.
+    expect(frames[1]).toMatchObject({ width: 1440, height: defaultFrameHeight, crop, titleWidth: 1440 })
+    expect('titleWidth' in frames[0]).toBe(false)
+    expect('crop' in frames[0]).toBe(false)
+    expect('crop' in frames[2]).toBe(false)
+  })
+
+  test('the crop is where the box of a whole frame would be', () => {
+    const whole = layoutFrames(screens, heights).frames[1]
+    const cropped = layoutFrames(screens, heights, new Map([['a/one-option-1', part]])).frames[1]
+    expect(shownRect(cropped)).toEqual({ x: whole.x, y: whole.y, width: crop.width, height: crop.height })
+    // The corner of the iframe is shifted by the corner of the crop.
+    expect([cropped.x, cropped.y]).toEqual([whole.x - crop.x, whole.y - crop.y])
+  })
+
+  test('the next option comes after the height of the crop', () => {
+    const { frames } = layoutFrames(screens, heights, new Map([['a/one-option-1', part]]))
+    expect(frames[2].y).toBe(1000 + optionGap + crop.height + optionGap)
+  })
+
+  test('a column of cropped options is as wide as its base, and the row as high as its crops', () => {
+    const parts = new Map([
+      ['a/one-option-1', part],
+      ['a/one-option-2', part],
+    ])
+    const { frames, bounds } = layoutFrames(screens, heights, parts)
+    expect(frames[3].x).toBe(1440 + groupGap)
+    expect(bounds).toEqual({ x: 0, y: 0, width: 1440 + groupGap + 390, height: 1000 + (optionGap + crop.height) * 2 })
+  })
+
+  test('a frame of a file with an error has no crop', () => {
+    const broken = [screen('a/one', 1440), { ...option('a/one-option-1', 1440, 'a/one'), error: 'broken' }]
+    expect('crop' in layoutFrames(broken, none, new Map([['a/one-option-1', part]])).frames[1]).toBe(false)
+  })
+})
+
+describe('shownRect', () => {
+  test('a whole frame shows its box', () => {
+    expect(shownRect({ x: 10, y: 20, width: 1440, height: 900 })).toEqual({ x: 10, y: 20, width: 1440, height: 900 })
+  })
+
+  test('a frame with a crop shows the crop, from the corner of its box', () => {
+    const box = { x: -376, y: 1084, width: 1440, height: 900, crop: { x: 376, y: 276, width: 648, height: 248 } }
+    expect(shownRect(box)).toEqual({ x: 0, y: 1360, width: 648, height: 248 })
   })
 })
 

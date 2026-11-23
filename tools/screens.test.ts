@@ -336,6 +336,37 @@ export default () => <div><a href="#/b/two">x</a><a href="#/b/one">y</a><a href=
     expect('relationError' in y).toBe(false)
   })
 
+  test('an option with the marker of its part gets the place of the block', () => {
+    const marked = (meta: string) => screen(meta).replace('<Stack />', '(\n    /* canvas-part */\n    <Stack />\n  )')
+    const list = screenList(
+      [
+        { file: 'screens/a/one.tsx', code: screen("export const meta = { title: 'A', width: 1440 }") },
+        { file: 'screens/a/one-option-1.tsx', code: marked("export const meta = { title: 'A, option 1', width: 1440, optionOf: 'a/one' }") },
+      ],
+      widths,
+    )
+    expect('part' in list[0]).toBe(false)
+    expect(list[1]).toMatchObject({ id: 'a/one-option-1', part: '8:5' })
+    expect('partError' in list[1]).toBe(false)
+  })
+
+  test('a marker that breaks a rule gives the cause and no part', () => {
+    const marked = (meta: string) => screen(meta).replace('<Stack />', '(\n    /* canvas-part */\n    <Stack />\n  )')
+    const list = screenList(
+      [
+        { file: 'screens/a/one.tsx', code: marked("export const meta = { title: 'A', width: 1440 }") },
+        // A broken relation is the one finding of its screen.
+        { file: 'screens/a/two.tsx', code: marked("export const meta = { title: 'B', width: 1440, optionOf: 'a/gone' }") },
+      ],
+      widths,
+    )
+    expect('part' in list[0]).toBe(false)
+    expect(list[0].partError).toContain('not an option')
+    expect(list[1].relationError).toBeDefined()
+    expect('part' in list[1]).toBe(false)
+    expect('partError' in list[1]).toBe(false)
+  })
+
   test('gives a file with an error an entry with the error text, not a failure', () => {
     const list = screenList([{ file: 'screens/onboarding/broken.tsx', code: screen('') }], widths)
     expect(list).toEqual([

@@ -3,7 +3,8 @@ import { FrameLayer } from '../canvas/FrameLayer.tsx'
 import type { FrameBox } from '../canvas/layout.ts'
 import type { View } from '../canvas/viewport.ts'
 import { selectPlace } from '../inspector/select-place.ts'
-import { canvasRectOf } from '../selection/geometry.ts'
+import { inCrop } from '../canvas/part.ts'
+import { canvasCropOf, canvasRectOf } from '../selection/geometry.ts'
 import { cn } from '../ui/lib/utils.ts'
 import { openPin } from './bubble-store.ts'
 import { lostPin, pinPoint, pinSize, screenPin, type Pin } from './pins.ts'
@@ -23,7 +24,11 @@ import { useScreenPins } from './use-pins.ts'
 // One child for each frame reads the edits of its screen (`useScreenPins`),
 // thus an edit renders only the pins of its screen again. The rectangles
 // come from the shared measure of the screen; each render places them in the
-// coordinates of the canvas (a new view, a new layout).
+// coordinates of the canvas (a new view, a new layout). In a frame with a
+// crop, the pin of an element that the crop does not show is not drawn (its
+// comments are in the Changes tab, and the whole screen shows it), and the
+// pin of an element that is larger than the crop is at the corner of its
+// part in the crop (`inCrop`).
 
 type PinsProps = {
   view: View
@@ -49,11 +54,13 @@ type FramePinsProps = { view: View; box: FrameBox; document: Document | null; on
 function FramePins({ view, box, document, onList }: FramePinsProps) {
   const pins = useScreenPins(box.screen.id, document, true, (nodeRect) => canvasRectOf(view, box, nodeRect))
   if (!pins) return null
+  const crop = canvasCropOf(view, box)
   return (
     <>
       {pins.map((pin) => {
-        if (!pin.rect) return null
-        const point = pinPoint(pin.rect, pinSize)
+        const rect = pin.rect && inCrop(pin.rect, crop)
+        if (!rect) return null
+        const point = pinPoint(rect, pinSize)
         return (
           <PinButton
             key={pin.key}

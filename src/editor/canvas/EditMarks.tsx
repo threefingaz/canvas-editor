@@ -1,8 +1,9 @@
 import { isLive } from '../edits/model.ts'
-import { canvasRectOf } from '../selection/geometry.ts'
+import { canvasCropOf, canvasRectOf } from '../selection/geometry.ts'
 import { editMarks, markPoint, markSize, type EditMark } from './edit-marks.ts'
 import { FrameLayer } from './FrameLayer.tsx'
 import type { FrameBox } from './layout.ts'
+import { inCrop } from './part.ts'
 import { useScreenRects } from './use-screen-rects.ts'
 import type { View } from './viewport.ts'
 
@@ -17,7 +18,10 @@ import type { View } from './viewport.ts'
 // One child for each frame reads the edits of its screen (`useScreenRects`),
 // thus an edit renders only the marks of its screen again. The rectangles
 // come from the shared measure of the screen; each render places them in the
-// coordinates of the canvas (a new view, a new layout).
+// coordinates of the canvas (a new view, a new layout). In a frame with a
+// crop, an element that the crop does not show has no mark, and the mark of
+// an element that is larger than the crop is at the corner of its part in
+// the crop (`inCrop`).
 
 type EditMarksProps = {
   view: View
@@ -48,10 +52,13 @@ function FrameMarks({ view, box, document }: { view: View; box: FrameBox; docume
     empty: noMarks,
   })
   if (!marks) return null
+  const crop = canvasCropOf(view, box)
   return (
     <>
       {marks.map((mark) => {
-        const point = markPoint(mark.rect, markSize)
+        const rect = inCrop(mark.rect, crop)
+        if (!rect) return null
+        const point = markPoint(rect, markSize)
         return (
           <span
             key={mark.key}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { flowErrors, library, screens } from 'virtual:canvas-screens'
 import { linkAt, type LinkTarget } from '../frame/screen-link.ts'
 import type { AppliedAction } from '../requests/api.ts'
@@ -9,11 +9,12 @@ import { EditMarks } from './canvas/EditMarks.tsx'
 import { readLinksShown, writeLinksShown } from './canvas/flow.ts'
 import { FlowLayer } from './canvas/FlowLayer.tsx'
 import { Frame, type KeepBase } from './canvas/Frame.tsx'
-import { keepKeys, layoutFrames } from './canvas/layout.ts'
+import { keepKeys, layoutFrames, shownRect } from './canvas/layout.ts'
 import { readMarkersShown, writeMarkersShown } from './canvas/markers.ts'
 import { Markers } from './canvas/Markers.tsx'
 import { NoLibrary, NoTokens } from './canvas/NoLibrary.tsx'
 import { followLink, operate, useOperate } from './canvas/operate.ts'
+import { croppedParts, partRects, wholeShown } from './canvas/part.ts'
 import { titleRowHeight } from './canvas/title.ts'
 import { Toolbar } from './canvas/Toolbar.tsx'
 import {
@@ -70,7 +71,9 @@ import { Alert, AlertDescription, AlertTitle, PanelSurface } from './ui'
 // (the level `connected`), a message with the sentence of that step. The editor imports nothing from a pack.
 // The title of an option frame has the button "Keep this option": it adds a
 // `keep` item to the edits of the base, and the kept frame has a mark while
-// the item is open.
+// the item is open. An option of one element shows cropped to its block
+// (`canvas/part.ts`): the measure of its frame gives the rectangle of the
+// block, and the layout places the frame by its crop.
 
 // An error of the token file, at the top of the canvas: it shows with the
 // Preview switch on and off, while the inspector is closed too. A child of
@@ -191,7 +194,12 @@ export default function App() {
   useRequestSync(screens)
   // A hot update of the virtual module renders the editor again with the new
   // list, and the memo is computed again.
-  const layout = useMemo(() => layoutFrames(screens, heights), [heights])
+  // The rectangle of the block of each option with a part, from the measure
+  // of its frame, and the screens that show whole all the same: the layout
+  // crops the others.
+  const parts = useSyncExternalStore(partRects.subscribe, partRects.get)
+  const whole = useSyncExternalStore(wholeShown.subscribe, wholeShown.get)
+  const layout = useMemo(() => layoutFrames(screens, heights, croppedParts(parts, whole)), [heights, parts, whole])
   // The ids of the list, for the links. One array for each list, thus the
   // Issues list of a frame is read again only when the list changes.
   const screenIds = useMemo(() => screens.map((screen) => screen.id), [])
@@ -257,7 +265,7 @@ export default function App() {
   const follow = (id: string, point: Point) => {
     const action = followLink(linkUnder(id, point), layout.frames)
     if (action?.kind === 'move' && size.current) {
-      setView(centerOn(action.box, size.current, fitStrips))
+      setView(centerOn(shownRect(action.box), size.current, fitStrips))
       mark(action.box.screen.id)
     } else if (action?.kind === 'notice') {
       showNotice(action.text)
@@ -268,11 +276,12 @@ export default function App() {
   const boxOf = (id: string) => layout.frames.find((frame) => frame.screen.id === id)
 
   // Fits the frame of the screen with its title row: a double click on the
-  // title, and Shift with 2. True when the view moved.
+  // title, and Shift with 2. True when the view moved. A frame with a crop
+  // fits by the part of it that shows.
   const fitFrame = (id: string): boolean => {
     const box = boxOf(id)
     if (!box || !size.current) return false
-    setView(centerOn(box, size.current, fitStrips))
+    setView(centerOn(shownRect(box), size.current, fitStrips))
     return true
   }
 
@@ -327,7 +336,7 @@ export default function App() {
     const canvas = size.current
     if (!box || !canvas) return
     setView((current) =>
-      revealView(current, titleRowRect(current, box, fitStrips.top, titleRowWidth), canvas, revealMargin, overlayStrips),
+      revealView(current, titleRowRect(current, shownRect(box), fitStrips.top, titleRowWidth), canvas, revealMargin, overlayStrips),
     )
   }
 

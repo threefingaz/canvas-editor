@@ -3,20 +3,46 @@
 // states, left to right. The options of a frame are a column below it. The
 // groups, the states and the options keep the order of the list. The user
 // does not move frames.
+//
+// An option with a part (`part.ts`) shows cropped to its block. Its box is
+// still the box of its iframe, thus the corner of the box is the corner of
+// the frame document for each rectangle that the canvas reads from it; the
+// box has the crop, and the layout places the frame by the size of the crop:
+// the corner of the box is shifted so that the crop is where the box of a
+// whole frame would be (`shownRect`).
 
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { screenGroups, type Related } from '../../related/groups.ts'
+import { cropOf } from './part.ts'
 import type { Rect } from './viewport.ts'
 
 export type LayoutScreen = Pick<ScreenEntry, 'id' | 'flow' | 'width' | 'error' | 'stateOf' | 'optionOf'>
 
-// The box of a frame keeps the entry of its screen.
+// The box of a frame keeps the entry of its screen. The box is the box of
+// the iframe, in world coordinates. `crop` is the part of the frame that
+// shows, in the coordinates of the frame document (from the corner of the
+// box); a whole frame has none. `titleWidth` is the room of the title row of
+// a frame with a crop, in world coordinates: the width of its column, because
+// the crop of a small block is narrower than its title, and the column has
+// no frame at the right of the crop.
 export type FrameBox<S extends LayoutScreen = LayoutScreen> = {
   screen: S
   x: number
   y: number
   width: number
   height: number
+  crop?: Rect
+  titleWidth?: number
+}
+
+// The rectangle of a frame that shows on the canvas, in world coordinates:
+// its crop, or the whole box. The title row, the edge, a fit of the view and
+// the place of the next frame read this rectangle; a rectangle of the frame
+// document is placed from the corner of the box itself.
+export function shownRect(box: Pick<FrameBox, 'x' | 'y' | 'width' | 'height' | 'crop'>): Rect {
+  const { crop } = box
+  if (!crop) return { x: box.x, y: box.y, width: box.width, height: box.height }
+  return { x: box.x + crop.x, y: box.y + crop.y, width: crop.width, height: crop.height }
 }
 
 export type FrameLayout<S extends LayoutScreen = LayoutScreen> = { frames: FrameBox<S>[]; bounds: Rect }
@@ -43,8 +69,17 @@ export const errorFrameHeight = 320
 // The most height of a frame: a document that is higher stops here.
 export const maxFrameHeight = 20000
 
-// `heights` has the measured heights by screen id.
-export function layoutFrames<S extends LayoutScreen>(screens: readonly S[], heights: ReadonlyMap<string, number>): FrameLayout<S> {
+const noParts: ReadonlyMap<string, Rect> = new Map()
+
+// `heights` has the measured heights by screen id. `parts` has the rectangle
+// of the part of each screen that shows cropped (`croppedParts`), by screen
+// id, in the coordinates of its frame document; a screen with no entry shows
+// whole.
+export function layoutFrames<S extends LayoutScreen>(
+  screens: readonly S[],
+  heights: ReadonlyMap<string, number>,
+  parts: ReadonlyMap<string, Rect> = noParts,
+): FrameLayout<S> {
   // The rows in the order of the first screen of each flow.
   const rows = new Map<string, S[]>()
   for (const screen of screens) {
@@ -63,17 +98,30 @@ export function layoutFrames<S extends LayoutScreen>(screens: readonly S[], heig
     let x = 0
     let rowHeight = 0
     // A column: a frame and its options below it, as wide as its widest
-    // frame. It gives the width of the column.
+    // frame. It gives the width of the column. A frame with a crop takes the
+    // room of its crop, and its box starts before that room.
     const column = ({ screen, options }: Related<S>): number => {
       let columnY = y
       let columnWidth = 0
+      const first = frames.length
       for (const item of [screen, ...options]) {
         const frameHeight = heightOf(item)
-        frames.push({ screen: item, x, y: columnY, width: item.width, height: frameHeight })
-        columnWidth = Math.max(columnWidth, item.width)
-        rowHeight = Math.max(rowHeight, columnY + frameHeight - y)
-        columnY += frameHeight + optionGap
+        const part = item.error ? undefined : parts.get(item.id)
+        const crop = part && cropOf(part, { width: item.width, height: frameHeight })
+        const shown = crop ?? { x: 0, y: 0, width: item.width, height: frameHeight }
+        frames.push({
+          screen: item,
+          x: x - shown.x,
+          y: columnY - shown.y,
+          width: item.width,
+          height: frameHeight,
+          ...(crop ? { crop } : {}),
+        })
+        columnWidth = Math.max(columnWidth, shown.width)
+        rowHeight = Math.max(rowHeight, columnY + shown.height - y)
+        columnY += shown.height + optionGap
       }
+      for (const frame of frames.slice(first)) if (frame.crop) frame.titleWidth = columnWidth
       width = Math.max(width, x + columnWidth)
       return columnWidth
     }

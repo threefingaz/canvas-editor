@@ -94,7 +94,7 @@ export function Toolbar({
           Preview is on
         </span>
       )}
-      <Separator className="mx-1 h-4" orientation="vertical" />
+      <Separator className="mx-1 h-4 data-vertical:self-center" orientation="vertical" />
       <span data-undo="">
         <PanelIconButton label="Undo" disabled={!canUndo} onClick={edits.undo}>
           <ArrowUUpLeftIcon />
@@ -105,10 +105,10 @@ export function Toolbar({
           <ArrowUUpRightIcon />
         </PanelIconButton>
       </span>
-      <Separator className="mx-1 h-4" orientation="vertical" />
+      <Separator className="mx-1 h-4 data-vertical:self-center" orientation="vertical" />
       <RequestsButton />
       {errors.length > 0 && <SaveError errors={errors} />}
-      <Separator className="mx-1 h-4" orientation="vertical" />
+      <Separator className="mx-1 h-4 data-vertical:self-center" orientation="vertical" />
       <span data-markers-switch={markers ? 'on' : 'off'}>
         <PanelIconButton
           className={markers ? 'text-[color:var(--attention)]' : undefined}
@@ -152,7 +152,7 @@ export function Toolbar({
       <PanelIconButton label="Fit all frames (Shift+1)" onClick={onFitAll}>
         <FrameCornersIcon />
       </PanelIconButton>
-      <Separator className="mx-1 h-4" orientation="vertical" />
+      <Separator className="mx-1 h-4 data-vertical:self-center" orientation="vertical" />
       <PanelIconButton label={theme === 'dark' ? 'Light theme' : 'Dark theme'} onClick={onToggleTheme}>
         {theme === 'dark' ? <SunIcon /> : <MoonIcon />}
       </PanelIconButton>

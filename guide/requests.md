@@ -94,7 +94,7 @@ One example of each change kind, with `id`, `target` and `width` left out. `pack
 
   Do the task as the rules below say. A comment has no `before`.
 
-- `options`: write `count` options of the screen, each as a screen file. `count` is a whole number from 2 to 6. `note` is what the user wants from the options, 2000 characters or less; it can be empty. On an element, the `target` is that element, and each option changes that element and the parts that it needs; on the whole screen, the `target` is `null`. Do it as "Options" below says.
+- `options`: write `count` options of the screen, each as a screen file. `count` is a whole number from 2 to 6. `note` is what the user wants from the options, 2000 characters or less; it can be empty. On an element, the `target` is that element, and each option changes that element and the parts that it needs, and marks that block with the marker `canvas-part`; on the whole screen, the `target` is `null`. Do it as "Options" below says.
 
   ```json
   { "kind": "options", "count": 3, "note": "Fewer fields on the first step" }
@@ -146,6 +146,21 @@ Comments:
 Options:
 
 - An `options` item is a task as a comment is, and the rules of "Comments" hold for it; its `note` is the text of the task. Write `count` screen files in the folder of the screen. Each is a full copy of the screen with one clear difference in the asked part, with `optionOf` set to the id of the screen, and with the name and the title that [Screen files](./screen-files.md) gives. On an element, each option changes that element and the parts that it needs near it; on the whole screen, the difference can be anywhere.
+- **The marker of the block.** An option of an element (an `options` item with a `target`) marks the block that it changed, and the canvas then shows that option as that block only, cropped to its size, not as the whole screen. The marker is a comment with exactly the text `canvas-part`, on the line directly before the JSX element of the block: `{/* canvas-part */}` among the children of an element, or `/* canvas-part */` before the root element of the screen. The block is the first JSX element after the marker:
+
+  ```tsx
+  <Stack spacing={2}>
+    <Typography variant="h5">Create your workspace</Typography>
+    {/* canvas-part */}
+    <Stack direction="row" spacing={2}>
+      <TextField label="Work email" />
+      <TextField label="Team name" />
+    </Stack>
+  </Stack>
+  ```
+
+  Mark the element of the `target` as the option has it: the same element, or the element that the option wrote in its place. When the option also changed parts near that element, mark the smallest element that contains all that the option changed; the user must see each difference in the block. One option file has one marker, and each option of the item has it at the same block. Do not mark a fragment (`<>`), and do not put the marker inside the opening tag or between attributes. An option of the whole screen (`target: null`) has no marker, and a file with no `optionOf` has none. `canvas check` reports a marker that breaks a rule (kind `part`): more than one marker, no JSX element after it, a screen that is not an option; the canvas then shows the whole screen.
+- **The marker stays in front of its block.** When you change an option file later (an edit, a comment on the option), keep the marker on the line directly before the same block: when you move the block, move the marker with it; when you replace the block by a different element, the marker is before the new element; when you remove the block, remove the marker too. The marker is not an element: it is not in the count `of` of an `order` edit, and no `target` points to it.
 - The options must differ in a way that is worth a choice: the structure, the sequence, the form of the data, what is shown and what is left out. Not only a color or a size. The design skills decide what an option can be, and the library skill gives the parts. The screen itself is not one of the options: it stays above them on the canvas. When the note names the form that the screen already has, that form is there; write the other forms, and fill the count with other differences that are worth a choice. If the screen permits fewer good options than `count`, write fewer, and say why in the report.
 - An option is a choice that is still open: no different screen links to it. The links of the screen stay in each option.
 - A second `options` item for the same screen adds options after the ones that are there, with the next numbers.
@@ -153,7 +168,7 @@ Options:
 - A `keep` item is the first item of the pass of its base. Check that `option` is an option of this screen (its file has `optionOf` with the id of this screen); if not, reply `unclear`. Then:
   1. Apply the open request file of the option, as a pass of its own, and write it: its edits are a part of what the user keeps.
   2. Compare the base file with the option. The option is the screen that the user saw and chose: its markup wins. Each difference of the base outside the part that the options were about (work on the base after the options were written) goes away; name each one in the report.
-  3. Write the markup of the option into the base file. The base keeps its own `meta` (its title, its `stateOf`), and gets no `optionOf`.
+  3. Write the markup of the option into the base file. The base keeps its own `meta` (its title, its `stateOf`), and gets no `optionOf`. The marker `canvas-part` does not go into the base file: remove it from the markup that you write, because a base screen has no marker. A state file that step 7 brings up to date gets none either.
   4. Delete each option file of that base, the kept one too, and with each its files `.canvas/requests/<option id>.json` and `.canvas/issues/<option id>.json`. A later option can get the same id, and the editor would load the old edits into it. The open items of the options that are not kept go with them, not applied: name each one in the report, because the user may want to ask for it again on the base.
   5. In each screen file, a link to a deleted option gets the address of the base.
   6. Remove the `keep` item. Then go on with the pass of the base, against the new markup. An item with a target (the editor permits none while a `keep` is open, but one can be older than the `keep`) and an `options` item get the reply `conflict`: the screen was replaced by an option; make the edit again. Comments on the whole screen are done as usual.
@@ -166,6 +181,7 @@ Options:
 - Add a `reply` to each item that you did not apply: `{ "status": "conflict" | "needs-library-change" | "unclear", "text": "<one or two sentences for the user>" }`. The editor shows the reply and no preview for that item.
 - Do not change other items or other fields. The editor can add items while you work: read the request file again just before you write it, and change only the items that you handled, by `id`. Keep each item that you did not read. When no item is left, delete the request file. Delete nothing else in `.canvas/`, except the request and issues files of the options that a `keep` deletes.
 - A request file or an issues file whose screen file no longer exists is old: leave it out, and tell the user.
+- **A marker in the wrong file.** A finding of the kind `part` of `canvas check` on a file that you wrote or changed is yours to fix: one marker directly before the block in an option of an element, and none in each other file.
 - **A link to a deleted screen.** The tool moved the screen into `.canvas/trash/` (see "The tool moves, renames and deletes screens" in [Screen files](./screen-files.md)), and each link to it is a `broken-link` issue on its screen; `canvas check` reports it too. When a request asks you to fix the deviations of such a screen, or a comment asks for the control, decide what each control does now, as a design decision: read the deleted file in the trash to learn what its task was, and link the control to the screen of the list that now does that task (also a screen that does more than that task); when no screen does it, remove the link and keep the control, or remove the control when it has no other task. Keep the text of a control that you link again, unless it now says a wrong thing; name a text that could change. Name each control and your decision in your report. Do not restore a file from the trash: "Restore" is for the user.
 - Keep each request file valid for `parseRequest`: the editor reads it again at once.
 - Run `canvas check -- <the screens that you changed>` and `canvas build` at the end, and fix what you broke. Run the check one time before you change a screen too, thus you know the findings that were there. Fix each finding that your work added, as step 6 of "How to create a screen" in the skill [canvas-screen](./skills/canvas-screen/SKILL.md) says. A finding that was there before your work, or that an edit or a comment of the user asked for, stays: do not fix it on your own, and name it in your report.

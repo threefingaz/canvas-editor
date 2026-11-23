@@ -3,11 +3,13 @@ import {
   ChatCircleTextIcon,
   CheckCircleIcon,
   CheckIcon,
+  CornersInIcon,
+  CornersOutIcon,
   LinkBreakIcon,
   SquaresFourIcon,
   WarningCircleIcon,
 } from '@phosphor-icons/react'
-import { useEffect, useId, useLayoutEffect, useRef, useState, type MouseEvent, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, useSyncExternalStore, type MouseEvent, type ReactNode } from 'react'
 import type { ScreenEntry } from 'virtual:canvas-screens'
 import { frameAddress, frameBase } from '../../frame/screen-id.ts'
 import { screenHash } from '../../frame/screen-link.ts'
@@ -30,7 +32,8 @@ import { ScreenMenu } from '../screens/ScreenMenu.tsx'
 import { toFramePoint } from '../selection/geometry.ts'
 import { cn } from '../ui/lib/utils.ts'
 import { frameShadow } from './edge.ts'
-import { defaultFrameHeight, measureHeight, type FrameBox } from './layout.ts'
+import { defaultFrameHeight, measureHeight, shownRect, type FrameBox } from './layout.ts'
+import { cropClip, partLoc, partSwitch, wholeShown } from './part.ts'
 import { pinsWidth, presentParts, titleParts } from './title.ts'
 import { useMeasureRects } from './use-screen-rects.ts'
 import type { Point } from './viewport.ts'
@@ -59,7 +62,8 @@ import type { Point } from './viewport.ts'
 // The title row: the title of a state has the mark "State" before it, and
 // the title of an option the mark "Option"; a frame with options says how
 // many it has. A relation that breaks a rule of the list (`relationError`)
-// has a mark with its cause. The count of issues is next to the title. A
+// has a mark with its cause, and so has a marker of a part that breaks a
+// rule (`partError`). The count of issues is next to the title. A
 // click on the title or on the count shows the Changes tab of the screen in
 // the inspector (`tabAfter`); a double click on the title fits the frame
 // with its title in the view. The parts of the title that do not fit the
@@ -85,9 +89,20 @@ import type { Point } from './viewport.ts'
 // (`ScreenMenu`: rename, title, flow, move in the row, delete); it is the
 // last action to go out, and there is none with the Preview switch on.
 //
+// The part: an option of one element (`part` of its entry) shows cropped to
+// its block (`part.ts`). The box of the frame is still the box of its
+// iframe, and `box.crop` is the part of it that shows: the title row and the
+// edge are at the crop (`shownRect`), and the iframe with its overlay is
+// clipped to it (`cropClip`), thus the pointer reaches the frame only there.
+// The overlay keeps the corner and the size of the iframe, thus a point of
+// the pointer is a point of the frame document as in a whole frame. The
+// title row of such an option has a switch, "Show the whole screen" and
+// "Show the block only" (`wholeShown`, by screen, not saved); with the
+// Preview switch on the crop and the switch stay.
+//
 // The measure: a child that renders nothing measures the targets of the
 // edits of the screen for the pins and the marks of the canvas
-// (`useMeasureRects`). The frame reads the edits only in these children, and
+// (`useMeasureRects`), and the block of a part. The frame reads the edits only in these children, and
 // the frame of an option reads the edits of its base, thus an edit renders
 // only the children of its screen and the frames of the options of that
 // screen again.
@@ -254,7 +269,13 @@ export function Frame({
         <>
           {/* The measure sets the height (`measureHeight`); it starts at the
               least height. */}
-          <MeasureRects screenId={screen.id} document={frameDocument} enabled={!operating} links={screen.links} />
+          <MeasureRects
+            screenId={screen.id}
+            document={frameDocument}
+            enabled={!operating}
+            links={screen.links}
+            part={partLoc(screen)}
+          />
           <iframe
             className="block w-full border-0 bg-white"
             style={{ height: defaultFrameHeight }}
@@ -319,7 +340,13 @@ function Placed({
   children,
 }: PlacedProps) {
   const relation = relationOf(box.screen)
-  const { relationError } = box.screen
+  // The cause that the row shows: a broken relation, or a marker of a part
+  // that breaks a rule. A screen has at most one of them.
+  const relationError = box.screen.relationError ?? box.screen.partError
+  // The part of the frame that shows: its crop, or the whole box.
+  const shownBox = shownRect(box)
+  const { crop } = box
+  const parted = partLoc(box.screen) !== null
   // The width of the pins of the row (0: none), and whether it has a mark of
   // the asked options: `TitlePins` and `AskedMark` report them, thus this
   // frame does not read the edits of its screen, and renders again only when
@@ -335,9 +362,13 @@ function Placed({
     pins: pinsRoom > 0,
     asked: hasAsked,
     keep: keep !== null,
+    part: parted,
     menu: !operating,
   })
-  const shown = new Set(titleParts(box.width * scale, present, { pins: pinsRoom }))
+  // The room of the row on the screen: the width of the frame that shows,
+  // and for a frame with a crop the width of its column.
+  const titleRoom = (box.titleWidth ?? shownBox.width) * scale
+  const shown = new Set(titleParts(titleRoom, present, { pins: pinsRoom }))
   return (
     <div
       className="absolute"
@@ -345,23 +376,25 @@ function Placed({
       data-frame-marked={marked ? '' : undefined}
       data-frame-kept={kept ? '' : undefined}
       data-frame-listed={listed ? '' : undefined}
+      data-frame-cropped={crop ? '' : undefined}
       style={{
-        left: box.x,
-        top: box.y,
-        width: box.width,
-        height: box.height,
+        left: shownBox.x,
+        top: shownBox.y,
+        width: shownBox.width,
+        height: shownBox.height,
         // The edge and the mark keep their size on the screen at each zoom.
         boxShadow: frameShadow({ kept, marked, listed }, scale),
       }}
     >
       {/* The title is scaled back, thus its text keeps one size at each zoom.
-          The row is as wide as the frame on the screen and clips what does
+          The row is as wide as the frame on the screen (a frame with a crop:
+          as its column) and clips what does
           not fit, thus at a low zoom it does not cover the title of the next
           frame. The parts that do not fit go out (`titleParts`), and the
           title text is cut last. */}
       <div
         className="absolute bottom-full left-0 flex origin-bottom-left gap-2 overflow-clip pb-1.5 text-xs whitespace-nowrap text-[color:var(--muted-foreground)]"
-        style={{ width: box.width * scale, transform: `scale(${1 / scale})` }}
+        style={{ width: titleRoom, transform: `scale(${1 / scale})` }}
       >
         {shown.has('mark') && relation !== 'base' && (
           <span
@@ -415,6 +448,7 @@ function Placed({
           onClick={() => onTitle('title')}
         />
         {shown.has('keep') && keep && <KeepButton {...keep} />}
+        {shown.has('whole') && parted && <PartSwitch screenId={box.screen.id} />}
         {shown.has('actions') && !operating && (
           <TitleAction
             label="Comment on the screen"
@@ -448,8 +482,36 @@ function Placed({
         )}
         {shown.has('menu') && <ScreenMenu screenId={box.screen.id} />}
       </div>
-      {children}
+      {/* The box of the iframe, from the corner of the part that shows. With
+          a crop it is clipped to the crop, and takes the pointer only there. */}
+      <div
+        className="absolute"
+        data-frame-box={box.screen.id}
+        style={{
+          left: box.x - shownBox.x,
+          top: box.y - shownBox.y,
+          width: box.width,
+          height: box.height,
+          clipPath: crop ? cropClip(crop, box) : undefined,
+        }}
+      >
+        {children}
+      </div>
     </div>
+  )
+}
+
+// The switch of an option with a part, in its title row: the frame shows the
+// block only, or the whole screen (`wholeShown`). A child of its own reads
+// the store, thus a click renders only the switch and the layout again.
+function PartSwitch({ screenId }: { screenId: string }) {
+  const whole = useSyncExternalStore(wholeShown.subscribe, wholeShown.get).has(screenId)
+  const { label, next } = partSwitch(whole)
+  const Icon = whole ? CornersInIcon : CornersOutIcon
+  return (
+    <TitleAction label={label} onClick={() => wholeShown.toggle(screenId)} data-frame-part={next}>
+      <Icon className="size-3.5" aria-hidden />
+    </TitleAction>
   )
 }
 
@@ -467,6 +529,7 @@ function TitleAction({
   children: ReactNode
   'data-frame-comment'?: string
   'data-frame-ask-options'?: string
+  'data-frame-part'?: string
 }) {
   return (
     <button
@@ -546,8 +609,8 @@ function IssueCount({ screenId, onClick }: { screenId: string; onClick: () => vo
   )
 }
 
-// The measure of the targets of the edits of the screen and of its links
-// (`useMeasureRects`), in a child that renders nothing, thus the frame does
+// The measure of the targets of the edits of the screen, of its links and of
+// the block of its part (`useMeasureRects`), in a child that renders nothing, thus the frame does
 // not read the edits. `links` are the ids that the screen file links to: the
 // arrows of the canvas start at their link elements.
 function MeasureRects({
@@ -555,13 +618,16 @@ function MeasureRects({
   document,
   enabled,
   links,
+  part,
 }: {
   screenId: string
   document: Document | null
   enabled: boolean
   links: readonly string[]
+  // The location of the block of an option with a part, or null.
+  part: string | null
 }) {
-  useMeasureRects(screenId, document, enabled, links)
+  useMeasureRects(screenId, document, enabled, links, part)
   return null
 }
 

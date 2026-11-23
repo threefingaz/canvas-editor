@@ -5,10 +5,11 @@ import { useIssueScreens } from '../issues/store.ts'
 import { once } from '../once.ts'
 import { hiddenIn } from '../preview/css.ts'
 import { usePreviewRemeasure } from '../preview/use-preview.ts'
-import { toEditorRect } from '../selection/geometry.ts'
+import { canvasCropOf, toEditorRect } from '../selection/geometry.ts'
 import { nodesByLoc } from '../selection/pick.ts'
 import type { FrameBox } from './layout.ts'
 import { markerLabels, markerRects, type Marker } from './markers.ts'
+import { inCrop } from './part.ts'
 import { toScreen, type View } from './viewport.ts'
 
 // The layer above the frames, below the selection layer, that marks each copy
@@ -79,7 +80,13 @@ export function Markers({ view, frames, documents, shown }: MarkersProps) {
       (node) => (node.isConnected ? toEditorRect(node.getBoundingClientRect(), corner, view.scale) : null),
       hiddenIn(edits.get(box.screen.id)),
     )
-    for (const marker of rects) markers.push({ ...marker, key: `${box.screen.id}:${marker.key}` })
+    // A frame with a crop: only the markers of the part that shows, each one
+    // up to the edge of the crop.
+    const crop = canvasCropOf(view, box)
+    for (const marker of rects) {
+      const rect = inCrop(marker.rect, crop)
+      if (rect) markers.push({ ...marker, rect, key: `${box.screen.id}:${marker.key}` })
+    }
   }
 
   return (

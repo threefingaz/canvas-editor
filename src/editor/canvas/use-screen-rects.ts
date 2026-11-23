@@ -5,7 +5,9 @@ import { frameWindowOf } from '../frame-window.ts'
 import { screenLinkSelector } from '../issues/collect.ts'
 import { hiddenIn } from '../preview/css.ts'
 import { onPreviewApplied } from '../preview/use-preview.ts'
+import { nodesByLoc, screenRendered } from '../selection/pick.ts'
 import { linkRects, linkRectsOf } from './link-rects.ts'
+import { partRectOf, partRects, wholeShown } from './part.ts'
 import { currentRects, measured, rectsOf, rectsResult, screenRects, targetNodes } from './screen-rects.ts'
 import type { Rect } from './viewport.ts'
 
@@ -36,34 +38,58 @@ import type { Rect } from './viewport.ts'
 // to each screen of `links`, the ids that the screen file links to. A screen
 // with links is observed also with no edit and with the Preview switch on,
 // because the arrows show then too; the targets of the edits are measured
-// only while `enabled`. A screen with no link and no target is not observed.
+// only while `enabled`. A screen with no link, no target and no part is not
+// observed.
+//
+// The same measure reads the part of an option (`part.ts`): the union of the
+// rectangles of the nodes of `part`, the location of the block, for the crop
+// of the frame. It is read with the Preview switch on too, because the crop
+// stays then. Before the first render of the screen, and when the block is
+// not found in a rendered screen, the store has no entry, and the frame shows
+// whole.
 export function useMeasureRects(
   screenId: string,
   document: Document | null,
   enabled: boolean,
   links: readonly string[] = noLinks,
+  part: string | null = null,
 ) {
   const items = useScreenEdits(screenId)
   const targets = enabled && items.some(measured)
   const linked = links.length > 0
-  const watched = document !== null && (targets || linked)
+  const parted = part !== null
+  const watched = document !== null && (targets || linked || parted)
 
   useLayoutEffect(() => {
     const frameWindow = frameWindowOf(document)
     if (!watched || !document || !frameWindow) {
       screenRects.delete(screenId)
       linkRects.delete(screenId)
+      if (!parted) partRects.delete(screenId)
       return
     }
     if (!targets) screenRects.delete(screenId)
     if (!linked) linkRects.delete(screenId)
+    if (!parted) partRects.delete(screenId)
     const hidden = hiddenIn(items)
     const linkNodes = () => (linked ? Array.from(document.querySelectorAll(screenLinkSelector)) : [])
+    // The nodes of the part: each copy of its place; none while the screen is
+    // not rendered.
+    const partNodes = () => (parted && screenRendered(document) ? (nodesByLoc(document).get(part) ?? []) : [])
     let nodes = targets ? targetNodes(document, items, measured) : null
     let anchors = linkNodes()
+    let block = partNodes()
     const measure = () => {
       if (targets) screenRects.set(screenId, { document, items, rects: nodes && rectsOf(nodes, hidden) })
       if (linked) linkRects.set(screenId, linkRectsOf(anchors, links, hidden))
+      if (parted) {
+        // A frame that loads again keeps the rectangle of its last measure
+        // until the screen is rendered, thus its crop does not open and
+        // close at each change of the file.
+        const rect = partRectOf(block, hidden)
+        if (rect) partRects.set(screenId, rect)
+        else if (screenRendered(document)) partRects.delete(screenId)
+      }
     }
 
     const resize = new frameWindow.ResizeObserver(() => schedule(false))
@@ -74,6 +100,7 @@ export function useMeasureRects(
       resize.observe(document.documentElement)
       for (const node of nodes?.values() ?? []) resize.observe(node)
       for (const node of anchors) resize.observe(node)
+      for (const node of block) resize.observe(node)
     }
 
     let pending = 0
@@ -87,6 +114,7 @@ export function useMeasureRects(
           walk = false
           nodes = targets ? targetNodes(document, items, measured) : null
           anchors = linkNodes()
+          block = partNodes()
           observe()
         }
         measure()
@@ -113,13 +141,17 @@ export function useMeasureRects(
       document.fonts?.removeEventListener('loadingdone', loaded)
       if (pending !== 0) cancelAnimationFrame(pending)
     }
-  }, [screenId, watched, targets, linked, document, items, links])
+  }, [screenId, watched, targets, linked, parted, document, items, links, part])
 
-  // A frame that goes out of the canvas takes its entries with it.
+  // A frame that goes out of the canvas takes its entries with it, and the
+  // choice of its whole screen: a later screen with the same id (a new option
+  // after a `keep`) starts cropped.
   useLayoutEffect(
     () => () => {
       screenRects.delete(screenId)
       linkRects.delete(screenId)
+      partRects.delete(screenId)
+      wholeShown.delete(screenId)
     },
     [screenId],
   )

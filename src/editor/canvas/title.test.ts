@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest'
+import { minCropWidth } from './part.ts'
 import { partWidth, pinsWidth, presentParts, relationIcon, titleGap, titleMin, titleParts, type TitlePart } from './title.ts'
 
 // The width that the row needs for these parts, as `titleParts` counts it.
@@ -8,7 +9,7 @@ const need = (parts: readonly TitlePart[], icon = false) =>
   parts.reduce((sum, part) => (part === 'title' ? sum : sum + partWidth[part] + titleGap), 0)
 
 const base: TitlePart[] = ['title', 'width', 'issues', 'actions']
-const all: TitlePart[] = ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'keep', 'actions', 'menu']
+const all: TitlePart[] = ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'keep', 'whole', 'actions', 'menu']
 
 describe('titleParts', () => {
   test('all parts fit: each stays, in the order of the row', () => {
@@ -19,12 +20,14 @@ describe('titleParts', () => {
   test('the parts go out one step after the other, in a fixed order', () => {
     const steps: TitlePart[][] = [
       all,
-      ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'menu'],
-      ['mark', 'title', 'options', 'relation', 'issues', 'pins', 'asked', 'menu'],
-      ['mark', 'title', 'options', 'issues', 'pins', 'asked', 'menu'],
-      ['mark', 'title', 'options', 'issues', 'pins', 'menu'],
-      ['mark', 'title', 'issues', 'pins', 'menu'],
-      ['mark', 'title', 'issues', 'menu'],
+      ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'keep', 'whole', 'menu'],
+      ['mark', 'title', 'options', 'relation', 'issues', 'pins', 'asked', 'keep', 'whole', 'menu'],
+      ['mark', 'title', 'options', 'issues', 'pins', 'asked', 'keep', 'whole', 'menu'],
+      ['mark', 'title', 'options', 'issues', 'pins', 'keep', 'whole', 'menu'],
+      ['mark', 'title', 'issues', 'pins', 'keep', 'whole', 'menu'],
+      ['mark', 'title', 'issues', 'keep', 'whole', 'menu'],
+      ['mark', 'title', 'keep', 'whole', 'menu'],
+      ['mark', 'title', 'whole', 'menu'],
       ['mark', 'title', 'menu'],
       ['mark', 'title'],
       ['title'],
@@ -62,10 +65,17 @@ describe('titleParts', () => {
     expect(titleParts(need(asked) - 1, asked)).toEqual(['title', 'options', 'issues'])
   })
 
-  test('"Keep this option" goes out with the actions', () => {
-    const option: TitlePart[] = ['mark', 'title', 'width', 'issues', 'keep', 'actions']
+  test('"Keep this option" and the switch of the whole screen stay after the actions and the counts', () => {
+    const option: TitlePart[] = ['mark', 'title', 'width', 'issues', 'keep', 'whole', 'actions']
     expect(titleParts(need(option), option)).toEqual(option)
-    expect(titleParts(need(option) - 1, option)).toEqual(['mark', 'title', 'width', 'issues'])
+    expect(titleParts(need(option) - 1, option)).toEqual(['mark', 'title', 'width', 'issues', 'keep', 'whole'])
+    expect(titleParts(need(['mark', 'title', 'keep', 'whole']), option)).toEqual(['mark', 'title', 'keep', 'whole'])
+    expect(titleParts(need(['mark', 'title', 'keep', 'whole']) - 1, option)).toEqual(['mark', 'title', 'whole'])
+  })
+
+  test('the row of an option with a part at the least width of a crop has the mark, the title, the issues, "Keep this option", the switch and the menu', () => {
+    const option: TitlePart[] = ['mark', 'title', 'width', 'issues', 'keep', 'whole', 'actions', 'menu']
+    expect(titleParts(minCropWidth, option)).toEqual(['mark', 'title', 'issues', 'keep', 'whole', 'menu'])
   })
 
   test('the icon of a relation error stays in the count when its text goes out', () => {
@@ -114,14 +124,14 @@ describe('pinsWidth', () => {
 })
 
 describe('presentParts', () => {
-  const none = { related: false, options: false, relationError: false, pins: false, asked: false, keep: false, menu: false }
+  const none = { related: false, options: false, relationError: false, pins: false, asked: false, keep: false, part: false, menu: false }
 
   test('a base screen with nothing more has the title, the width, the issues and the actions', () => {
     expect(presentParts(none)).toEqual(['title', 'width', 'issues', 'actions'])
   })
 
   test('each part that the frame has, in the order of the row', () => {
-    const every = { related: true, options: true, relationError: true, pins: true, asked: true, keep: true, menu: true }
+    const every = { related: true, options: true, relationError: true, pins: true, asked: true, keep: true, part: true, menu: true }
     expect(presentParts(every)).toEqual(all)
   })
 

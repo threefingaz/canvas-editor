@@ -1,5 +1,6 @@
 import { useEffect, useReducer, useSyncExternalStore } from 'react'
 import type { FrameBox } from '../canvas/layout.ts'
+import { inCrop } from '../canvas/part.ts'
 import type { Rect, View } from '../canvas/viewport.ts'
 import { bubble } from '../comments/bubble-store.ts'
 import { followPlace } from '../edits/anchor.ts'
@@ -8,7 +9,7 @@ import { frameWindowOf } from '../frame-window.ts'
 import { hiddenIn } from '../preview/css.ts'
 import { onPreviewApplied, screenElementsOf, usePreviewRemeasure } from '../preview/use-preview.ts'
 import { moveDrag } from './drag-store.ts'
-import { canvasRectOf } from './geometry.ts'
+import { canvasCropOf, canvasRectOf } from './geometry.ts'
 import { refind, type Hovered } from './pick.ts'
 import { SelectionBar } from './SelectionBar.tsx'
 import { selection, selectionKey, useSelection } from './store.ts'
@@ -128,11 +129,14 @@ export function SelectionOverlay({ view, frames, documents, hover, shown }: Sele
   usePreviewRemeasure(remeasure, true)
 
   // The rectangle of a node of a frame in canvas coordinates; null when the
-  // node is not in the current document of its frame.
+  // node is not in the current document of its frame. In a frame with a crop
+  // it is the part of the node that the crop shows (`inCrop`): the outline
+  // of an element that is larger than the crop ends at the crop, and an
+  // element that the crop does not show has no outline.
   const rectOf = (screenId: string, node: Element): Rect | null => {
     const box = boxes.get(screenId)
     if (!box || node.ownerDocument !== documents.get(screenId) || !node.isConnected) return null
-    return canvasRectOf(view, box, node.getBoundingClientRect())
+    return inCrop(canvasRectOf(view, box, node.getBoundingClientRect()), canvasCropOf(view, box))
   }
 
   if (!shown) return null

@@ -13,6 +13,7 @@ import { messageOf } from '../src/tokens/format.ts'
 import { flowOrders, orderScreens, type FlowError, type FlowFile } from './flow.ts'
 import type { LibrarySources } from './jsx.ts'
 import { levelOf, type Level, type Pack } from './pack.ts'
+import { partFacts, partOf, type PartFacts } from './part.ts'
 import { linkIds, screenFacts, type TextRange } from './screen-facts.ts'
 
 // `stateOf` and `optionOf` are the id of the base screen of a state or of an
@@ -42,6 +43,15 @@ export type ScreenEntry = {
   // chain). The screen is valid: the entry then has no relation fields and is a
   // base screen.
   relationError?: string
+  // The place of the part of an option of one element, as `<line>:<column>`
+  // of the `<` of its JSX element (the numbers of the location of that
+  // element): the block after the marker `canvas-part` (`part.ts`). The canvas
+  // shows the frame of such an option cropped to that block.
+  part?: string
+  // The cause when the marker of the part breaks a rule (more than one
+  // marker, no JSX element after it, a screen that is not an option). The
+  // entry then has no `part`, and the whole screen shows.
+  partError?: string
   // The error text when the file cannot be read; then `title` is the name and
   // `width` is the first width of the config.
   error?: string
@@ -249,7 +259,10 @@ function withRelationError(entry: ScreenEntry, problem: string): ScreenEntry {
 // The list of the virtual module. A file with an error gives an entry with
 // the error text, thus one broken screen does not break the editor. A broken
 // relation gives an entry with `relationError`, not an error: the screen
-// stays visible. `library` is the sources of the library, or null with no
+// stays visible. An option with the marker of its part gets `part`, and a
+// marker that breaks a rule gives `partError` (`partOf`); a screen with a
+// broken relation gets neither, because its relation is the finding.
+// `library` is the sources of the library, or null with no
 // library; the links of a file do not depend on it. The list is in
 // the sequence of `orderScreens`: by flow, then by the `flow.json` of each flow
 // (`flowFiles`; a file that is not valid counts as no file), then by name.
@@ -260,10 +273,13 @@ export function screenList(
   library: LibrarySources | null = null,
   flowFiles: readonly FlowFile[] = [],
 ): ScreenEntry[] {
+  const parts = new Map<string, PartFacts>()
   const entries = files.map(({ file, code }) => {
     try {
       const entry = screenEntry(file, readScreenMeta(code, file, widths), screensFolder)
-      return { ...entry, links: linkIds(screenFacts(code, file, library)) }
+      const links = linkIds(screenFacts(code, file, library))
+      parts.set(entry.id, partFacts(code, file))
+      return { ...entry, links }
     } catch (error) {
       const fallback = screenEntry(file, { title: '', width: widths[0] }, screensFolder)
       return { ...fallback, title: fallback.name, error: messageOf(error) }
@@ -273,7 +289,15 @@ export function screenList(
   return orderScreens(
     entries.map((entry) => {
       const problem = problems.get(entry.id)
-      return problem === undefined ? entry : withRelationError(entry, problem)
+      if (problem !== undefined) return withRelationError(entry, problem)
+      const facts = parts.get(entry.id)
+      if (facts === undefined) return entry
+      const { part, problem: partError } = partOf(facts, entry.optionOf !== undefined)
+      return {
+        ...entry,
+        ...(part === undefined ? {} : { part }),
+        ...(partError === undefined ? {} : { partError }),
+      }
     }),
     flowOrders(flowFiles),
   )

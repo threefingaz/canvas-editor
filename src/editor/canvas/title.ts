@@ -14,6 +14,7 @@ export type TitlePart =
   | 'width'
   | 'relation'
   | 'keep'
+  | 'whole'
   | 'actions'
   | 'menu'
 
@@ -34,6 +35,7 @@ export const titleMin = 48
 // it has with `pinsWidth`.
 // `relation` is the text of a relation error; its icon is `relationIcon`.
 // `asked` is the mark of the open requests for options ("Options asked: 3").
+// `whole` is the switch of an option with a part ("Show the whole screen").
 // `actions` are up to three icons: "Comment on the screen", "Ask for options"
 // (not for an option) and "Open as a full page". `menu` is the button of the
 // menu of the screen actions.
@@ -46,6 +48,7 @@ export const partWidth: Record<Exclude<TitlePart, 'title'>, number> = {
   width: 32,
   relation: 120,
   keep: 112,
+  whole: 16,
   actions: 60,
   menu: 22,
 }
@@ -53,22 +56,27 @@ export const partWidth: Record<Exclude<TitlePart, 'title'>, number> = {
 // The icon of a relation error stays when its text goes out.
 export const relationIcon = 14
 
-// The order of removal. "Keep this option" goes out with the actions. The
-// menu of the screen actions is the last action to go out: it stays after
-// the counts, thus a small frame can still be moved and deleted.
+// The order of removal. "Keep this option" and the switch of the whole
+// screen stay after the counts: the frame of an option with a part is as
+// small as its block, and the choice of an option is what its row is for.
+// The menu of the screen actions is the last action to go out, thus a small
+// frame can still be moved and deleted.
 const removal: readonly (readonly TitlePart[])[] = [
-  ['actions', 'keep'],
+  ['actions'],
   ['width'],
   ['relation'],
   ['asked'],
   ['options'],
   ['pins'],
   ['issues'],
+  ['keep'],
+  ['whole'],
   ['menu'],
   ['mark'],
 ]
 
-// `available` is the width of the row on the screen (`box.width * scale`),
+// `available` is the width of the row on the screen (the width of the frame
+// by the scale; for a frame with a crop, the width of its column),
 // `present` the parts that the frame has, in the order of the row. `widths`
 // gives a part a width of its own in place of `partWidth` (the pins, from
 // `pinsWidth`). The result keeps the order of `present`.
@@ -119,8 +127,10 @@ export function pinsWidth(pins: readonly { number: number; count: number }[]): n
 // mark of a state or an option, the title, the count of options, the width,
 // the relation error, the count of issues, the pins (comments on the screen,
 // lost comments), the mark of the asked options, "Keep this option", the
-// actions, and the menu of the screen actions (none with the Preview switch
-// on).
+// switch of the whole screen (an option with a part), the actions, and the
+// menu of the screen actions (none with the Preview switch on).
+// `relationError` is true for a cause that the row shows: a broken relation,
+// or a marker of a part that breaks a rule.
 export function presentParts(state: {
   related: boolean
   options: boolean
@@ -128,6 +138,7 @@ export function presentParts(state: {
   pins: boolean
   asked: boolean
   keep: boolean
+  part: boolean
   menu: boolean
 }): TitlePart[] {
   const parts: TitlePart[] = []
@@ -140,6 +151,7 @@ export function presentParts(state: {
   if (state.pins) parts.push('pins')
   if (state.asked) parts.push('asked')
   if (state.keep) parts.push('keep')
+  if (state.part) parts.push('whole')
   parts.push('actions')
   if (state.menu) parts.push('menu')
   return parts

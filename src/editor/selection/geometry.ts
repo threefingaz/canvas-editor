@@ -30,3 +30,11 @@ export function toEditorRect(nodeRect: Rect, frameRect: Point, scale: number): R
 export function canvasRectOf(view: View, box: Point, nodeRect: Rect): Rect {
   return toEditorRect(nodeRect, toScreen(view, box), view.scale)
 }
+
+// The crop of a frame in canvas coordinates: `box` is the frame box of the
+// layout, whose `crop` is in the coordinates of the frame document. Null for
+// a frame that shows whole. A mark of the canvas is drawn only in it
+// (`inCrop` in `canvas/part.ts`).
+export function canvasCropOf(view: View, box: Point & { crop?: Rect }): Rect | null {
+  return box.crop ? canvasRectOf(view, box, box.crop) : null
+}

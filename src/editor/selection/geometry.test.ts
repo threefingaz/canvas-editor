@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { canvasRectOf, toEditorRect, toFramePoint } from './geometry.ts'
+import { canvasCropOf, canvasRectOf, toEditorRect, toFramePoint } from './geometry.ts'
 
 // The frame shows at (100, 40) in the editor.
 const frameRect = { x: 100, y: 40 }
@@ -70,5 +70,19 @@ describe('canvasRectOf', () => {
     const view = { x: -300, y: 12, scale: 2 }
     const box = { x: 80, y: 60 }
     expect(canvasRectOf(view, box, nodeRect)).toEqual(toEditorRect(nodeRect, { x: -140, y: 132 }, 2))
+  })
+})
+
+describe('canvasCropOf', () => {
+  const view = { x: 30, y: 40, scale: 0.5 }
+
+  test('a whole frame has no crop', () => {
+    expect(canvasCropOf(view, { x: 100, y: 200 })).toBeNull()
+  })
+
+  test('the crop of the frame document is placed from the corner of the box', () => {
+    const box = { x: -376, y: 1084, crop: { x: 376, y: 276, width: 648, height: 248 } }
+    // The crop starts at the world point (0, 1360).
+    expect(canvasCropOf(view, box)).toEqual({ x: 30, y: 40 + 680, width: 324, height: 124 })
   })
 })

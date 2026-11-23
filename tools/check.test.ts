@@ -45,6 +45,26 @@ describe('checkScreens', () => {
     expect(result.findings[0].line).toBeUndefined()
   })
 
+  test('the marker of a part: no finding in an option, a `part` finding where it breaks a rule', () => {
+    const block = `<Box>\n      {/* canvas-part */}\n      <Button>Go</Button>\n    </Box>`
+    const option = (id: string, body: string) => file(id, body, `{ title: 'O', width: 1440, optionOf: 'a/one' }`)
+    const result = checkScreens(
+      [
+        file('a/one', block),
+        option('a/one-option-1', block),
+        option('a/one-option-2', block.replace('<Button>', '{/* canvas-part */}<Button>')),
+        option('a/one-option-3', `<Box>\n      <Button>Go</Button>\n      {/* canvas-part */}\n    </Box>`),
+      ],
+      { library: lib },
+    )
+    expect(result.findings.map((finding) => `${finding.screen} ${finding.kind}`)).toEqual([
+      'a/one part',
+      'a/one-option-2 part',
+      'a/one-option-3 part',
+    ])
+    expect(result.findings[0].line).toBeUndefined()
+  })
+
   test('takes the widths of the project: a width that it does not have is an error of the file', () => {
     const files = [file('a/one', '<Box />', `{ title: 'One', width: 1280 }`)]
     expect(checkScreens(files, { library: lib }).findings.map((finding) => finding.kind)).toEqual(['file'])

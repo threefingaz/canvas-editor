@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
 import { config } from '../canvas.config.ts'
 import { agentSentence, guidePath } from '../src/editor/requests/agent-sentence.ts'
+import { partMarker } from './part.ts'
 
 // The guide for the agent: the short `AGENTS.md`, the references in `guide/`
 // and the skills in `guide/skills/`. An agent follows a relative link from one
@@ -105,6 +106,15 @@ describe('the guide', () => {
   test('guide/requests.md has the fixed sentence', () => {
     expect(read(join(root, 'guide/requests.md'))).toContain(agentSentence(guidePath))
   })
+
+  // The agent writes the marker of the block of an option as the parser
+  // reads it (`part.ts`).
+  test.each(['guide/requests.md', 'guide/screen-files.md', 'guide/skills/canvas-apply/SKILL.md'])(
+    '%s writes the marker of the block of an option',
+    (name) => {
+      expect(read(join(root, name))).toContain(`{/* ${partMarker} */}`)
+    },
+  )
 
   test('AGENTS.md names no agent and no code editor', () => {
     expect(read(agents)).not.toMatch(/copilot|vs ?code|visual studio|claude|code chat/i)

@@ -5,7 +5,7 @@ description: Check the screen files against the design system and fix what the c
 
 # Check the screens
 
-`canvas check` runs as `AGENTS.md` says. It reads each screen file and finds what the code does against the design system and against the rules of a screen file: an element that is not from the library, an inline `style`, a `className`, a raw value (`'13px'`, `'#667085'`, a number of pixels), a handler or a hook, an import of a component, a placeholder text, a link to a screen that does not exist, a wrong `meta`, a `flow.json` that is not valid, a broken relation. It exits with 1 when it finds one. `canvas check -- <screen>` checks one screen.
+`canvas check` runs as `AGENTS.md` says. It reads each screen file and finds what the code does against the design system and against the rules of a screen file: an element that is not from the library, an inline `style`, a `className`, a raw value (`'13px'`, `'#667085'`, a number of pixels), a handler or a hook, an import of a component, a placeholder text, a link to a screen that does not exist, a wrong `meta`, a `flow.json` that is not valid, a broken relation, a marker of the block of an option (`canvas-part`) that breaks a rule. It exits with 1 when it finds one. `canvas check -- <screen>` checks one screen.
 
 1. **Run `canvas check`.** With no finding, say so, and stop.
 2. **Read** [Screen files](../../screen-files.md), and `packs/<name>/AGENTS.md` with the library skill that it links: the parts and the tokens of the library. At the level `connected` the pack has often neither: use "Before the tokens are set up" in [canvas-screen](../canvas-screen/SKILL.md).

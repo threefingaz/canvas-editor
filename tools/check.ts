@@ -5,6 +5,8 @@
 // - `file`: the file cannot be read as a screen (a syntax error, a wrong
 //   `meta`), or a `flow.json` is not valid;
 // - `relation`: `stateOf` or `optionOf` breaks a rule of the list;
+// - `part`: the marker `canvas-part` of an option breaks a rule (more than
+//   one marker, no JSX element after it, a screen that is not an option);
 // - `broken-link`: a link to a screen address that no screen has;
 // - `not-library`: an element that is not from the library (a plain element,
 //   or a component of the file or of a different module);
@@ -37,6 +39,7 @@ import { screenList, type ScreenEntry, type ScreenFile } from './screens.ts'
 export const findingKinds = [
   'file',
   'relation',
+  'part',
   'broken-link',
   'not-library',
   'inline-style',
@@ -148,6 +151,7 @@ export function checkScreens(files: readonly ScreenFile[], options: CheckOptions
       continue
     }
     if (entry.relationError !== undefined) findings.push({ ...base, kind: 'relation', text: entry.relationError })
+    if (entry.partError !== undefined) findings.push({ ...base, kind: 'part', text: entry.partError })
 
     const scale = options.scaleKeys ? new Set(options.scaleKeys) : null
     const facts = screenFacts(codeOf.get(entry.file) ?? '', entry.file, options.library, scale)
