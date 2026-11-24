@@ -29,7 +29,7 @@ Look in this sequence, and stop at the first that exists. Name the source in you
 
 If the library has more than one theme or mode (light and dark, brands), take the one that the entry of the host application uses, else the default of the library, and name it in your report. The tool reads one set of values.
 
-**Values that change with the width.** A library can redefine a token variable in a media rule (a smaller gap below a breakpoint), or write its sizes in `rem` with a root font size that changes at a breakpoint. Then the value of a token in a narrow frame is not its value in a wide one. Write the value of the widest range in `value`, and the others in `media`: a list of `{ "query": "<media condition>", "value": … }`, in the sequence of the stylesheet. The editor takes, in each frame, the last entry whose condition holds there; a text style gives its five parts for each range. With no `media`, each value in a narrow frame shows as "no token". Read the conditions from the stylesheet as they are written (`(width < 767px)`).
+**Values that change with the width.** A library can redefine a token variable in a media rule (a smaller gap below a breakpoint), or write its sizes in `rem` with a root font size that changes at a breakpoint. Then the value of a token in a narrow frame is not its value in a wide one. Write the value of the widest range in `value`, and the others in `media`: a list of `{ "query": "<media condition>", "value": … }`, in the sequence of the stylesheet. The editor takes, in each frame, the last entry whose condition holds there; a text style gives its five parts for each range. With no `media`, each value in a narrow frame shows as "no token". Read the conditions from the stylesheet as they are written (`(width < 767px)`). Two conditions can overlap: `(width < 767px)` holds only where `(width < 768px)` holds too. Then write the wider condition first, and compute the value of the narrower one with each declaration of the wider one. `tokensFromCss` and `variablesFromCss` do this for the conditions of the width.
 
 ## Question 2: how does a token reach the page?
 
@@ -96,7 +96,7 @@ export function tokens(): Token[] {
 
 When the theme gives a scale as a function (`theme.spacing(2)`), give the helper an object of the steps: `{ ...theme, spacing: Object.fromEntries(steps.map((step) => [String(step), theme.spacing(step)])) }`.
 
-**A stylesheet with custom properties**: `tokensFromCss(text, options)`. It reads the custom properties of the root rules (`:root`, `html`, `:host`), follows an alias to a different variable, gives the values of a media rule as `media` values, and turns `rem` into px. The group comes from the value (a color) and from the words of the name (`radius`, `gap`, `spacing`, `shadow`, `border-width`); `rules` adds name rules before these, and a rule with `group: null` leaves a variable out. `code` is `var(--name)` unless the option `code` gives a different form. Give it the form that a screen writes: for components that take a token as a prop value (`gap={4}` gives the class with `var(--ui-space-4)`), the `code` is that value (`4`); `var(--name)` only when a screen can write the variable itself. The entry runs in Node: read the file with `node:fs`. The type check of `canvas build` in a host leaves the token entry out (the `tsconfig.json` that `canvas init` writes), because a host can have no types of Node; keep the imports of Node in the token entry, not in a file that the provider or a screen imports.
+**A stylesheet with custom properties**: `tokensFromCss(text, options)`. It reads the custom properties of the root rules (`:root`, `html`, `:host`), follows an alias to a different variable, gives the values of a media rule as `media` values, and turns `rem` into px. The group comes from the value (a color) and from the words of the name (`radius`, `gap`, `spacing`, `shadow`, `border-width`); `rules` adds name rules before these, and a rule with `group: null` leaves a variable out. The `id` and the `name` of each token are the name of its variable with no `--` (`gap-xs` for `--gap-xs`, with the prefix of the library when the variable has one), not the form of the table above (`spacing.4`). This is correct: the id is unique, and it names the variable that a developer knows. Do not change them. `code` is `var(--name)` unless the option `code` gives a different form. Give it the form that a screen writes: for components that take a token as a prop value (`gap={4}` gives the class with `var(--ui-space-4)`), the `code` is that value (`4`); `var(--name)` only when a screen can write the variable itself. The entry runs in Node: read the file with `node:fs`. The type check of `canvas build` in a host leaves the token entry out (the `tsconfig.json` that `canvas init` writes), because a host can have no types of Node; keep the imports of Node in the token entry, not in a file that the provider or a screen imports.
 
 ```ts
 import { readFileSync } from 'node:fs'
@@ -114,6 +114,30 @@ export function tokens(): Token[] {
 ```
 
 A stylesheet in a folder of the host: `new URL('<relative path>', import.meta.url)` in place of the `resolve`. Text styles come from the classes of the stylesheet, not from one variable: add them as tokens of the group `textStyle` with their five parts and their `selector`, after the list of the helper.
+
+**The parts of a text style.** A class of a text style often writes its parts as variables that are not tokens (`font-size: var(--font-size-xl)`), in `rem` and with values that change with the width. Do not make tokens of them with a name rule, and do not compute them by hand: `variablesFromCss(text, options)` gives each custom property of the root rules by its name, with its resolved `value` (an alias followed, `rem` in px, a `calc()` of px computed) and its `media` values. The options are `rootFontSize` and `rootSelectors`. Its `media` list has one entry for each media condition of the root rules, in the same sequence for each variable, also where the value does not change. Thus you join the parts by the condition: the text style gets one `media` entry for each condition, with the five parts of that condition. A part that the class writes as a fixed value is the same in each entry.
+
+```ts
+const variables = variablesFromCss(css)
+const size = variables['--font-size-xl']
+const line = variables['--line-height-xl']
+const fixed = { fontFamily: 'Widget, sans-serif', fontWeight: '600', letterSpacing: 'normal' }
+
+const heading: Token = {
+  id: 'text-heading',
+  group: 'textStyle',
+  name: 'heading',
+  value: { ...fixed, fontSize: size.value, lineHeight: line.value },
+  selector: '.text-heading',
+  code: 'heading',
+  media: size.media.map((entry, index) => ({
+    query: entry.query,
+    value: { ...fixed, fontSize: entry.value, lineHeight: line.media[index].value },
+  })),
+}
+```
+
+A line height with no unit stays a number (`1.5`): multiply it with the size of the font for the px value that the format needs. When the class itself is in a media rule, read its parts for that condition by hand.
 
 **Both, or a part that no helper gives**: join the lists, and write a token by hand in the format above. **The documentation as the source**: write the list by hand, and say in your report that it does not follow the library by itself. Do not write `tokens.json` by hand.
 

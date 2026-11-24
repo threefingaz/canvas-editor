@@ -43,7 +43,7 @@ These three things hold also when the user asks for a different thing:
 
 1. **The form of a screen file:** one file for one screen, with `meta`; only the parts of the library; no state, no handlers, no component of your own, and no import from the tool. [guide/screen-files.md](guide/screen-files.md) has the rules.
 2. **No change of the library:** not of its pack in `packs/`, and not of `tokens.json`. When a task needs one, say so in your reply. The one exception is the setup of the library itself (`canvas-library-setup`: its two levels, and an update of the library), and the provider step of `canvas-screen` ("Before the tokens are set up").
-3. **No change outside `screens/` for a request**, except the request files in `.canvas/requests/`, as [guide/requests.md](guide/requests.md) says.
+3. **No change outside `screens/` for a request**, except the request files in `.canvas/requests/`, as [guide/requests.md](guide/requests.md) says. What a command of the tool writes (`dist/` of `canvas build`) is not your change.
 
 ## Commands
 
@@ -52,10 +52,10 @@ The guide writes each command of the tool as `canvas <command>`. Here, `canvas <
 - `canvas check -- <screen>…`: checks the named screen files with no browser, and prints each finding with its file, line and kind. With no screen, it checks all. Run it after each change of a screen.
 - `canvas build`: the type check, then the build of the prototype site into `dist/`.
 - `canvas tokens`: writes `tokens.json` from the token entry of the library pack.
-- `canvas dev`: starts the editor at http://localhost:5173/ and the site at http://localhost:5173/site.html.
+- `canvas dev`: starts the editor at http://localhost:5173/ and the site at http://localhost:5173/site.html (with `--port <number>`, at that port; the command prints the address).
 - `canvas preview`: serves the built site from `dist/`.
 - `canvas init`: connects a library at level 1 (the pack, an empty token entry), as [canvas-library-setup](guide/skills/canvas-library-setup/SKILL.md) says. In a project of its own it needs `--library <package>[@<range>]` (with no range, `latest`), and then `npm install`; in a host it finds the library that the host has installed.
-- `canvas status`: the state of the project: the library and its level, the tokens by group, the library skill, the screens, the findings of the check, and the next step of the setup. Run it first when you are not sure what is set up.
+- `canvas status`: the state of the project: the library and its level, the tokens by group, the library skill, the screens, the findings of the check, the address of a dev server that runs, and the next step of the setup. Run it first when you are not sure what is set up.
 - `canvas sync`: in a project in a host, copies this file and `guide/` again from the tool, after an update of the tool. Do not change the copy by hand.
 
 A path in a request file and in the output of `canvas check` is relative to the folder of this file.

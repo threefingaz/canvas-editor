@@ -62,11 +62,21 @@ export function typeCheckOf(project: string, tool: string, exists: Exists): Type
   return { args: ['-p', tsconfig, '--noEmit'], cwd: slashes(project) }
 }
 
+// The line that the build prints before the build of Vite, thus its output
+// says whether the type check ran: with no type check, why; after a type
+// check that passed, the command of `tsc` (`tsc -b` for the tool, or `tsc -p`
+// with the `tsconfig.json` of the project). A type check that fails prints the
+// errors of `tsc`, and the build stops.
+export function typeCheckLine(check: TypeCheck | null, project: string): string {
+  if (check === null) return `The project has no tsconfig.json: no type check (${project}).`
+  return `The type check passed: tsc ${check.args.join(' ')}${check.args[0] === '-b' ? ` (all code of the tool, in ${check.cwd})` : ''}.`
+}
+
 function typeCheck(): Promise<number> {
   const project = currentProject()
   const check = typeCheckOf(project, toolRoot, existsSync)
   if (check === null) {
-    console.log(`The project has no tsconfig.json: no type check (${project}).`)
+    console.log(typeCheckLine(null, project))
     return Promise.resolve(0)
   }
   const packageFile = createRequire(import.meta.url).resolve('typescript/package.json')
@@ -77,7 +87,10 @@ function typeCheck(): Promise<number> {
       console.error(`The type check did not start: ${error.message}`)
       resolve(1)
     })
-    child.on('close', (code) => resolve(code ?? 1))
+    child.on('close', (code) => {
+      if (code === 0) console.log(typeCheckLine(check, project))
+      resolve(code ?? 1)
+    })
   })
 }
 

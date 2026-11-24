@@ -4,6 +4,7 @@ import { dirname, join, posix } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { tokensSentence } from '../src/frame/library-setup.ts'
 import { formatTokens, type Token } from '../src/tokens/format.ts'
+import { writeDevRecord } from './dev-record.ts'
 import { applyInit, diskOf, initPlan } from './init.ts'
 import { slashes, toolRoot } from './project.ts'
 import { nextStep, readStatus, statusText, type Status } from './status.ts'
@@ -55,6 +56,8 @@ describe('readStatus', () => {
       provider: { path: 'packs/acme/library/provider.tsx', exists: true },
       tokens: { kind: 'ok', count: 0 },
       skill: null,
+      packGuide: { path: 'packs/acme/AGENTS.md', exists: false },
+      dev: null,
       screens: { count: 1, flows: 1 },
       check: { findings: 1, kinds: { 'not-library': 1 } },
       guide: { changes: 0 },
@@ -67,14 +70,38 @@ describe('readStatus', () => {
     expect(text).toContain('Check: 1 finding (not-library 1)')
     expect(text).toContain('Guide: written by canvas-editor')
     expect(text).toContain(tokensSentence)
+    expect(text).toContain('Dev server: no record of a running one (.canvas/dev.json)')
 
-    // Tokens, a library skill, and an older guide.
+    // Tokens only: the level is ready, and the setup is not done.
     write(join(project, 'tokens.json'), formatTokens([token]))
+    const tokensOnly = statusText(await readStatus(project, toolRoot))
+    expect(tokensOnly).toContain('(level ready)')
+    expect(tokensOnly).toContain('Library skill: none yet')
+    expect(tokensOnly).toContain('Pack guide: none yet (packs/acme/AGENTS.md)')
+    expect(tokensOnly).toContain('Next: Write the library skill packs/acme/skills/canvas-library-acme/SKILL.md (level 2, step 5')
+    expect(tokensOnly).not.toContain('the setup is done')
+
+    // A library skill and no AGENTS.md of the pack.
     write(join(project, 'packs/acme/skills/canvas-library-acme/SKILL.md'), '---\nname: canvas-library-acme\ndescription: x\n---\n')
+    const withSkill = statusText(await readStatus(project, toolRoot))
+    expect(withSkill).toContain('Next: Write packs/acme/AGENTS.md (level 2, step 6')
+    expect(withSkill).not.toContain('the setup is done')
+
+    // The AGENTS.md of the pack, an older guide, and a dev server of this process.
+    write(join(project, 'packs/acme/AGENTS.md'), '# The library\n')
     write(join(project, 'guide/requests.md'), 'older\n')
+    writeDevRecord(project, { port: 5199, pid: process.pid, url: 'http://localhost:5199/' })
     const ready = await readStatus(project, toolRoot)
-    expect(ready).toMatchObject({ level: 'ready', skill: 'packs/acme/skills/canvas-library-acme/SKILL.md', guide: { changes: 1 } })
+    expect(ready).toMatchObject({
+      level: 'ready',
+      skill: 'packs/acme/skills/canvas-library-acme/SKILL.md',
+      packGuide: { path: 'packs/acme/AGENTS.md', exists: true },
+      dev: { url: 'http://localhost:5199/' },
+      guide: { changes: 1 },
+    })
     const readyText = statusText(ready)
+    expect(readyText).toContain('Pack guide: packs/acme/AGENTS.md')
+    expect(readyText).toContain('Dev server: http://localhost:5199/ (running)')
     expect(readyText).toContain('Tokens: 1 (color 1, spacing 0')
     expect(readyText).toContain('canvas sync writes 1 file')
     expect(readyText).toContain('Next: the setup is done.')
@@ -117,9 +144,11 @@ describe('statusText and nextStep', () => {
     provider: null,
     tokens: { kind: 'missing' },
     skill: null,
+    packGuide: null,
     screens: { count: 0, flows: 0 },
     check: { findings: 0, kinds: {} },
     agent: { setting: 'clipboard', way: { kind: 'clipboard' } },
+    dev: null,
     tool: '1.0.0',
     guide: null,
     settingsError: null,
@@ -136,14 +165,36 @@ describe('statusText and nextStep', () => {
   })
 
   test('the order of the next steps', () => {
-    const pack = { library: { name: 'a', sources: ['a'], folder: 'packs/a' }, provider: { path: 'packs/a/library/provider.tsx', exists: true } }
+    const pack = {
+      library: { name: 'a', sources: ['a'], folder: 'packs/a' },
+      provider: { path: 'packs/a/library/provider.tsx', exists: true },
+      packGuide: { path: 'packs/a/AGENTS.md', exists: false },
+    }
+    const tokens = { kind: 'ok' as const, groups: { color: 1 }, count: 1 }
     expect(nextStep({ ...base, packError: 'two packs' })).toContain('Fix the pack')
     expect(nextStep({ ...base, ...pack, level: 'ready', provider: { path: 'x', exists: false } })).toContain('Write the provider x')
     expect(nextStep({ ...base, ...pack, level: 'ready' })).toContain('canvas tokens')
     expect(nextStep({ ...base, ...pack, level: 'ready', tokens: { kind: 'error', message: 'bad' } })).toContain('canvas tokens')
     expect(nextStep({ ...base, ...pack, level: 'connected', tokens: { kind: 'ok', groups: {}, count: 0 } })).toContain('level 2')
-    expect(nextStep({ ...base, ...pack, level: 'ready', tokens: { kind: 'ok', groups: { color: 1 }, count: 1 } })).toContain('library skill')
-    expect(nextStep({ ...base, ...pack, level: 'ready', tokens: { kind: 'ok', groups: { color: 1 }, count: 1 }, skill: 's' })).toBeNull()
+    // The level ready is not the end: the library skill, then the AGENTS.md of the pack.
+    expect(nextStep({ ...base, ...pack, level: 'ready', tokens })).toBe(
+      'Write the library skill packs/a/skills/canvas-library-a/SKILL.md (level 2, step 5 of the skill canvas-library-setup). The tokens are set up; the agent has no library skill yet.',
+    )
+    expect(nextStep({ ...base, ...pack, level: 'ready', tokens, skill: 's' })).toBe(
+      'Write packs/a/AGENTS.md (level 2, step 6 of the skill canvas-library-setup): the instructions of the library for the agent, with the link to the library skill.',
+    )
+    const done = { ...base, ...pack, level: 'ready' as const, tokens, skill: 's', packGuide: { path: 'packs/a/AGENTS.md', exists: true } }
+    expect(nextStep(done)).toBeNull()
+    const text = statusText(done)
+    expect(text).toContain('Pack guide: packs/a/AGENTS.md')
+    expect(text).toContain('Next: the setup is done.')
+    expect(statusText({ ...done, skill: null })).not.toContain('the setup is done')
+    expect(statusText({ ...done, packGuide: pack.packGuide })).toContain('Pack guide: none yet (packs/a/AGENTS.md)')
+  })
+
+  test('the dev server: its address when it runs', () => {
+    expect(statusText(base)).toContain('Dev server: no record of a running one (.canvas/dev.json)')
+    expect(statusText({ ...base, dev: { url: 'http://localhost:5173/' } })).toContain('Dev server: http://localhost:5173/ (running)')
   })
 
   test('the agent command, and a guide with no copy or no version line', () => {

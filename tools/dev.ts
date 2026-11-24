@@ -22,7 +22,8 @@ import { EventEmitter } from 'node:events'
 import type { Server as HttpServer } from 'node:http'
 import { posix } from 'node:path'
 import { createServer, type Connect, type Plugin, type ViteDevServer } from 'vite'
-import { toolRoot } from './project.ts'
+import { devUrl, removeDevRecord, writeDevRecord } from './dev-record.ts'
+import { currentProject, toolRoot } from './project.ts'
 import { frameMode, frameRoute } from './react-resolve.ts'
 
 // The Vite config of the tool.
@@ -115,5 +116,24 @@ export async function dev(options: ServeOptions): Promise<Servers> {
   }
   servers.editor.printUrls()
   servers.editor.bindCLIShortcuts({ print: true })
+  recordDev(servers.editor)
   return servers
+}
+
+// Writes the record of the dev server (`dev-record.ts`) and removes it when
+// the process ends. The `exit` event covers each end that Vite makes (the key
+// `q`, SIGTERM, the end of the input); a signal with no listener ends the
+// process with no `exit` event, thus SIGINT (Ctrl+C) and SIGHUP (the terminal
+// closed) end it here, with the usual exit code of the signal. A restart of a
+// server keeps the process and the port, thus the record stays right. A
+// process that is killed leaves its record; the status reads the process id.
+const signalCodes = { SIGINT: 130, SIGHUP: 129 } as const
+
+function recordDev(editor: ViteDevServer): void {
+  const address = editor.httpServer?.address()
+  const port = typeof address === 'object' && address !== null ? address.port : editor.config.server.port
+  const project = currentProject()
+  writeDevRecord(project, { port, pid: process.pid, url: devUrl(port, editor.resolvedUrls?.local) })
+  process.once('exit', () => removeDevRecord(project, process.pid))
+  for (const [signal, code] of Object.entries(signalCodes)) process.once(signal, () => process.exit(code))
 }

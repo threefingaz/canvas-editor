@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { distProblem, tscPath, typeCheckOf } from './build.ts'
+import { distProblem, tscPath, typeCheckLine, typeCheckOf } from './build.ts'
 
 describe('typeCheckOf', () => {
   const tool = '/work/host/node_modules/canvas-editor'
@@ -19,6 +19,23 @@ describe('typeCheckOf', () => {
 
   it('gives no type check for a project with no tsconfig.json', () => {
     expect(typeCheckOf('/work/host/canvas', tool, () => false)).toBeNull()
+  })
+})
+
+describe('typeCheckLine', () => {
+  const tool = '/work/tool'
+
+  it('names the command of a type check that passed', () => {
+    expect(typeCheckLine(typeCheckOf(tool, tool, () => false), tool)).toBe('The type check passed: tsc -b (all code of the tool, in /work/tool).')
+    expect(typeCheckLine(typeCheckOf('/work/host/canvas', tool, () => true), '/work/host/canvas')).toBe(
+      'The type check passed: tsc -p /work/host/canvas/tsconfig.json --noEmit.',
+    )
+  })
+
+  it('says why there was no type check', () => {
+    expect(typeCheckLine(typeCheckOf('/work/host/canvas', tool, () => false), '/work/host/canvas')).toBe(
+      'The project has no tsconfig.json: no type check (/work/host/canvas).',
+    )
   })
 })
 

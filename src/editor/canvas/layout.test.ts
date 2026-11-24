@@ -141,6 +141,31 @@ describe('layoutFrames', () => {
     ])
   })
 
+  test('gives each option its number among the options of its frame, in the order of the list', () => {
+    const screens = [
+      screen('a/one', 1440),
+      option('a/one-b', 1440, 'a/one'),
+      state('a/one-error', 1440, 'a/one'),
+      option('a/one-error-a', 1440, 'a/one-error'),
+      option('a/one-a', 1440, 'a/one'),
+      option('a/one-c', 1440, 'a/one'),
+      screen('a/two', 1440),
+      // An option of a screen that is not in the list is a group of its own.
+      option('a/lost', 1440, 'a/none'),
+    ]
+    const numbers = layoutFrames(screens, new Map()).frames.map((frame) => [frame.screen.id, frame.optionNumber])
+    expect(numbers).toEqual([
+      ['a/one', undefined],
+      ['a/one-b', 1],
+      ['a/one-a', 2],
+      ['a/one-c', 3],
+      ['a/one-error', undefined],
+      ['a/one-error-a', 1],
+      ['a/two', undefined],
+      ['a/lost', undefined],
+    ])
+  })
+
   test('puts the options of a state below the state', () => {
     const screens = [
       screen('a/one', 1440),

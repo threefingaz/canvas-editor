@@ -1103,7 +1103,7 @@ Each item is for a later step. The step is in brackets. Seven items left this li
 - **The editor** has all of step 10, the move of an element and the four needs, and now the screen actions: the menu of a frame (rename, title, move to a flow, move in the row, delete into the trash) and "Restore" in the Project tab. "Send to the agent" takes its way from `agent`: `'auto'`, the clipboard, a preset, or a command.
 - Vitest tests the pure logic (2120 tests). The interface was checked in the browser pane, and the proof ran in scratch hosts with fresh agents (see "Results of an independent tool").
 - `tokens.json` is not committed.
-- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and twelve commits, exports of `canvas-tool`; its remote is the public repository `canvas-editor` on GitHub. Its last export is of 2026-11-23, the block of an option on the canvas, with the tag `v0.2.0`. `docs/development.md`, section "Current state", says how a new export goes into it.
+- The clean repository is `../canvas-editor`, next to this repository: a Git repository with the branch `main` and thirteen commits, exports of `canvas-tool`; its remote is the public repository `canvas-editor` on GitHub. Its last export is of 2026-11-24, the fixes after the test in a host on this machine, with the tag `v0.2.1`. `docs/development.md`, section "Current state", says how a new export goes into it.
 - Not done yet: the checks of the user with his own mouse and trackpad (step 10, the move on the canvas, the screen actions), the new export, and the test in the work environment.
 
 ## Next steps

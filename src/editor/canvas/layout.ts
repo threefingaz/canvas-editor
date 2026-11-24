@@ -24,7 +24,9 @@ export type LayoutScreen = Pick<ScreenEntry, 'id' | 'flow' | 'width' | 'error' |
 // box); a whole frame has none. `titleWidth` is the room of the title row of
 // a frame with a crop, in world coordinates: the width of its column, because
 // the crop of a small block is narrower than its title, and the column has
-// no frame at the right of the crop.
+// no frame at the right of the crop. `optionNumber` is the number of an
+// option among the options of its frame, from 1, in the order of the list
+// (`screenGroups`); a screen that is not an option of a frame has none.
 export type FrameBox<S extends LayoutScreen = LayoutScreen> = {
   screen: S
   x: number
@@ -33,6 +35,7 @@ export type FrameBox<S extends LayoutScreen = LayoutScreen> = {
   height: number
   crop?: Rect
   titleWidth?: number
+  optionNumber?: number
 }
 
 // The rectangle of a frame that shows on the canvas, in world coordinates:
@@ -104,7 +107,9 @@ export function layoutFrames<S extends LayoutScreen>(
       let columnY = y
       let columnWidth = 0
       const first = frames.length
-      for (const item of [screen, ...options]) {
+      // The base of the column is at 0, thus the index of an option is its
+      // number.
+      for (const [number, item] of [screen, ...options].entries()) {
         const frameHeight = heightOf(item)
         const part = item.error ? undefined : parts.get(item.id)
         const crop = part && cropOf(part, { width: item.width, height: frameHeight })
@@ -116,6 +121,7 @@ export function layoutFrames<S extends LayoutScreen>(
           width: item.width,
           height: frameHeight,
           ...(crop ? { crop } : {}),
+          ...(number > 0 ? { optionNumber: number } : {}),
         })
         columnWidth = Math.max(columnWidth, shown.width)
         rowHeight = Math.max(rowHeight, columnY + shown.height - y)

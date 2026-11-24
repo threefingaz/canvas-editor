@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { parseTokens, tokensAt, type Token } from './format.ts'
-import { isColorText, tokensFromCss } from './from-css.ts'
+import { isColorText, mediaHoldsWithin, orderMedia, tokensFromCss, variablesFromCss, widthRange } from './from-css.ts'
 
 // A stylesheet with each case of the test with a CSS library: rem lengths on
 // a root font size that changes at a breakpoint, a gap scale redefined in a
@@ -218,5 +218,204 @@ describe('tokensFromCss on a stylesheet that is not complete', () => {
       expect(list.length, css).toBeLessThan(10)
     }
     expect(tokensFromCss('} } :root { --gap-s: 8px; }').map((token) => token.code)).toEqual(['var(--gap-s)'])
+  })
+})
+
+// Two media conditions that overlap: the root font size changes at one width
+// and a gap at a width that is 1px less.
+const overlap = `
+:root { font-size: 118%; --gap-xs: 0.5rem; --gap-fixed: 4px; --font-size-xl: 1.5rem; --font-weight-bold: 700; }
+@media (width < 768px) { :root { font-size: 100%; } }
+@media (width < 767px) { :root { --gap-xs: 0.35rem; } }
+`
+
+const overlapReversed = `
+:root { font-size: 118%; --gap-xs: 0.5rem; }
+@media (width < 767px) { :root { --gap-xs: 0.35rem; } }
+@media (width < 768px) { :root { font-size: 100%; } }
+`
+
+function widthHolds(width: number) {
+  return (query: string) => {
+    const range = widthRange(query)
+    if (!range) return false
+    const low = range.minOpen ? width > range.min : width >= range.min
+    const high = range.maxOpen ? width < range.max : width <= range.max
+    return low && high
+  }
+}
+
+function valueAtWidth(list: Token[], id: string, width: number) {
+  return tokensAt(list, widthHolds(width)).find((candidate) => candidate.id === id)?.value
+}
+
+describe('tokensFromCss with media conditions that overlap', () => {
+  test('computes the value of a narrower condition with the root font size of a wider one', () => {
+    expect(tokensFromCss(overlap)[0]).toMatchObject({
+      id: 'gap-xs',
+      value: '9.44px',
+      media: [
+        { query: '(width < 768px)', value: '8px' },
+        { query: '(width < 767px)', value: '5.6px' },
+      ],
+    })
+  })
+
+  test('gives the value of the page at each width through tokensAt', () => {
+    for (const css of [overlap, overlapReversed]) {
+      const list = tokensFromCss(css)
+      expect(valueAtWidth(list, 'gap-xs', 1280)).toBe('9.44px')
+      expect(valueAtWidth(list, 'gap-xs', 767)).toBe('8px')
+      expect(valueAtWidth(list, 'gap-xs', 390)).toBe('5.6px')
+    }
+  })
+
+  test('puts the wider condition first, also when the stylesheet has it last', () => {
+    expect(tokensFromCss(overlapReversed)[0].media).toEqual([
+      { query: '(width < 768px)', value: '8px' },
+      { query: '(width < 767px)', value: '5.6px' },
+    ])
+  })
+
+  test('a later declaration of a wider condition wins over a narrower one, as in the stylesheet', () => {
+    const list = tokensFromCss(`
+      :root { --gap-1: 8px; }
+      @media (max-width: 600px) { :root { --gap-1: 4px; } }
+      @media (max-width: 900px) { :root { --gap-1: 6px; } }
+    `)
+    expect(list[0].media).toEqual([{ query: '(max-width: 900px)', value: '6px' }])
+    expect(valueAtWidth(list, 'gap-1', 390)).toBe('6px')
+  })
+
+  test('keeps an entry that puts the base value back in a narrower condition', () => {
+    const list = tokensFromCss(`
+      :root { --gap-1: 8px; }
+      @media (width < 768px) { :root { --gap-1: 6px; } }
+      @media (width < 500px) { :root { --gap-1: 8px; } }
+    `)
+    expect(list[0].media).toEqual([
+      { query: '(width < 768px)', value: '6px' },
+      { query: '(width < 500px)', value: '8px' },
+    ])
+    expect(valueAtWidth(list, 'gap-1', 390)).toBe('8px')
+    expect(valueAtWidth(list, 'gap-1', 600)).toBe('6px')
+  })
+
+  test('keeps an entry of the base value when a condition that only overlaps it has a different value', () => {
+    const list = tokensFromCss(`
+      :root { --gap-1: 8px; }
+      @media (min-width: 600px) { :root { --gap-1: 6px; } }
+      @media (max-width: 900px) { :root { --gap-1: 8px; } }
+    `)
+    expect(list[0].media).toEqual([
+      { query: '(min-width: 600px)', value: '6px' },
+      { query: '(max-width: 900px)', value: '8px' },
+    ])
+    expect(valueAtWidth(list, 'gap-1', 700)).toBe('8px')
+  })
+
+  test('a condition that is not only about the width takes the declarations of its own text only', () => {
+    const list = tokensFromCss(`
+      :root { font-size: 20px; --gap-1: 1rem; }
+      @media (width < 768px) { :root { font-size: 10px; } }
+      @media screen and (width < 600px) { :root { --gap-1: 2rem; } }
+    `)
+    expect(list[0].media).toEqual([
+      { query: '(width < 768px)', value: '10px' },
+      { query: 'screen and (width < 600px)', value: '40px' },
+    ])
+  })
+})
+
+describe('widthRange', () => {
+  test('reads the conditions of the width', () => {
+    expect(widthRange('(width < 767px)')).toEqual({ min: -Infinity, minOpen: false, max: 767, maxOpen: true })
+    expect(widthRange('(width <= 767px)')).toMatchObject({ max: 767, maxOpen: false })
+    expect(widthRange('(width > 600px)')).toMatchObject({ min: 600, minOpen: true, max: Infinity })
+    expect(widthRange('(WIDTH >= 600px)')).toMatchObject({ min: 600, minOpen: false })
+    expect(widthRange('(max-width: 48em)')).toMatchObject({ max: 768, maxOpen: false })
+    expect(widthRange('(min-width:37.5rem)')).toMatchObject({ min: 600, minOpen: false })
+    expect(widthRange('(600px <= width)')).toMatchObject({ min: 600, minOpen: false })
+    expect(widthRange('(600px <= width < 900px)')).toEqual({ min: 600, minOpen: false, max: 900, maxOpen: true })
+    expect(widthRange('(min-width: 600px) and (max-width: 900px)')).toMatchObject({ min: 600, max: 900 })
+  })
+
+  test('gives null for each other condition', () => {
+    for (const query of [
+      'screen',
+      'screen and (min-width: 900px)',
+      '(prefers-color-scheme: dark)',
+      '(min-width: 600px), (max-width: 400px)',
+      'not (width < 600px)',
+      '(height < 600px)',
+      '(width < 50vw)',
+      '(min-width: 900px) and (max-width: 600px)',
+      '',
+    ]) {
+      expect(widthRange(query), query).toBeNull()
+    }
+  })
+})
+
+describe('mediaHoldsWithin and orderMedia', () => {
+  test('compares two conditions of the width, and each other condition by its text', () => {
+    expect(mediaHoldsWithin('(width < 768px)', '(width < 767px)')).toBe(true)
+    expect(mediaHoldsWithin('(width < 767px)', '(width < 768px)')).toBe(false)
+    expect(mediaHoldsWithin('(max-width: 767px)', '(width < 767px)')).toBe(true)
+    expect(mediaHoldsWithin('(width < 767px)', '(max-width: 767px)')).toBe(false)
+    expect(mediaHoldsWithin('(min-width: 600px)', '(max-width: 900px)')).toBe(false)
+    expect(mediaHoldsWithin('screen', 'screen')).toBe(true)
+    expect(mediaHoldsWithin('screen', 'screen and (width < 600px)')).toBe(false)
+  })
+
+  test('puts a condition after each one that it is a part of, and keeps the other sequence', () => {
+    expect(orderMedia(['(width < 500px)', 'print', '(min-width: 1200px)', '(width < 768px)', '(width < 600px)'])).toEqual([
+      'print',
+      '(min-width: 1200px)',
+      '(width < 768px)',
+      '(width < 600px)',
+      '(width < 500px)',
+    ])
+  })
+})
+
+describe('variablesFromCss', () => {
+  const variables = variablesFromCss(overlap)
+
+  test('gives each variable of the root rules with its resolved value, also one that is no token', () => {
+    expect(Object.keys(variables)).toEqual(['--gap-xs', '--gap-fixed', '--font-size-xl', '--font-weight-bold'])
+    expect(variables['--font-size-xl'].value).toBe('28.32px')
+    expect(variables['--font-weight-bold'].value).toBe('700')
+  })
+
+  test('gives one media value for each condition, in one sequence for all variables', () => {
+    expect(variables['--font-size-xl'].media).toEqual([
+      { query: '(width < 768px)', value: '24px' },
+      { query: '(width < 767px)', value: '24px' },
+    ])
+    expect(variables['--font-weight-bold'].media).toEqual([
+      { query: '(width < 768px)', value: '700' },
+      { query: '(width < 767px)', value: '700' },
+    ])
+    expect(variables['--gap-xs'].media.map((entry) => entry.value)).toEqual(['8px', '5.6px'])
+  })
+
+  test('follows an alias and a calc, leaves out what has no value, and takes the options', () => {
+    const list = variablesFromCss(library)
+    expect(list['--widget-radius']).toEqual({
+      value: '16px',
+      media: [
+        { query: '(min-width: 1200px)', value: '16px' },
+        { query: '(width < 767px)', value: '14px' },
+      ],
+    })
+    expect(list['--gap-l'].value).toBe('32px')
+    expect(list['--font-size-body'].value).toBe('16px')
+    expect(list['--missing']).toBeUndefined()
+    expect(list['--loop-a']).toBeUndefined()
+    expect(variablesFromCss('.theme { --size: 2rem; }', { rootSelectors: ['.theme'], rootFontSize: 10 })).toEqual({
+      '--size': { value: '20px', media: [] },
+    })
+    expect(variablesFromCss('')).toEqual({})
   })
 })

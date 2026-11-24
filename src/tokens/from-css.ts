@@ -19,6 +19,14 @@ import type { Token, TokenGroup, TokenMediaValue } from './format.ts'
 // font size of the stylesheet, and a `calc()` of px and numbers is computed.
 // A variable or a root font size that a media rule redefines gives the token
 // `media` values, one for each media condition with a different value.
+//
+// Media conditions can overlap: `(width < 767px)` holds only where
+// `(width < 768px)` holds too. The values of a condition are computed with
+// each declaration of a wider condition, as the cascade does, and the `media`
+// list has a wider condition before a narrower one, thus the last entry that
+// holds in a frame (`tokensAt`) is the value of the page. This is done for the
+// conditions of the width that can be compared (`widthRange`); each other
+// condition stands alone, with the declarations of its own text only.
 
 export type CssTokenRule = {
   // Tested on the name of the variable, with its `--`.
@@ -39,6 +47,15 @@ export type CssTokenOptions = {
   // The selectors of the root rules. Default: `:root`, `html`, `:host`.
   rootSelectors?: readonly string[]
 }
+
+// A custom property of the root rules with its resolved value. `media` has one
+// entry for each media condition of the root rules (not only where the value
+// differs), in one sequence for all variables, thus the parts of a text style
+// can be joined by the condition. The last entry whose condition holds gives
+// the value, as for a token.
+export type CssVariable = { value: string; media: { query: string; value: string }[] }
+
+export type CssVariableOptions = Pick<CssTokenOptions, 'rootFontSize' | 'rootSelectors'>
 
 type Declaration = { property: string; value: string; media: string }
 
@@ -332,14 +349,131 @@ function rootSizeOf(text: string | undefined, base: number): number {
   return amount * base
 }
 
-// The declarations that hold in a context: those with no media condition and
-// those of the condition `media`; a later one wins, as in the stylesheet.
+// --- The media conditions ---------------------------------------------------
+
+// The range of widths of a media condition, in px.
+export type WidthRange = { min: number; minOpen: boolean; max: number; maxOpen: boolean }
+
+const everyWidth: WidthRange = { min: -Infinity, minOpen: false, max: Infinity, maxOpen: false }
+const mediaLength = String.raw`(\d*\.?\d+)(px|em|rem)?`
+const namedWidth = new RegExp(`^(min|max)-width\\s*:\\s*${mediaLength}$`)
+const widthFirst = new RegExp(`^width\\s*(<=|>=|<|>)\\s*${mediaLength}$`)
+const widthLast = new RegExp(`^${mediaLength}\\s*(<=|>=|<|>)\\s*width$`)
+const widthBetween = new RegExp(`^${mediaLength}\\s*(<=|>=|<|>)\\s*width\\s*(<=|>=|<|>)\\s*${mediaLength}$`)
+
+// A length of a media condition in px. An em and a rem are 16px there: a media
+// condition does not read the font size of the page.
+function mediaPx(amount: string, unit: string | undefined): number | null {
+  const value = Number(amount)
+  if (unit === undefined) return value === 0 ? 0 : null
+  return unit === 'px' ? value : value * 16
+}
+
+// `width <op> limit` as a range.
+function sideRange(op: string, limit: number | null): WidthRange | null {
+  if (limit === null) return null
+  if (op.startsWith('<')) return { ...everyWidth, max: limit, maxOpen: op === '<' }
+  return { ...everyWidth, min: limit, minOpen: op === '>' }
+}
+
+const flipped: Record<string, string> = { '<': '>', '<=': '>=', '>': '<', '>=': '<=' }
+
+function meet(a: WidthRange | null, b: WidthRange | null): WidthRange | null {
+  if (!a || !b) return null
+  const min = Math.max(a.min, b.min)
+  const max = Math.min(a.max, b.max)
+  return {
+    min,
+    minOpen: (a.min === min && a.minOpen) || (b.min === min && b.minOpen),
+    max,
+    maxOpen: (a.max === max && a.maxOpen) || (b.max === max && b.maxOpen),
+  }
+}
+
+function featureRange(feature: string): WidthRange | null {
+  const named = namedWidth.exec(feature)
+  if (named) return sideRange(named[1] === 'max' ? '<=' : '>=', mediaPx(named[2], named[3]))
+  const first = widthFirst.exec(feature)
+  if (first) return sideRange(first[1], mediaPx(first[2], first[3]))
+  const last = widthLast.exec(feature)
+  if (last) return sideRange(flipped[last[3]], mediaPx(last[1], last[2]))
+  const between = widthBetween.exec(feature)
+  if (between) {
+    return meet(
+      sideRange(flipped[between[3]], mediaPx(between[1], between[2])),
+      sideRange(between[4], mediaPx(between[5], between[6])),
+    )
+  }
+  return null
+}
+
+// The range of widths where a media condition holds, or null for a condition
+// that is not only about the width: `(width < 767px)`, `(max-width: 48em)`,
+// `(600px <= width < 900px)`, and such parts joined with `and`. A media type,
+// a different feature, `not`, `or`, a list with commas and a range with no
+// width give null.
+export function widthRange(query: string): WidthRange | null {
+  let range: WidthRange | null = everyWidth
+  for (const part of query.trim().toLowerCase().split(/\s+and\s+/)) {
+    const feature = /^\(([^()]*)\)$/.exec(part.trim())
+    if (!feature) return null
+    range = meet(range, featureRange(feature[1].trim()))
+    if (!range) return null
+  }
+  if (range.min > range.max || (range.min === range.max && (range.minOpen || range.maxOpen))) return null
+  return range
+}
+
+// True when `inner` holds only where `outer` holds.
+function contains(outer: WidthRange, inner: WidthRange): boolean {
+  const low = outer.min < inner.min || (outer.min === inner.min && (!outer.minOpen || inner.minOpen))
+  const high = outer.max > inner.max || (outer.max === inner.max && (!outer.maxOpen || inner.maxOpen))
+  return low && high
+}
+
+function overlaps(a: WidthRange, b: WidthRange): boolean {
+  const range = meet(a, b)
+  return range !== null && (range.min < range.max || (range.min === range.max && !range.minOpen && !range.maxOpen))
+}
+
+// True when the condition `outer` holds at each width where `inner` holds:
+// the same text, or two conditions of the width with one range in the other.
+export function mediaHoldsWithin(outer: string, inner: string): boolean {
+  if (outer === inner) return true
+  const outerRange = widthRange(outer)
+  const innerRange = widthRange(inner)
+  return outerRange !== null && innerRange !== null && contains(outerRange, innerRange)
+}
+
+// The media conditions in the sequence of a `media` list: the sequence that
+// they have, but a condition that holds in a part of a different one comes
+// after it. The last entry that holds is then the narrowest.
+export function orderMedia(queries: readonly string[]): string[] {
+  const rest = [...queries]
+  const ordered: string[] = []
+  while (rest.length > 0) {
+    const next = rest.findIndex((query) => {
+      return !rest.some((other) => other !== query && mediaHoldsWithin(other, query) && !mediaHoldsWithin(query, other))
+    })
+    ordered.push(...rest.splice(Math.max(next, 0), 1))
+  }
+  return ordered
+}
+
+// The declarations that hold in a context: those with no media condition,
+// those of the condition `media`, and those of each condition that holds
+// wherever `media` holds; a later one wins, as in the stylesheet.
 function contextValues(declarations: readonly Declaration[], media: string): Map<string, string> {
   const values = new Map<string, string>()
+  const within = new Map<string, boolean>()
   for (const declaration of declarations) {
-    if (declaration.media === '' || declaration.media === media) {
-      values.set(declaration.property, declaration.value)
+    let holds = declaration.media === '' || declaration.media === media
+    if (!holds && media !== '') {
+      const known = within.get(declaration.media)
+      holds = known ?? mediaHoldsWithin(declaration.media, media)
+      within.set(declaration.media, holds)
     }
+    if (holds) values.set(declaration.property, declaration.value)
   }
   return values
 }
@@ -374,28 +508,89 @@ function groupOf(name: string, value: string, rules: readonly CssTokenRule[]): T
   return null
 }
 
+type Resolved = {
+  // The names of the variables, in the sequence of their first declaration.
+  names: string[]
+  base: Map<string, string>
+  // The values of each media condition, in the sequence of `orderMedia`.
+  media: { query: string; values: Map<string, string> }[]
+}
+
+function resolveCss(css: string, options: CssVariableOptions): Resolved {
+  const rootSize = options.rootFontSize ?? 16
+  const declarations = rootDeclarations(css, options.rootSelectors ?? defaultRootSelectors)
+  const queries = orderMedia([...new Set(declarations.map((declaration) => declaration.media).filter((media) => media !== ''))])
+  const properties = new Set(declarations.map((declaration) => declaration.property))
+  return {
+    names: [...properties].filter((name) => name.startsWith('--')),
+    base: resolveAll(declarations, '', rootSize),
+    media: queries.map((query) => ({ query, values: resolveAll(declarations, query, rootSize) })),
+  }
+}
+
+// The entries of a `media` list that a token needs: the values of the
+// conditions, in their sequence, without each one that the entries before it
+// already give. For a condition of the width, the value before it is the base
+// value or the value of the last wider condition; an entry also stays when a
+// condition that only overlaps it has a different value.
+function neededMedia(base: string, entries: readonly TokenMediaEntry[]): TokenMediaEntry[] {
+  const kept: (TokenMediaEntry & { range: WidthRange | null })[] = []
+  for (const entry of entries) {
+    const range = widthRange(entry.query)
+    let before = base
+    let unsure = false
+    if (range) {
+      for (const earlier of kept) {
+        if (!earlier.range || !overlaps(earlier.range, range)) continue
+        if (contains(earlier.range, range)) before = earlier.value
+        else if (earlier.value !== entry.value) unsure = true
+      }
+    }
+    if (entry.value !== before || unsure) kept.push({ ...entry, range })
+  }
+  return kept.map(({ query, value }) => ({ query, value }))
+}
+
+type TokenMediaEntry = { query: string; value: string }
+
+function mediaOf(resolved: Resolved, name: string): TokenMediaEntry[] {
+  const entries: TokenMediaEntry[] = []
+  for (const entry of resolved.media) {
+    const value = entry.values.get(name)
+    if (value !== undefined) entries.push({ query: entry.query, value })
+  }
+  return entries
+}
+
+// The custom properties of the root rules of `css` by their name (with `--`),
+// each with its resolved value, as a token has it: each `var()` followed, rem
+// in px, a `calc()` of px computed. It is for a value that is not a token by
+// itself, such as the parts of a text style (`var(--font-size-xl)`). A
+// variable with no value outside a media rule, or whose value cannot be
+// resolved, is left out.
+export function variablesFromCss(css: string, options: CssVariableOptions = {}): Record<string, CssVariable> {
+  const resolved = resolveCss(css, options)
+  const variables: Record<string, CssVariable> = {}
+  for (const name of resolved.names) {
+    const value = resolved.base.get(name)
+    if (value !== undefined) variables[name] = { value, media: mediaOf(resolved, name) }
+  }
+  return variables
+}
+
 // The tokens of the custom properties of the root rules of `css`, in the
 // sequence of their first declaration. A variable with no value outside a
-// media rule, or whose value cannot be resolved, is left out.
+// media rule, or whose value cannot be resolved, is left out. The id and the
+// name of a token are the name of its variable with no `--`.
 export function tokensFromCss(css: string, options: CssTokenOptions = {}): Token[] {
-  const base = options.rootFontSize ?? 16
-  const declarations = rootDeclarations(css, options.rootSelectors ?? defaultRootSelectors)
-  const queries = [...new Set(declarations.map((declaration) => declaration.media).filter((media) => media !== ''))]
-  const baseValues = resolveAll(declarations, '', base)
-  const mediaValues = queries.map((query) => ({ query, values: resolveAll(declarations, query, base) }))
-
-  const names = [...new Set(declarations.map((declaration) => declaration.property))]
+  const resolved = resolveCss(css, options)
   const tokens: Token[] = []
-  for (const name of names) {
-    const value = baseValues.get(name)
+  for (const name of resolved.names) {
+    const value = resolved.base.get(name)
     if (value === undefined) continue
     const group = groupOf(name, value, options.rules ?? [])
     if (group === null) continue
-    const media: TokenMediaValue[] = []
-    for (const entry of mediaValues) {
-      const there = entry.values.get(name)
-      if (there !== undefined && there !== value) media.push({ query: entry.query, value: there })
-    }
+    const media: TokenMediaValue[] = neededMedia(value, mediaOf(resolved, name))
     const id = name.slice(2)
     tokens.push({
       id,

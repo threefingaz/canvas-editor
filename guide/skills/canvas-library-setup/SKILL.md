@@ -15,7 +15,7 @@ All that is specific to the component library is in one folder of the project, t
 | `connected` (level 1) | the screens render with the library; selection, comments, options, links and the site work; it says "The tokens are not set up", has no token controls and counts no value as a deviation | `canvas init`, seconds |
 | `ready` (level 2) | links each value to a token, counts the deviations, and the agent has a library skill | you, with this skill |
 
-**Start with `canvas status`.** It prints the library, the level, the provider, the tokens by group, the library skill, the screens, the findings of the check, and the next step. Do the step that it names, and run it again at the end.
+**Start with `canvas status`.** It prints the library, the level, the provider, the tokens by group, the library skill, the `AGENTS.md` of the pack, the screens, the findings of the check, the address of a dev server that runs, and the next step. Do the step that it names, and run it again at the end.
 
 **Ask nothing that you can find or decide.** The package, its version, its theme, its stylesheet, its tokens and its guidance are in `package.json`, in `node_modules` and in the files of the host. Decide each detail as this skill says, and name the decision in your report, thus the user can change it. Ask only when you cannot go on: two candidates for the library and nothing in the host that tells which one the product uses, or a package to install that the user did not name.
 
@@ -46,8 +46,8 @@ Do the steps in this sequence. [Pack files](./references/pack-files.md) has the 
 
 ## The proof
 
-1. `canvas status`: the level is `ready`, each group of the library has tokens, the library skill is there, and the next step is "the setup is done".
-2. A sample screen `screens/sample/<name>.tsx` with a heading, a text, a button that links to its own screen (`href="#/sample/<name>"`), a field, a card or a panel, and a group with spacing, written with the library skill and the rules of [Screen files](../../screen-files.md). `canvas check -- sample/<name>` finds nothing. Keep it: it is the check for the next version of the library.
+1. `canvas status`: the level is `ready`, each group of the library has tokens, the library skill and the `AGENTS.md` of the pack are there, and the next step is "the setup is done". The level is `ready` as soon as the tokens exist: the level alone is not the proof.
+2. A sample screen `screens/sample/<name>.tsx` (`<name>` is the name of the pack; a library that is a folder of the host is imported by a relative path with its extension, `../../../src/design-system/index.tsx` from `canvas/screens/sample/`) with a heading, a text, a button that links to its own screen (`href="#/sample/<name>"`), a field, a card or a panel, and a group with spacing, written with the library skill and the rules of [Screen files](../../screen-files.md). `canvas check -- sample/<name>` finds nothing. Keep it: it is the check for the next version of the library.
 3. `canvas build` passes: the type check reads the pack and the screens. In a host with no types of React or Node (`@types/react`, `@types/node`), it fails also before the setup: run it once before you start, and name the errors that were there in your report; do not install a package for them.
 
 **The checks on a page** (optional, the last part; with no browser, name them as open in your report). With `canvas dev` and a visible browser: the sample renders with its styles; a click selects each element with its place in the code, and no element of the library has the marker "not from the library"; the inspector shows each color, spacing, radius, shadow and text style as **linked to a token** (a value that is only "equal to a token" is a finding: go back to the token entry); one edit of each group, applied as [Requests](../../requests.md) says, links the new token after the reload; with the Preview switch on, a click on the button keeps the canvas at its frame.

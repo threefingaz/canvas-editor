@@ -1,7 +1,7 @@
 // `canvas status`: the state of a project as a list that a person and an
 // agent read. It is the proof of the setup that needs no page: the library and
 // its level, the provider, the tokens by group, the library skill, the
-// screens, the findings of the check, the command of the agent, and the
+// `AGENTS.md` of the pack, the screens, the findings of the check, the command of the agent, and the
 // version of the tool that wrote the copy of the guide.
 //
 // `readStatus` reads the project from the disk; `statusText` (pure) gives the
@@ -10,10 +10,11 @@
 import { existsSync } from 'node:fs'
 import { posix } from 'node:path'
 import { config } from '../canvas.config.ts'
-import { connectSentence, tokensSentence } from '../src/frame/library-setup.ts'
+import { connectSentence, librarySetupSkill, tokensSentence } from '../src/frame/library-setup.ts'
 import { messageOf, parseTokens, tokenGroups, type TokenGroup } from '../src/tokens/format.ts'
 import { agentOf, settingText, wayText, type AgentChoice, type AgentWay } from './agent.ts'
 import { checkProject, readProjectScreens, type FindingKind } from './check.ts'
+import { devRecordName, readDevServer } from './dev-record.ts'
 import { diskOf, guideVersion, syncPlan, toolVersionOf } from './init.ts'
 import { levelOf, librarySources, packOf, providerPath, readPackState, type Level } from './pack.ts'
 import { projectDefaults, readProjectSettings, type ProjectSettings } from './project-config.ts'
@@ -37,10 +38,15 @@ export type Status = {
   tokens: TokenState
   // The library skill of the pack, relative to the project, or null with none.
   skill: string | null
+  // The `AGENTS.md` of the pack, relative to the project, and whether it
+  // exists. Null with no pack.
+  packGuide: { path: string; exists: boolean } | null
   screens: { count: number; flows: number }
   check: { findings: number; kinds: Partial<Record<FindingKind, number>> }
   // The setting `agent` and its way in the environment of this command.
   agent: { setting: AgentChoice; way: AgentWay }
+  // The dev server of the project that runs (`dev-record.ts`), or null.
+  dev: { url: string } | null
   tool: string
   // The copy of the guide in a host: the version that wrote it (null when the
   // copy has no version line), the count of files that `canvas sync` would
@@ -74,6 +80,11 @@ function readTokenState(file: string, read: (path: string) => string | null): To
   }
 }
 
+// The library skill of a pack, relative to the project.
+function skillPath(pack: { name: string; folder: string }): string {
+  return posix.join(pack.folder, 'skills', `canvas-library-${pack.name}`, 'SKILL.md')
+}
+
 // The state of the project. `tool` is the folder of the tool; the project is
 // standalone when it is that folder.
 export async function readStatus(project: string, tool: string): Promise<Status> {
@@ -104,7 +115,9 @@ export async function readStatus(project: string, tool: string): Promise<Status>
     scaleKeys: pack?.scaleKeys ?? null,
     widths: settings.widths,
   })
-  const skill = pack === null ? null : posix.join(pack.folder, 'skills', `canvas-library-${pack.name}`, 'SKILL.md')
+  const skill = pack === null ? null : skillPath(pack)
+  const packGuide = pack === null ? null : posix.join(pack.folder, guideName)
+  const dev = readDevServer(project)
   let guide: Status['guide'] = null
   if (host !== null) {
     const version = guideVersion(disk.read(posix.join(project, guideName)))
@@ -124,9 +137,11 @@ export async function readStatus(project: string, tool: string): Promise<Status>
     provider: pack === null ? null : { path: posix.relative(project, providerPath(pack, project)), exists: existsSync(providerPath(pack, project)) },
     tokens,
     skill: skill !== null && existsSync(posix.join(project, skill)) ? skill : null,
+    packGuide: packGuide === null ? null : { path: packGuide, exists: existsSync(posix.join(project, packGuide)) },
     screens: { count: entries.length, flows: new Set(entries.map((entry) => entry.flow)).size },
     check: { findings: result.findings.length, kinds: count(result.findings.map((finding) => finding.kind)) },
     agent: { setting: settings.agent, way: agentOf(settings.agent, process.env) },
+    dev: dev === null ? null : { url: dev.url },
     tool: toolVersionOf(disk.read(posix.join(tool, 'package.json'))),
     guide,
     settingsError,
@@ -134,6 +149,8 @@ export async function readStatus(project: string, tool: string): Promise<Status>
 }
 
 // The line of the next step of the setup, or null when the setup is done.
+// The level `ready` is not the end of level 2: the setup is done when the
+// library skill and the `AGENTS.md` of the pack are there too.
 export function nextStep(status: Status): string | null {
   if (status.packError !== null) return 'Fix the pack: the dev server, the build and the check stop on this error.'
   if (status.settingsError !== null) return `Fix ${projectConfigName}: the dev server and the build stop on this error.`
@@ -141,7 +158,12 @@ export function nextStep(status: Status): string | null {
   if (status.provider !== null && !status.provider.exists) return `Write the provider ${status.provider.path}: the screens cannot render without it.`
   if (status.tokens.kind !== 'ok') return 'Write the token file: canvas tokens.'
   if (status.level === 'connected') return `Set up the tokens (level 2): give the agent: ${tokensSentence} You can create screens meanwhile.`
-  if (status.skill === null) return `Write the library skill (level 2): give the agent: ${tokensSentence}`
+  if (status.library !== null && status.skill === null) {
+    return `Write the library skill ${skillPath(status.library)} (level 2, step 5 of the skill ${librarySetupSkill}). The tokens are set up; the agent has no library skill yet.`
+  }
+  if (status.packGuide !== null && !status.packGuide.exists) {
+    return `Write ${status.packGuide.path} (level 2, step 6 of the skill ${librarySetupSkill}): the instructions of the library for the agent, with the link to the library skill.`
+  }
   return null
 }
 
@@ -163,6 +185,7 @@ export function statusText(status: Status): string {
     lines.push(`Tokens: ${tokens.count} (${groups})`)
   }
   if (status.library !== null) lines.push(`Library skill: ${status.skill ?? 'none yet'}`)
+  if (status.packGuide !== null) lines.push(`Pack guide: ${status.packGuide.exists ? status.packGuide.path : `none yet (${status.packGuide.path})`}`)
   lines.push(`Screens: ${plural(status.screens.count, 'screen')} in ${plural(status.screens.flows, 'flow')}`)
   const kinds = Object.entries(status.check.kinds)
     .map(([kind, n]) => `${kind} ${n}`)
@@ -172,6 +195,7 @@ export function statusText(status: Status): string {
   // different one.
   const auto = status.agent.setting === 'auto' ? ', in this terminal; the dev server decides it in its own' : ''
   lines.push(`Agent: ${wayText(status.agent.way)} (agent ${settingText(status.agent.setting)}${auto})`)
+  lines.push(`Dev server: ${status.dev === null ? `no record of a running one (${posix.join(config.work, devRecordName)})` : `${status.dev.url} (running)`}`)
   if (status.guide === null) lines.push(`Guide: the guide of the tool, canvas-editor ${status.tool}`)
   else {
     const written = status.guide.version === null ? 'the copy has no version line' : `written by canvas-editor ${status.guide.version}`

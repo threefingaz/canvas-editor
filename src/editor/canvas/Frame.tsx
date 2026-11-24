@@ -34,7 +34,7 @@ import { cn } from '../ui/lib/utils.ts'
 import { frameShadow } from './edge.ts'
 import { defaultFrameHeight, measureHeight, shownRect, type FrameBox } from './layout.ts'
 import { cropClip, partLoc, partSwitch, wholeShown } from './part.ts'
-import { pinsWidth, presentParts, titleParts } from './title.ts'
+import { markText, markWidth, pinsWidth, presentParts, titleParts } from './title.ts'
 import { useMeasureRects } from './use-screen-rects.ts'
 import type { Point } from './viewport.ts'
 
@@ -319,9 +319,6 @@ type PlacedProps = {
   children: ReactNode
 }
 
-// The mark of a state or an option before the title.
-const relationMark = { state: 'State', option: 'Option' } as const
-
 // The box of a frame in world coordinates, with the title above it.
 function Placed({
   box,
@@ -368,7 +365,10 @@ function Placed({
   // The room of the row on the screen: the width of the frame that shows,
   // and for a frame with a crop the width of its column.
   const titleRoom = (box.titleWidth ?? shownBox.width) * scale
-  const shown = new Set(titleParts(titleRoom, present, { pins: pinsRoom }))
+  // The mark of an option has its number among the options of its frame,
+  // from the layout; the row counts the width of that text.
+  const optionNumber = relation === 'option' ? box.optionNumber : undefined
+  const shown = new Set(titleParts(titleRoom, present, { pins: pinsRoom, mark: markWidth(optionNumber) }))
   return (
     <div
       className="absolute"
@@ -400,8 +400,9 @@ function Placed({
           <span
             className="shrink-0 rounded-sm bg-[color:var(--muted)] px-1 font-medium text-[color:var(--foreground)]"
             data-frame-relation={relation}
+            data-frame-option-number={optionNumber}
           >
-            {relationMark[relation]}
+            {markText(relation, optionNumber)}
           </span>
         )}
         <button

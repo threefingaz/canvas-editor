@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import { minCropWidth } from './part.ts'
-import { partWidth, pinsWidth, presentParts, relationIcon, titleGap, titleMin, titleParts, type TitlePart } from './title.ts'
+import { markText, markWidth, partWidth, pinsWidth, presentParts, relationIcon, titleGap, titleMin, titleParts, type TitlePart } from './title.ts'
 
 // The width that the row needs for these parts, as `titleParts` counts it.
 const need = (parts: readonly TitlePart[], icon = false) =>
@@ -97,6 +97,49 @@ describe('titleParts with a width of its own', () => {
     expect(titleParts(width - 1, parts, { pins: wide })).toEqual(['title', 'issues'])
     // With the fixed width they would stay.
     expect(titleParts(width - 1, parts)).toEqual(parts)
+  })
+})
+
+describe('markText', () => {
+  test('the mark of a state has no number', () => {
+    expect(markText('state')).toBe('State')
+    expect(markText('state', 2)).toBe('State')
+  })
+
+  test('the mark of an option has its number, also with one option', () => {
+    expect(markText('option', 1)).toBe('Option 1')
+    expect(markText('option', 3)).toBe('Option 3')
+    expect(markText('option', 12)).toBe('Option 12')
+  })
+
+  test('an option with no number is "Option"', () => {
+    expect(markText('option')).toBe('Option')
+  })
+})
+
+describe('markWidth', () => {
+  test('a mark with no number has the fixed width of the part', () => {
+    expect(markWidth()).toBe(partWidth.mark)
+  })
+
+  test('a number makes the mark wider, and each digit more', () => {
+    expect(markWidth(1)).toBe(partWidth.mark + 4 + 7)
+    expect(markWidth(12)).toBe(partWidth.mark + 4 + 14)
+  })
+
+  test('the mark with a number goes out at a larger width than the mark of a state', () => {
+    const parts: TitlePart[] = ['mark', 'title', 'menu']
+    const mark = markWidth(3)
+    const width = need(['title', 'menu']) + mark + titleGap
+    expect(titleParts(width, parts, { mark })).toEqual(parts)
+    expect(titleParts(width - 1, parts, { mark })).toEqual(['mark', 'title'])
+    // With the fixed width the menu would stay, and the row would be too full.
+    expect(titleParts(width - 1, parts)).toEqual(parts)
+  })
+
+  test('the row of an option with a part at the least width of a crop keeps its parts with a number of two digits', () => {
+    const option: TitlePart[] = ['mark', 'title', 'width', 'issues', 'keep', 'whole', 'actions', 'menu']
+    expect(titleParts(minCropWidth, option, { mark: markWidth(12) })).toEqual(['mark', 'title', 'issues', 'keep', 'whole', 'menu'])
   })
 })
 

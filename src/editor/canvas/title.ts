@@ -31,6 +31,8 @@ export const titleMin = 48
 
 // The width of each part in px on the screen, a little more than its usual
 // content: "State", "3 options", "1440", a count of issues with its icon.
+// `mark` is the width of the mark with no number ("State", "Option"); the
+// mark of an option with its number is wider (`markWidth`).
 // `pins` is the width of one pin with no count; the row counts the pins that
 // it has with `pinsWidth`.
 // `relation` is the text of a relation error; its icon is `relationIcon`.
@@ -79,7 +81,7 @@ const removal: readonly (readonly TitlePart[])[] = [
 // by the scale; for a frame with a crop, the width of its column),
 // `present` the parts that the frame has, in the order of the row. `widths`
 // gives a part a width of its own in place of `partWidth` (the pins, from
-// `pinsWidth`). The result keeps the order of `present`.
+// `pinsWidth`; the mark of an option with its number, from `markWidth`). The result keeps the order of `present`.
 export function titleParts(
   available: number,
   present: readonly TitlePart[],
@@ -98,6 +100,26 @@ export function titleParts(
     for (const part of step) shown.delete(part)
   }
   return present.filter((part) => shown.has(part))
+}
+
+// The mark of a state or an option before the title. The mark of an option
+// has its number among the options of its frame ("Option 2"), thus two
+// options differ also when their titles are cut; with no number (an option
+// that the layout gave no place among the options of a frame) it is
+// "Option".
+export function markText(relation: 'state' | 'option', optionNumber?: number): string {
+  if (relation === 'state') return 'State'
+  return optionNumber === undefined ? 'Option' : `Option ${optionNumber}`
+}
+
+const markSpace = 4 // about the width of the space before the number
+const markDigit = 7 // about the width of one digit, a little more
+
+// The width of the mark in px on the screen: `partWidth.mark`, and for the
+// mark of an option with a number the space and the digits of the number.
+export function markWidth(optionNumber?: number): number {
+  if (optionNumber === undefined) return partWidth.mark
+  return partWidth.mark + markSpace + String(optionNumber).length * markDigit
 }
 
 // The parts of the width of a pin of the title row, in px on the screen.
