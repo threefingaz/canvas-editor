@@ -79,7 +79,7 @@ describe('checkScreens', () => {
   test('reports only the named screens, and reads the links against the whole list', () => {
     const files = [file('a/one', `<Button href="#/a/two">Go</Button>`), file('a/two', `<i />`)]
     const result = checkScreens(files, { library: lib, only: ['a/one'] })
-    expect(result).toEqual({ screens: 1, findings: [], notes: [] })
+    expect(result).toEqual({ screens: 1, findings: [], notes: [], named: ['a/one'] })
   })
 
   test('finds a flow.json that is not valid, as a finding of the kind file', () => {
@@ -94,6 +94,19 @@ describe('checkScreens', () => {
     // With named screens, only the file of their flows.
     expect(checkScreens(files, { library: lib, flows, only: ['b/two'] }).findings).toEqual([])
     expect(checkScreens(files, { library: lib, flows, only: ['a/one'] }).findings).toHaveLength(1)
+  })
+
+  test('notes the block of each option, and names the screens of the arguments', () => {
+    const block = `<Box>\n      {/* canvas-part */}\n      <Button>Go</Button>\n    </Box>`
+    const option = (id: string, body: string) => file(id, body, `{ title: 'O', width: 1440, optionOf: 'a/one' }`)
+    const files = [file('a/one', '<Box />'), option('a/one-option-1', block), option('a/one-option-2', '<Box />')]
+    const result = checkScreens(files, { library: lib, only: ['a/one-option-1', 'a/one-option-2'] })
+    expect(result.notes.map((note) => note.text)).toEqual([
+      expect.stringMatching(/^screens\/a\/one-option-1\.tsx: an option of a\/one; its block is <Button> at \d+:\d+$/),
+      'screens/a/one-option-2.tsx: an option of a/one with no marker `canvas-part`: the canvas shows the whole screen',
+    ])
+    expect(result.named).toEqual(['a/one-option-1', 'a/one-option-2'])
+    expect(checkReport(result)).toContain('Checked: a/one-option-1, a/one-option-2.')
   })
 
   test('notes the screens that no link reaches', () => {

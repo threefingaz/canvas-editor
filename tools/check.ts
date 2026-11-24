@@ -64,6 +64,9 @@ export type CheckResult = {
   screens: number
   findings: Finding[]
   notes: Note[]
+  // The ids of the screens that the arguments named; with no argument, not
+  // there. The report lists them, thus a wrong id shows.
+  named?: string[]
 }
 
 export type CheckOptions = {
@@ -139,6 +142,9 @@ export function checkScreens(files: readonly ScreenFile[], options: CheckOptions
   const isFromLibrary = (source: string, file: string) => library !== null && isLibrarySource(source, file, library)
 
   const findings: Finding[] = []
+  // What the check read of each option, for an agent with no browser: the
+  // block that its marker gives, or that it has no marker.
+  const optionNotes: Note[] = []
   for (const flow of flowErrors(options.flows ?? [])) {
     if (only && !entries.some((entry) => entry.flow === flow.flow && only.has(entry.id))) continue
     findings.push({ kind: 'file', screen: flow.flow, file: flow.file, text: `the sequence of the row: ${flow.error}` })
@@ -155,6 +161,14 @@ export function checkScreens(files: readonly ScreenFile[], options: CheckOptions
 
     const scale = options.scaleKeys ? new Set(options.scaleKeys) : null
     const facts = screenFacts(codeOf.get(entry.file) ?? '', entry.file, options.library, scale)
+    if (entry.optionOf !== undefined && entry.partError === undefined) {
+      const block = facts.elements.find((element) => `${element.line}:${element.column}` === entry.part)
+      const text =
+        entry.part === undefined
+          ? `${entry.file}: an option of ${entry.optionOf} with no marker \`canvas-part\`: the canvas shows the whole screen`
+          : `${entry.file}: an option of ${entry.optionOf}; its block is ${block ? `<${block.tag}>` : 'the element'} at ${entry.part}`
+      optionNotes.push({ screen: entry.id, text })
+    }
     const placed: Finding[] = []
     for (const link of facts.links) {
       if (!ids.has(link.id)) {
@@ -186,8 +200,10 @@ export function checkScreens(files: readonly ScreenFile[], options: CheckOptions
   const notes = unreached(entries)
     .filter((id) => !only || only.has(id))
     .map((id) => ({ screen: id, text: `${titles.get(id)!.file}: no link leads to this screen` }))
+    .concat(optionNotes)
+  const named = only ? entries.filter((entry) => only.has(entry.id)).map((entry) => entry.id) : null
 
-  return { screens: only ? entries.filter((entry) => only.has(entry.id)).length : entries.length, findings, notes }
+  return { screens: named ? named.length : entries.length, findings, notes, ...(named ? { named } : {}) }
 }
 
 function plural(count: number, word: string): string {
@@ -212,6 +228,7 @@ export function checkReport(result: CheckResult): string {
       ? `No finding in ${plural(result.screens, 'screen')}.`
       : `${plural(result.findings.length, 'finding')} in ${files.length} of ${plural(result.screens, 'screen')}.`,
   )
+  if (result.named && result.named.length > 0) lines.push(`Checked: ${result.named.join(', ')}.`)
   if (result.notes.length > 0) {
     lines.push('', 'Notes (not findings):')
     for (const note of result.notes) lines.push(`  ${note.text}`)

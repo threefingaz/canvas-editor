@@ -11,7 +11,20 @@ const need = (parts: readonly TitlePart[], icon = false) =>
 const base: TitlePart[] = ['title', 'width', 'issues', 'actions']
 const all: TitlePart[] = ['mark', 'title', 'options', 'width', 'relation', 'issues', 'pins', 'asked', 'keep', 'whole', 'actions', 'menu']
 
+test('the mark of an option is its number in a row with no room for it', () => {
+  expect(markText('option', 2, markWidth(2))).toBe('Option 2')
+  expect(markText('option', 2, markWidth(2) - 1)).toBe('2')
+  expect(markText('option', undefined, 0)).toBe('Option')
+  expect(markText('state', undefined, 0)).toBe('State')
+})
+
 describe('titleParts', () => {
+  test('keeps a part of `stays` at each width', () => {
+    expect(titleParts(0, all, {}, ['mark'])).toEqual(['mark', 'title'])
+    expect(titleParts(need(['mark', 'title', 'menu']) - 1, all, {}, ['mark'])).toEqual(['mark', 'title'])
+    expect(titleParts(0, ['title', 'menu'], {}, ['mark'])).toEqual(['title'])
+  })
+
   test('all parts fit: each stays, in the order of the row', () => {
     expect(titleParts(1000, all)).toEqual(all)
     expect(titleParts(need(base), base)).toEqual(base)

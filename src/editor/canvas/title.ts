@@ -81,11 +81,15 @@ const removal: readonly (readonly TitlePart[])[] = [
 // by the scale; for a frame with a crop, the width of its column),
 // `present` the parts that the frame has, in the order of the row. `widths`
 // gives a part a width of its own in place of `partWidth` (the pins, from
-// `pinsWidth`; the mark of an option with its number, from `markWidth`). The result keeps the order of `present`.
+// `pinsWidth`; the mark of an option with its number, from `markWidth`). A part of `stays` never goes out: the mark of an option with
+// its number, because the options of a frame have the same start of the title
+// and only the number tells them apart; the title text then gets what is
+// left. The result keeps the order of `present`.
 export function titleParts(
   available: number,
   present: readonly TitlePart[],
   widths: Partial<Record<Exclude<TitlePart, 'title'>, number>> = {},
+  stays: readonly TitlePart[] = [],
 ): TitlePart[] {
   const room = Number.isFinite(available) ? available : 0
   const icon = present.includes('relation') ? relationIcon + titleGap : 0
@@ -97,7 +101,7 @@ export function titleParts(
   const shown = new Set(present)
   for (const step of removal) {
     if (need(shown) <= room) break
-    for (const part of step) shown.delete(part)
+    for (const part of step) if (!stays.includes(part)) shown.delete(part)
   }
   return present.filter((part) => shown.has(part))
 }
@@ -106,9 +110,11 @@ export function titleParts(
 // has its number among the options of its frame ("Option 2"), thus two
 // options differ also when their titles are cut; with no number (an option
 // that the layout gave no place among the options of a frame) it is
-// "Option".
-export function markText(relation: 'state' | 'option', optionNumber?: number): string {
+// "Option". In a row with less room than the mark needs, the mark of an
+// option is its number only.
+export function markText(relation: 'state' | 'option', optionNumber?: number, room = Infinity): string {
   if (relation === 'state') return 'State'
+  if (optionNumber !== undefined && room < markWidth(optionNumber)) return String(optionNumber)
   return optionNumber === undefined ? 'Option' : `Option ${optionNumber}`
 }
 

@@ -368,7 +368,9 @@ function Placed({
   // The mark of an option has its number among the options of its frame,
   // from the layout; the row counts the width of that text.
   const optionNumber = relation === 'option' ? box.optionNumber : undefined
-  const shown = new Set(titleParts(titleRoom, present, { pins: pinsRoom, mark: markWidth(optionNumber) }))
+  const shown = new Set(
+    titleParts(titleRoom, present, { pins: pinsRoom, mark: markWidth(optionNumber) }, optionNumber === undefined ? [] : ['mark']),
+  )
   return (
     <div
       className="absolute"
@@ -402,7 +404,7 @@ function Placed({
             data-frame-relation={relation}
             data-frame-option-number={optionNumber}
           >
-            {markText(relation, optionNumber)}
+            {markText(relation, optionNumber, titleRoom)}
           </span>
         )}
         <button

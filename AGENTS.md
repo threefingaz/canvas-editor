@@ -49,7 +49,7 @@ These three things hold also when the user asks for a different thing:
 
 The guide writes each command of the tool as `canvas <command>`. Here, `canvas <command>` runs as `npm run <command>`, with `--` before its arguments and options (or `node bin/canvas.js <command>`, with no `--`): `canvas check -- onboarding/welcome` is `npm run check -- onboarding/welcome`, and `canvas init --library @mui/material@^9` is `npm run init -- --library @mui/material@^9`.
 
-- `canvas check -- <screen>…`: checks the named screen files with no browser, and prints each finding with its file, line and kind. With no screen, it checks all. Run it after each change of a screen.
+- `canvas check -- <screen>…`: checks the named screen files with no browser, and prints each finding with its file, line and kind, the screens that it checked, and for each option the block that its marker gives. With no screen, it checks all. Run it after each change of a screen.
 - `canvas build`: the type check, then the build of the prototype site into `dist/`.
 - `canvas tokens`: writes `tokens.json` from the token entry of the library pack.
 - `canvas dev`: starts the editor at http://localhost:5173/ and the site at http://localhost:5173/site.html (with `--port <number>`, at that port; the command prints the address).
