@@ -95,8 +95,10 @@ export const commentLimit = 2000
 // characters or less; it can be empty. It has no preview and never merges.
 export type OptionsChange = { kind: 'options'; count: number; note: string }
 
-// The range of the count of an `options` edit, and the count at first.
-export const optionCounts = { min: 2, max: 6, initial: 3 } as const
+// The range of the count of an `options` edit, the count of the main button
+// of the options box (`initial`), and the other counts that its list offers
+// (`more`).
+export const optionCounts = { min: 1, max: 10, initial: 3, more: [1, 5, 10] } as const
 
 // A task for the agent: write the option with the id `option` into its base.
 // The edit is in the request file of the base, with the target `null`. A

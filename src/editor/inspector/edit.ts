@@ -316,15 +316,9 @@ export function commentEdit(target: Target | null, width: number, text: string, 
   return { id, target, width, change: { kind: 'comment', text } }
 }
 
-// The count of an `options` edit from the text of its input: a whole number
-// in the range of `optionCounts` (a number outside it goes to the nearest end,
-// a fraction to the nearest whole number), and `optionCounts.initial` for a
-// text that is not a number.
-export function optionCount(input: string): number {
-  const text = input.trim()
-  const value = text === '' ? Number.NaN : Number(text)
-  if (!Number.isFinite(value)) return optionCounts.initial
-  return Math.min(optionCounts.max, Math.max(optionCounts.min, Math.round(value)))
+// The text of a button of the options box that asks for `count` options.
+export function askLabel(count: number): string {
+  return `Ask for ${count} ${count === 1 ? 'option' : 'options'}`
 }
 
 // A request for `count` options for the agent: of the element of the target,

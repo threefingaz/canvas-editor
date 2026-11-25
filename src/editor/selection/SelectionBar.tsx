@@ -228,14 +228,14 @@ function MoveArrows({ flow, position, count, previewed, off, onMove }: MoveArrow
 }
 
 // True when the focus is in a floating part of the canvas: the comment
-// bubble, the options panel or a pin, or in the menu or a dialog of the
-// screen actions. A key there is about the panel or the pin (Delete on a
+// bubble, the options panel (also the list of its counts) or a pin, or in
+// the menu or a dialog of the screen actions. A key there is about the panel or the pin (Delete on a
 // discard button, after a click on a pin that selected its element), not
 // about the element.
 function inFloatingPart(): boolean {
   return (
     document.activeElement?.closest(
-      '[data-comment-bubble], [data-options-panel], [data-pin], [data-screen-menu], [data-screen-dialog]',
+      '[data-comment-bubble], [data-options-panel], [data-options-menu], [data-pin], [data-screen-menu], [data-screen-dialog]',
     ) != null
   )
 }

@@ -313,9 +313,14 @@ describe('parseRequest of options and keep', () => {
     expect(parseRequest(structuredClone(tasks))).toEqual(tasks)
   })
 
-  test('the range of the count holds the count at first', () => {
+  test('the range of the count holds the count at first and the other counts of the list', () => {
     expect(optionCounts.min).toBeLessThanOrEqual(optionCounts.initial)
     expect(optionCounts.initial).toBeLessThanOrEqual(optionCounts.max)
+    for (const count of optionCounts.more) {
+      expect(count).toBeGreaterThanOrEqual(optionCounts.min)
+      expect(count).toBeLessThanOrEqual(optionCounts.max)
+      expect(count).not.toBe(optionCounts.initial)
+    }
   })
 
   test('accepts the least and the most count, and a note of the most characters', () => {

@@ -1,22 +1,24 @@
+import { CaretDownIcon } from '@phosphor-icons/react'
 import { useId, useRef, useState } from 'react'
 import { commentLimit, optionCounts } from '../../requests/format.ts'
 import { submitKey } from '../focus.ts'
 import { useFocusAtEnd } from '../hooks.ts'
-import { optionCount } from '../inspector/edit.ts'
-import { Button, Input, Label, Textarea } from '../ui'
+import { askLabel } from '../inspector/edit.ts'
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Label, Textarea } from '../ui'
 import { cn } from '../ui/lib/utils.ts'
 
-// The box that asks the agent for options: a count (from `optionCounts.min` to
-// `optionCounts.max`, `optionCounts.initial` at first), a note of what the
-// options are about, and the button "Ask for options". The count input takes
-// any text; `optionCount` keeps the count in the range, and the input shows
-// that count again when it loses the focus. Enter with Ctrl or Cmd in the
-// note sends the request too. `onSubmit` says whether the request went to
-// the store; only then the note is empty again (the count stays), thus a
-// request that did not go out keeps its note. The note takes the wheel while
-// it can scroll (`data-canvas-scroll`). With `blocked` (the reason why the
-// screen takes no request for options) the button is off, and the box says
-// why.
+// The box that asks the agent for options: a note of what the options are
+// about, and one button in two parts. The main part, "Ask for 3 options",
+// sends the request with the usual count (`optionCounts.initial`). The small
+// part next to it opens a list with the other counts (`optionCounts.more`);
+// an item of the list sends the request at once with its count, and the main
+// part does not change. Enter with Ctrl or Cmd in the note sends the usual
+// count too. `onSubmit` says whether the request went to the store; only
+// then the note is empty again, thus a request that did not go out keeps its
+// note. The note takes the wheel while it can scroll (`data-canvas-scroll`).
+// With `blocked` (the reason why the screen takes no request for options) the
+// two parts are off, and the box says why. The list renders in a portal, as
+// the menu of the screen actions does (`data-options-menu`).
 
 type OptionsBoxProps = {
   // True when the request went to the store.
@@ -29,45 +31,21 @@ type OptionsBoxProps = {
 }
 
 export function OptionsBox({ onSubmit, blocked, className, autoFocus, name }: OptionsBoxProps) {
-  const countId = useId()
   const noteId = useId()
-  const [countText, setCountText] = useState(String(optionCounts.initial))
   const [note, setNote] = useState('')
   const area = useRef<HTMLTextAreaElement>(null)
 
   useFocusAtEnd(area, autoFocus)
-  const count = optionCount(countText)
   const tooLong = note.trim().length > commentLimit
   const off = blocked !== null || tooLong
 
-  const send = () => {
+  const send = (count: number) => {
     if (off || !onSubmit(count, note)) return
-    setCountText(String(count))
     setNote('')
   }
 
   return (
     <div className={cn('flex shrink-0 flex-col gap-1.5', className)} data-options-box={name}>
-      <div className="flex items-center gap-2">
-        <Label htmlFor={countId} className="flex-1">
-          Options from the agent
-        </Label>
-        <Input
-          id={countId}
-          size="sm"
-          type="number"
-          inputMode="numeric"
-          className="w-14"
-          min={optionCounts.min}
-          max={optionCounts.max}
-          step={1}
-          value={countText}
-          aria-label="Count of options"
-          onChange={(event) => setCountText(event.target.value)}
-          onBlur={() => setCountText(String(count))}
-          data-options-count=""
-        />
-      </div>
       <Label htmlFor={noteId} className="sr-only">
         What the options are about
       </Label>
@@ -84,7 +62,7 @@ export function OptionsBox({ onSubmit, blocked, className, autoFocus, name }: Op
         onKeyDown={(event) => {
           if (submitKey(event)) {
             event.preventDefault()
-            send()
+            send(optionCounts.initial)
           } else if (event.key === 'Escape' && note !== '') {
             // As in the comment box: Escape leaves the text area and keeps the
             // draft, and does not clear the selection.
@@ -99,15 +77,35 @@ export function OptionsBox({ onSubmit, blocked, className, autoFocus, name }: Op
           {blocked}
         </p>
       )}
-      <div className="flex items-center justify-end">
+      <div className="flex items-center justify-end gap-px">
         <Button
           size="xs"
+          className="rounded-r-none"
           disabled={off}
-          title={blocked ?? `Ask the agent for ${count} options (Ctrl+Enter or Cmd+Enter in the note)`}
-          onClick={send}
+          title={blocked ?? `${askLabel(optionCounts.initial)} (Ctrl+Enter or Cmd+Enter in the note)`}
+          onClick={() => send(optionCounts.initial)}
+          data-options-ask={optionCounts.initial}
         >
-          Ask for options
+          {askLabel(optionCounts.initial)}
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={<Button size="icon-xs" className="rounded-l-none" />}
+            disabled={off}
+            title={blocked ?? 'Ask for a different count of options'}
+            aria-label="Ask for a different count of options"
+            data-options-more=""
+          >
+            <CaretDownIcon weight="bold" aria-hidden />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-auto" data-options-menu="">
+            {optionCounts.more.map((count) => (
+              <DropdownMenuItem key={count} onClick={() => send(count)} data-options-ask={count}>
+                {askLabel(count)}
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )

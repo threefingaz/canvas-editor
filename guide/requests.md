@@ -94,7 +94,7 @@ One example of each change kind, with `id`, `target` and `width` left out. `pack
 
   Do the task as the rules below say. A comment has no `before`.
 
-- `options`: write `count` options of the screen, each as a screen file. `count` is a whole number from 2 to 6. `note` is what the user wants from the options, 2000 characters or less; it can be empty. On an element, the `target` is that element: each option changes only that element (the block), and marks it with the marker `canvas-part`; on the whole screen, the `target` is `null`. Do it as "Options" below says.
+- `options`: write `count` options of the screen, each as a screen file. `count` is a whole number from 1 to 10. `note` is what the user wants from the options, 2000 characters or less; it can be empty. On an element, the `target` is that element: each option changes only that element (the block), and marks it with the marker `canvas-part`; on the whole screen, the `target` is `null`. Do it as "Options" below says.
 
   ```json
   { "kind": "options", "count": 3, "note": "Fewer fields on the first step" }

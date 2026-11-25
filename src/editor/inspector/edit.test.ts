@@ -15,7 +15,7 @@ import {
   layoutKeywords,
   movePlan,
   newEditId,
-  optionCount,
+  askLabel,
   optionsEdit,
   orderEdit,
   rowAction,
@@ -517,31 +517,11 @@ describe('commentEdit', () => {
   })
 })
 
-describe('optionCount', () => {
-  test('a whole number in the range stays', () => {
-    expect(optionCount('2')).toBe(2)
-    expect(optionCount(' 4 ')).toBe(4)
-    expect(optionCount(String(optionCounts.max))).toBe(optionCounts.max)
-  })
-
-  test('a number outside the range goes to the nearest end', () => {
-    expect(optionCount('1')).toBe(optionCounts.min)
-    expect(optionCount('-3')).toBe(optionCounts.min)
-    expect(optionCount('7')).toBe(optionCounts.max)
-    expect(optionCount('100')).toBe(optionCounts.max)
-  })
-
-  test('a fraction goes to the nearest whole number', () => {
-    expect(optionCount('3.4')).toBe(3)
-    expect(optionCount('4.6')).toBe(5)
-  })
-
-  test('a text that is not a number gives the count at first', () => {
-    expect(optionCount('')).toBe(optionCounts.initial)
-    expect(optionCount('  ')).toBe(optionCounts.initial)
-    expect(optionCount('three')).toBe(optionCounts.initial)
-    expect(optionCount('3x')).toBe(optionCounts.initial)
-    expect(optionCount('Infinity')).toBe(optionCounts.initial)
+describe('askLabel', () => {
+  test('names the count, with the singular for one', () => {
+    expect(askLabel(1)).toBe('Ask for 1 option')
+    expect(askLabel(3)).toBe('Ask for 3 options')
+    expect(askLabel(10)).toBe('Ask for 10 options')
   })
 })
 
