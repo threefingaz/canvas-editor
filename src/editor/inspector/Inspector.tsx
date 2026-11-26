@@ -59,6 +59,7 @@ import {
 import { Changes } from './Changes.tsx'
 import {
   controlOf,
+  inlineControl,
   isLayoutProperty,
   layoutEdit,
   rowAction,
@@ -384,7 +385,9 @@ function ElementView({ selected }: { selected: Selected }) {
   // names it differently.
   const component = element && fiberName(element) !== selected.name ? fiberName(element) : null
   const parents = useMemo(() => (element ? breadcrumb(element).reverse() : []), [element])
-  // A change of the styles reads them again: a new key gives a new view.
+  // A change of the styles reads them again (`changes` of `StylesView`). The
+  // view stays mounted, thus a control keeps its focus after an edit: a pick
+  // in a select changes the preview, and the preview changes the styles.
   const changes = useStyleChanges(selected.node)
   const tag = selected.node.tagName.toLowerCase()
   const role = site?.origin === 'host' ? 'HTML element' : `component${component ? ` ${component}` : ''}, renders <${tag}>`
@@ -470,7 +473,7 @@ function ElementView({ selected }: { selected: Selected }) {
         )}
       </header>
       <StylesView
-        key={changes}
+        changes={changes}
         node={selected.node}
         onEdit={onEdit}
         split={split}
@@ -492,6 +495,8 @@ function ElementView({ selected }: { selected: Selected }) {
 // read-only.
 type StylesProps = {
   node: Element
+  // The count of `useStyleChanges`: a new count reads the styles again.
+  changes: number
   onEdit: Apply | null
   split: ReadonlySet<SidesKey>
   onSplit: (key: SidesKey) => void
@@ -500,8 +505,13 @@ type StylesProps = {
   content: ReactNode
 }
 
-function StylesView({ node, onEdit, split, onSplit, content }: StylesProps) {
-  const read = useMemo(() => stylesOf(node), [node])
+function StylesView({ node, changes, onEdit, split, onSplit, content }: StylesProps) {
+  // A new count of `changes` is the reason to read the styles again; its value
+  // is not used.
+  const read = useMemo(() => {
+    void changes
+    return stylesOf(node)
+  }, [node, changes])
   const tokenFile = useTokenFile()
   const model = useMemo(
     () =>
@@ -547,18 +557,20 @@ function StylesView({ node, onEdit, split, onSplit, content }: StylesProps) {
                     return <LayoutRow key={row.label} row={row} section={section} onEdit={onEdit} />
                   }
                   const edit = onEdit && editable.has(section.title) ? onEdit : null
+                  const control =
+                    edit && controlOf(row) ? (
+                      <TokenControl
+                        row={row}
+                        onPick={(token) => edit((target, width) => rowEdit(row, token, target, width))}
+                      />
+                    ) : undefined
+                  const inline = control !== undefined && inlineControl(row)
                   return (
                     <ValueRow
                       key={row.label}
                       row={row}
-                      control={
-                        edit && controlOf(row) ? (
-                          <TokenControl
-                            row={row}
-                            onPick={(token) => edit((target, width) => rowEdit(row, token, target, width))}
-                          />
-                        ) : undefined
-                      }
+                      value={inline ? control : undefined}
+                      control={inline ? undefined : control}
                       actions={
                         edit && (rowAction(row) !== null || row.sides) ? (
                           <RowActions row={row} onEdit={edit} onSplit={onSplit} />

@@ -1,8 +1,9 @@
 import { useState } from 'react'
 import type { Token } from '../../tokens/format.ts'
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue, Slider } from '../ui/components/primitives'
-import { activeToken, controlOf, stepName } from './edit.ts'
+import { activeToken, controlOf, selectLabel, stepName, valueSummary } from './edit.ts'
 import type { InspectorRow } from './model.ts'
+import { Swatch, ValueSummaryView } from './ValueSummary.tsx'
 
 // The control of a style value: it accepts only tokens of the group of the
 // row, never a free value.
@@ -10,6 +11,8 @@ import type { InspectorRow } from './model.ts'
 //   the name of a new step while the thumb is moved to it;
 // - color: a select of the color tokens, each with a swatch;
 // - text style: a select of the text styles, each with its size.
+// The select stands in the place of the value (`value` of `ValueRow`,
+// `inlineControl`).
 // A row that `controlOf` leaves read-only shows no control.
 
 type Props = { row: InspectorRow; onPick: (token: Token) => void }
@@ -36,6 +39,14 @@ function StepControl({ row, onPick }: Props) {
   const found = row.tokens.findIndex((token) => token.id === active?.id)
   const start = found === -1 ? null : found
   const [index, setIndex] = useState<number | null>(start)
+  // The row stays mounted after an edit (an undo, the agent's change of the
+  // file), thus the thumb goes to the step of a new token of the value here,
+  // during the render, and keeps its focus.
+  const [shownStart, setShownStart] = useState(start)
+  if (shownStart !== start) {
+    setShownStart(start)
+    setIndex(start)
+  }
   const step = (value: number | readonly number[]) => (typeof value === 'number' ? value : (value[0] ?? 0))
   const name = stepName(row.tokens, index, start)
   return (
@@ -62,13 +73,14 @@ function StepControl({ row, onPick }: Props) {
 }
 
 // The tokens of the row in a select: a color with a swatch, a text style with
-// its size. The select shows the token of a linked or equal value; a value
-// with no token shows a prompt.
+// its size. The closed select shows the value of the row as its value line
+// would (`ValueSummaryView`: the token, or the raw value with its mark), thus
+// the row says the value once. The list marks the token of a linked or equal
+// value.
 function TokenSelect({ row, onPick, kind }: Props & { kind: 'color' | 'textStyle' }) {
   const state = row.state
   const current = state && state.state !== 'none' ? state.token.id : null
   const byId = new Map(row.tokens.map((token) => [token.id, token]))
-  const prompt = kind === 'color' ? 'Choose a color token' : 'Choose a text style'
   return (
     <Select
       items={row.tokens.map((token) => ({ label: token.name, value: token.id }))}
@@ -80,19 +92,14 @@ function TokenSelect({ row, onPick, kind }: Props & { kind: 'color' | 'textStyle
     >
       <SelectTrigger
         size="sm"
-        className="w-full min-w-0 justify-between"
-        aria-label={`${row.label} token`}
+        placeholderTone="default"
+        className="w-full min-w-0 flex-1 justify-between"
+        aria-label={selectLabel(row)}
+        title={valueSummary(row).title}
         data-token-control={kind}
       >
         <SelectValue>
-          {(id: unknown) => {
-            const token = typeof id === 'string' ? byId.get(id) : undefined
-            return token ? (
-              <TokenLabel token={token} />
-            ) : (
-              <span className="text-[color:var(--muted-foreground)]">{prompt}</span>
-            )
-          }}
+          <ValueSummaryView row={row} />
         </SelectValue>
       </SelectTrigger>
       <SelectContent align="end" alignItemWithTrigger={false}>
@@ -122,10 +129,7 @@ function TokenLabel({ token }: { token: Token }) {
   }
   return (
     <span className="flex min-w-0 items-center gap-1.5">
-      <span
-        className="size-3 shrink-0 rounded-sm border border-[color:color-mix(in_oklab,var(--border)_30%,transparent)]"
-        style={{ backgroundColor: value }}
-      />
+      <Swatch color={value} size="size-3" />
       <span className="min-w-0 truncate">{token.name}</span>
     </span>
   )

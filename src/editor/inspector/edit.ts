@@ -5,9 +5,10 @@ import type { Site } from '../locate/fiber.ts'
 import type { Siblings } from '../selection/pick.ts'
 import { colorText, textStyleText, type InspectorRow } from './model.ts'
 
-// From a change of a control in the inspector to an edit for the edits store.
-// The functions are pure: the inspector reads the selection, the frame and
-// the row, and gives the values here.
+// From a change of a control in the inspector to an edit for the edits store,
+// and the pure display rules of a row (which control it has, what its value
+// line says). The functions are pure: the inspector reads the selection, the
+// frame and the row, and gives the values here.
 
 // A new edit id: 12 hex characters. The id names the edit in the request file
 // and in the preview rules.
@@ -61,6 +62,73 @@ export function controlOf(row: InspectorRow): 'step' | 'color' | 'textStyle' | n
     return row.tokens.length > 1 ? 'step' : null
   }
   return null
+}
+
+// A select of a color or a text style stands in the place of the value line
+// of its row (the `value` slot of `ValueRow`); the step control shows below
+// it.
+export function inlineControl(row: InspectorRow): boolean {
+  const kind = controlOf(row)
+  return kind === 'color' || kind === 'textStyle'
+}
+
+// The label of the select of a row: the name of the row and the full text of
+// its value, thus a screen reader hears what the closed select shows.
+export function selectLabel(row: InspectorRow): string {
+  return `${row.label}: ${valueSummary(row).title}`
+}
+
+// What the value of a row says (`valueSummary`): `main` is the main text,
+// `hint` the mark at the end with its text and tone, `linked` whether the
+// value is linked to a token, and `title` the full text, for the title and
+// the label of the row.
+export type ValueSummary = {
+  main: string
+  hint: { mark: 'equal' | 'none'; text: string; tone: 'attention' | 'muted' } | null
+  linked: boolean
+  title: string
+}
+
+// What the value of a row says, for the value line and for the closed select
+// of a color or a text style, thus the two say the same:
+// - linked: the token name;
+// - equal: the raw value, the mark `equal` and the token with that value;
+// - none: the raw value, the mark `none` and the nearest token, or "no token";
+// - a layout value (no state): the raw value.
+// A negative value names its token with a minus sign. The mark has the
+// attention tone when the token file has tokens of the kind (`missing`), else
+// a muted tone. The view shows the main text in mono when it is the raw value
+// (not `linked`).
+export function valueSummary(row: InspectorRow): ValueSummary {
+  const state = row.state
+  const name = (token: Token) => (state?.negative ? `−${token.name}` : token.name)
+  const tone = row.missing ? 'attention' : 'muted'
+  if (state === null) return { main: row.value, hint: null, linked: false, title: row.value }
+  if (state.state === 'linked') {
+    const text = name(state.token)
+    return { main: text, hint: null, linked: true, title: `${text}: ${row.value}` }
+  }
+  if (state.state === 'equal') {
+    const text = name(state.token)
+    return {
+      main: row.value,
+      hint: { mark: 'equal', text, tone },
+      linked: false,
+      title: `${row.value}. Equal to ${text}, but not linked to it`,
+    }
+  }
+  const nearest = state.nearest
+  const reason = nearest
+    ? `No token has this value. The nearest is ${name(nearest)}`
+    : row.missing
+      ? 'No token is near this value'
+      : 'The token file has no tokens of this kind'
+  return {
+    main: row.value,
+    hint: { mark: 'none', text: nearest ? `≈ ${name(nearest)}` : 'no token', tone },
+    linked: false,
+    title: `${row.value}. ${reason}`,
+  }
 }
 
 // The value of the row as the page shows it. A color with an opacity shows as

@@ -270,6 +270,9 @@ Built in step 10 (`src/editor/inspector/`). Two tabs, `tabAfter` in `tabs.ts`, a
 - A click on an element opens Design, a click on a frame title, on the count of issues, on the mark "Options asked" or on a pin of the title row opens Changes (`tabAfter`); a selection from a row keeps the tab. The title, the count and the mark clear the selection; a pin of the title row keeps a selection in its own screen (`clearsSelection`). A pin of an element lists its screen and keeps the tab, thus the listed screen stays the screen of the selection.
 - The panel has no comment box and no options box any more. With Preview on, the panel is not rendered.
 - A step control (spacing, radius, shadow) names the token in the value line once; the label next to the slider names only a different step while the thumb is moved to it.
+- A color and a text style are one row (2026-11-26): the label and the select. The closed select says what the value line said: the token and the link mark, or the raw value with "=" and its token, or with the warning and the nearest token ("no token" when none is near). Until then the value line and a select below it showed the same token two times. "Link" and "Use nearest" stay on a line below. The step control keeps its line of the value, because the slider needs the width of the row. The prompt "Choose a color token" and "Choose a text style" is gone: a value with no token shows its raw value and the warning in the closed select. A read-only color or text style row is the same line with no select. The check in the browser on `onboarding/welcome`: a text color that is equal to a token (`#667085` = `grey.500`) and a text style with no token (≈ `body2`) are one row each, with "Link" and "Use nearest" below. The list opens with no item marked for a value with no token. A pick of `body2` showed it linked and removed "Use nearest". Undo put the request files back byte for byte. Dark mode is not checked.
+- In a narrow row the token name is cut first, but it keeps about four characters (`≈ bo…`); then the raw value is cut (`14px / 21p…`). The full text is in the title. A first try cut the token name down to its mark only, and the nearest token was then not on the row; a second try cut the two texts at the same time, and a short color (`#667085`) lost its last character next to a long token name.
+- An edit keeps the focus in the panel (2026-11-26). Until then `StylesView` had the count of the style changes as its key, and each change of the preview (a pick in a select, a step of the slider) gave the whole Design tab a new tree: the focus went to the body, and a next arrow key moved the element on the canvas. Now the count is a prop, the view stays mounted and reads the styles again, and the step control moves its thumb to a new token of the value during the render.
 
 ### Inspector
 
@@ -286,7 +289,7 @@ Sections, in this sequence:
 
 Rules for the controls:
 
-- **A token value is a step control.** A row of steps for the tokens of that group, with the name of the active step. The user selects a step. There is no free number field.
+- **A token value is a step control (spacing, radius, shadow) or a select (color, text style).** A step control is a row of steps for the tokens of that group, with the name of the active step. The user selects a step or a token. There is no free number field.
 - **A value with no token shows as the raw value**, for example `20px`, with a mark for its state (equal but not linked, or no token), and with the proposed token.
 - **A summary at the top** of the inspector gives the number of values with no token for the selected element.
 - A token change is a CSS preview on the element.

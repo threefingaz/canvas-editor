@@ -10,6 +10,7 @@ import {
   commentEdit,
   commentText,
   controlOf,
+  inlineControl,
   keepEdit,
   layoutEdit,
   layoutKeywords,
@@ -21,11 +22,13 @@ import {
   rowAction,
   removeEdit,
   rowEdit,
+  selectLabel,
   styleEdit,
   targetOf,
   textEdit,
   textEditable,
   textStyleEdit,
+  valueSummary,
 } from './edit.ts'
 import type { InspectorRow } from './model.ts'
 
@@ -126,6 +129,89 @@ describe('targetOf', () => {
   })
 })
 
+describe('valueSummary', () => {
+  const colorRow = (state: InspectorRow['state'], missing = state?.state !== 'linked'): InspectorRow => ({
+    label: 'Background',
+    value: '#1F4FD8',
+    group: 'color',
+    state,
+    swatch: 'rgb(31, 79, 216)',
+    missing,
+    properties: ['background-color'],
+    tokens: [primary, secondary],
+  })
+
+  test('a linked value names its token', () => {
+    expect(valueSummary(colorRow({ state: 'linked', token: primary }))).toEqual({
+      main: 'primary.main',
+      hint: null,
+      linked: true,
+      title: 'primary.main: #1F4FD8',
+    })
+  })
+
+  test('an equal value shows the raw value and the token with that value', () => {
+    expect(valueSummary(colorRow({ state: 'equal', token: primary }))).toEqual({
+      main: '#1F4FD8',
+      hint: { mark: 'equal', text: 'primary.main', tone: 'attention' },
+      linked: false,
+      title: '#1F4FD8. Equal to primary.main, but not linked to it',
+    })
+  })
+
+  test('a value with no token shows the nearest token, or "no token"', () => {
+    const near = valueSummary(textStyleRow({ state: 'none', nearest: body1 }, '15px / 22px · 400'))
+    expect(near.main).toBe('15px / 22px · 400')
+    expect(near.hint).toEqual({ mark: 'none', text: '≈ body1', tone: 'attention' })
+    expect(near.title).toBe('15px / 22px · 400. No token has this value. The nearest is body1')
+    const far = valueSummary(colorRow({ state: 'none', nearest: null }))
+    expect(far.hint).toEqual({ mark: 'none', text: 'no token', tone: 'attention' })
+    expect(far.title).toBe('#1F4FD8. No token is near this value')
+  })
+
+  test('a linked text style names its token', () => {
+    expect(valueSummary(textStyleRow({ state: 'linked', token: body1 }))).toEqual({
+      main: 'body1',
+      hint: null,
+      linked: true,
+      title: 'body1: 16px / 24px · 400',
+    })
+  })
+
+  test('a group with no tokens in the file has a muted mark', () => {
+    const row: InspectorRow = { ...colorRow({ state: 'none', nearest: null }, false), tokens: [] }
+    const summary = valueSummary(row)
+    expect(summary.hint?.tone).toBe('muted')
+    expect(summary.title).toBe('#1F4FD8. The token file has no tokens of this kind')
+  })
+
+  test('a negative value names its token with a minus sign', () => {
+    expect(valueSummary(paddingRow({ state: 'linked', token: spacing(2), negative: true }, '-16px'))).toEqual({
+      main: '−spacing.2',
+      hint: null,
+      linked: true,
+      title: '−spacing.2: -16px',
+    })
+    expect(valueSummary(paddingRow({ state: 'equal', token: spacing(2), negative: true }, '-16px'))).toEqual({
+      main: '-16px',
+      hint: { mark: 'equal', text: '−spacing.2', tone: 'attention' },
+      linked: false,
+      title: '-16px. Equal to −spacing.2, but not linked to it',
+    })
+    expect(valueSummary(paddingRow({ state: 'none', nearest: spacing(1), negative: true }, '-9px'))).toEqual({
+      main: '-9px',
+      hint: { mark: 'none', text: '≈ −spacing.1', tone: 'attention' },
+      linked: false,
+      title: '-9px. No token has this value. The nearest is −spacing.1',
+    })
+  })
+
+  test('a layout value is the raw value only', () => {
+    const row: InspectorRow = { ...paddingRow(null, 'row'), group: null, tokens: [] }
+    expect(valueSummary(row)).toEqual({ main: 'row', hint: null, linked: false, title: 'row' })
+  })
+})
+
 describe('activeToken', () => {
   test('the token of a linked or equal value, the nearest token of a value with no token', () => {
     expect(activeToken(paddingRow({ state: 'linked', token: spacing(2) }))).toEqual(spacing(2))
@@ -185,6 +271,29 @@ describe('controlOf', () => {
     expect(controlOf({ ...linked, group: null })).toBeNull()
     expect(controlOf({ ...textStyleRow({ state: 'linked', token: body1 }), tokens: [] })).toBeNull()
     expect(controlOf(textStyleRow(null))).toBeNull()
+  })
+})
+
+describe('inlineControl', () => {
+  test('the select of a color or a text style stands in the place of the value', () => {
+    const color = paddingRow({ state: 'none', nearest: primary }, '#1F4FD8', { group: 'color', tokens: [primary] })
+    expect(inlineControl(color)).toBe(true)
+    expect(inlineControl(textStyleRow({ state: 'linked', token: body1 }))).toBe(true)
+  })
+
+  test('not for a step row or a read-only row', () => {
+    expect(inlineControl(paddingRow({ state: 'linked', token: spacing(2) }))).toBe(false)
+    expect(inlineControl({ ...textStyleRow({ state: 'linked', token: body1 }), tokens: [] })).toBe(false)
+    expect(inlineControl(paddingRow(null))).toBe(false)
+  })
+})
+
+describe('selectLabel', () => {
+  test('the name of the row and the full text of its value', () => {
+    expect(selectLabel(textStyleRow({ state: 'linked', token: body1 }))).toBe('Text style: body1: 16px / 24px · 400')
+    expect(selectLabel(textStyleRow({ state: 'none', nearest: body1 }, '15px / 22px · 400'))).toBe(
+      'Text style: 15px / 22px · 400. No token has this value. The nearest is body1',
+    )
   })
 })
 
