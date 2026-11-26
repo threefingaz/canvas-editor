@@ -1,5 +1,6 @@
 // Development only: adds the place in the code to each JSX element of the
-// screen files (see `source-location.ts`). The production build has no
+// screen files and of the own components of the project (see
+// `source-location.ts`). The production build has no
 // `data-loc-*` attribute. Register it before the React plugin.
 //
 // The sources of the library come from the manifest of the library pack,
@@ -25,7 +26,9 @@ export function sourceLocationPlugin(pack: Pack | null, project: string, host: s
     apply: 'serve',
     enforce: 'pre',
     transform(code, id) {
-      const file = screenModuleFile(id, project, config.screens)
+      // A screen file, or an own component of the project: the editor selects
+      // and edits the elements inside it too.
+      const file = screenModuleFile(id, project, config.screens) ?? screenModuleFile(id, project, config.components)
       return file === null ? undefined : addSourceLocations(code, file, library, id, scale)
     },
   }

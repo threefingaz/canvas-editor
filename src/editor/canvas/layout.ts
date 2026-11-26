@@ -158,23 +158,146 @@ export type MeasuredFrame = {
   contentDocument: { documentElement: { scrollHeight: number } } | null
 }
 
+// A part of the frame document that can hide content: a live element, read
+// two times by the measure.
+export type Scroller = { readonly clientHeight: number; readonly scrollHeight: number }
+
+// How far the measure makes the frame taller to see which parts follow the
+// height of the viewport, in px.
+export const probeHeight = 200
+
+// The least share of the extra height that a part gets to count as a part
+// that follows the viewport: a pane of two has a half. A part with a small
+// share (a list with `max-height: 40vh`) is a part of the screen with a
+// height of its own, and the frame does not grow for it.
+export const leastShare = 0.5
+
+// How many times the measure looks again at a part whose content got taller
+// with the frame.
+const growRounds = 4
+
 // Measures the frame height at the least height and sets it. The iframe first
 // gets the least height, then the document gives its scroll height, then the
-// iframe gets that height. All three happen in one task, with no paint
-// between. A screen that fills its viewport (`100vh`) thus gets the height of
-// its content or the least height: it gets smaller when its content gets
-// smaller, and it does not grow at each measure. A write that changes nothing
-// is left out. Null for a frame with no document.
-export function measureHeight(frame: MeasuredFrame): number | null {
+// iframe gets that height. All happens in one task, with no paint between. A
+// screen that fills its viewport (`100vh`) thus gets the height of its
+// content or the least height: it gets smaller when its content gets smaller,
+// and it does not grow at each measure. A write that changes nothing is left
+// out. Null for a frame with no document.
+//
+// A screen can keep its content in a part that scrolls inside a root as tall
+// as the viewport (the shell of an application): the document then has no
+// scroll height of its own, and the frame would cut the content. Only then
+// (the document is not taller than the least height and `probeHeight`: a
+// long page that scrolls by itself is not read) the measure asks
+// `scrollers` for the parts that hide content (`hidingParts`), and
+// `probedHeight` gives the height that shows all of their content.
+export function measureHeight(frame: MeasuredFrame, scrollers?: () => readonly Scroller[]): number | null {
   const root = frame.contentDocument?.documentElement
   if (!root) return null
   const least = `${defaultFrameHeight}px`
   if (frame.style.height !== least) frame.style.height = least
-  const height = frameHeight(root.scrollHeight)
+  // The height of the document at the least height: more than the least
+  // height by the margins around a root as tall as the viewport.
+  const base = Math.max(defaultFrameHeight, root.scrollHeight)
+  const parts = scrollers && base <= defaultFrameHeight + probeHeight ? scrollers() : []
+  const height = frameHeight(parts.length > 0 ? probedHeight(frame, parts, base) : base)
   const result = `${height}px`
   if (frame.style.height !== result) frame.style.height = result
   return height
 }
+
+// The height of the content that a part hides now, in px.
+const hiddenOf = (part: Scroller) => part.scrollHeight - part.clientHeight
+
+// The height of a frame that shows all of the content of the parts that
+// follow the viewport; `base` when no part does. `parts` are read at the
+// least height, which the frame has at the call. The frame gets taller by
+// `probeHeight` one time. A part that got taller with it, and hides less
+// then, follows the viewport, with the share of the extra height that it
+// got (two panes, one above the other, get a half each; a smaller share
+// than `leastShare` does not count), and the frame needs its hidden height
+// divided by that share. A part with a height of its own (a list of 200 px
+// that scrolls) does not get taller, and a part whose content grows with it
+// hides the same at each height: these stay as they are. The function
+// leaves the frame at a height of a trial; the caller sets the result.
+function probedHeight(frame: MeasuredFrame, parts: readonly Scroller[], base: number): number {
+  const read = parts
+    .map((part) => ({ part, client: part.clientHeight, hidden: hiddenOf(part) }))
+    .filter((item) => item.hidden > 0)
+  if (read.length === 0) return base
+  let measured = base
+  const followers: { part: Scroller; share: number }[] = []
+  const follow = (item: (typeof read)[number], share: number) => {
+    const follower = { part: item.part, share: Math.min(1, share) }
+    followers.push(follower)
+    measured = Math.max(measured, base + item.hidden / follower.share)
+  }
+
+  frame.style.height = `${defaultFrameHeight + probeHeight}px`
+  // The parts that show all of their content at the probe stopped at their
+  // content: the share that they got is not known yet.
+  const stopped: typeof read = []
+  for (const item of read) {
+    const share = (item.part.clientHeight - item.client) / probeHeight
+    const hiddenThen = hiddenOf(item.part)
+    if (share <= 0) continue
+    if (hiddenThen <= 0) stopped.push(item)
+    else if (share >= leastShare && hiddenThen < item.hidden) follow(item, share)
+  }
+  if (stopped.length > 0) {
+    // A trial at the height for a full share. A part that shows all of its
+    // content there needs no more; a part that does not has not stopped, and
+    // the height that it got gives its share.
+    const trial = Math.max(measured, base + Math.max(...stopped.map((item) => item.hidden)))
+    frame.style.height = `${trial}px`
+    let shown = false
+    for (const item of stopped) {
+      if (hiddenOf(item.part) <= 0) {
+        shown = true
+        continue
+      }
+      const share = (item.part.clientHeight - item.client) / (trial - defaultFrameHeight)
+      if (share >= leastShare) follow(item, share)
+    }
+    if (shown) measured = Math.max(measured, trial)
+  }
+  // The content of a part can get taller with the frame (a child with a
+  // height in `vh`): look again at the new height, a few times at most.
+  for (let round = 0; round < growRounds && followers.length > 0 && measured < maxFrameHeight; round += 1) {
+    frame.style.height = `${frameHeight(measured)}px`
+    const rest = Math.max(...followers.map((follower) => hiddenOf(follower.part) / follower.share))
+    if (rest < 1) break
+    measured += rest
+  }
+  return measured
+}
+
+// The selector of the elements that the measure reads for `hidingParts`.
+// `rootOverflowY` is the computed `overflow-y` of the root element. With
+// `visible` there, the overflow of the body goes to the viewport: the
+// document scrolls, its scroll height already has the content, and the body
+// is not a part. With a different value the body can be the part that
+// scrolls.
+export function partsSelector(rootOverflowY: string): string {
+  return rootOverflowY === 'visible' ? 'body *' : 'body, body *'
+}
+
+// The elements of a frame document that hide content below their edge now
+// and that a person can scroll: their content is taller than they are, and
+// their `overflow-y` is `auto`, `scroll` or `overlay`. A part that clips
+// (`hidden`, `clip`) hides its content on purpose (a sheet below the edge),
+// and stays as it is. `styleOf` is the `getComputedStyle` of the frame
+// window.
+export function hidingParts<E extends Scroller>(elements: Iterable<E>, styleOf: (element: E) => { overflowY: string }): E[] {
+  const parts: E[] = []
+  for (const element of elements) {
+    if (element.scrollHeight - element.clientHeight < 1 || element.clientHeight === 0) continue
+    if (scrollValues.has(styleOf(element).overflowY)) parts.push(element)
+  }
+  return parts
+}
+
+const scrollValues = new Set(['auto', 'scroll', 'overlay'])
 
 // The map with only the entries of `keys`; the same map when it has no other
 // entry. The editor keeps the heights and the documents of the frames by

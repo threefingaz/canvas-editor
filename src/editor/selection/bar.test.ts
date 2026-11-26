@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest'
-import { barActions, barPlace, moveSides, noSite } from './bar.ts'
+import { barActions, barPlace, inOwnComponent, moveSides, noSite } from './bar.ts'
 
 const bar = { width: 120, height: 30 }
 const canvas = { width: 1000, height: 800 }
@@ -58,30 +58,43 @@ describe('barPlace', () => {
   })
 })
 
+describe('inOwnComponent', () => {
+  test('is true only for a place in a file that is not the screen file', () => {
+    expect(inOwnComponent('screens/a/one.tsx', 'screens/a/one.tsx')).toBe(false)
+    expect(inOwnComponent('components/Ring.tsx', 'screens/a/one.tsx')).toBe(true)
+    expect(inOwnComponent(null, 'screens/a/one.tsx')).toBe(false)
+    expect(inOwnComponent('components/Ring.tsx', null)).toBe(false)
+  })
+})
+
 describe('barActions', () => {
+  test('an element inside an own component has no "Ask for options"', () => {
+    expect(barActions({ option: false, block: null, site: true, inComponent: true }).actions).toEqual(['comment', 'remove'])
+  })
+
   test('an element of a base screen has the three actions, each on', () => {
-    expect(barActions({ option: false, block: null, site: true })).toEqual({ actions: ['comment', 'options', 'remove'], off: null })
+    expect(barActions({ option: false, block: null, site: true, inComponent: false })).toEqual({ actions: ['comment', 'options', 'remove'], off: null })
   })
 
   test('an option has no "Ask for options"', () => {
-    expect(barActions({ option: true, block: null, site: true })).toEqual({ actions: ['comment', 'remove'], off: null })
+    expect(barActions({ option: true, block: null, site: true, inComponent: false })).toEqual({ actions: ['comment', 'remove'], off: null })
   })
 
   test('an open keep turns each action off with its reason', () => {
     const block = 'The screen has an open request to keep an option. Apply or discard it first.'
-    expect(barActions({ option: false, block, site: true })).toEqual({ actions: ['comment', 'options', 'remove'], off: block })
+    expect(barActions({ option: false, block, site: true, inComponent: false })).toEqual({ actions: ['comment', 'options', 'remove'], off: block })
   })
 
   test('an option with an open keep has no "Ask for options", and its other actions are off with the reason', () => {
-    expect(barActions({ option: true, block: 'blocked', site: true })).toEqual({ actions: ['comment', 'remove'], off: 'blocked' })
+    expect(barActions({ option: true, block: 'blocked', site: true, inComponent: false })).toEqual({ actions: ['comment', 'remove'], off: 'blocked' })
   })
 
   test('an element with no site takes no edit', () => {
-    expect(barActions({ option: false, block: null, site: false }).off).toBe(noSite)
+    expect(barActions({ option: false, block: null, site: false, inComponent: false }).off).toBe(noSite)
   })
 
   test('no site wins over a block, and an option with no site still has no options', () => {
-    expect(barActions({ option: true, block: 'blocked', site: false })).toEqual({ actions: ['comment', 'remove'], off: noSite })
+    expect(barActions({ option: true, block: 'blocked', site: false, inComponent: false })).toEqual({ actions: ['comment', 'remove'], off: noSite })
   })
 })
 

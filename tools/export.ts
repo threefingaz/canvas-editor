@@ -1,12 +1,15 @@
 // The export of the clean tool: a copy of the tracked files with no library
-// pack, no screens, no lock file and no finished plans (`npm run export --
-// <folder>`, `export-tool.ts`). The result is the tool in the state "no
-// library", for a person who connects a library of their own.
+// pack, no screens, no own components, no lock file and no finished plans
+// (`npm run export -- <folder>`, `export-tool.ts`). The result is the tool
+// in the state "no library", for a person who connects a library of their
+// own.
 //
 // The lock file is left out because it lists the packages of the pack; the
 // command writes a new one for the result. The plans in `docs/plans/` are the
 // history of the work. The empty folders `packs/` and `screens/` keep their
-// tracked placeholder file, thus they exist in a new clone.
+// tracked placeholder file, thus they exist in a new clone. The components
+// folder has none, on purpose: a project has it only when the user asked for
+// an own component.
 //
 // The copy takes the content of each tracked file from the working tree, as
 // it is on the disk: a change that is not committed goes into the export, and
@@ -20,7 +23,7 @@ import { connectSentence } from '../src/frame/library-setup.ts'
 import { packsFolder } from './pack.ts'
 
 // The folders whose files are left out, relative to the project root.
-export const leftOutFolders = [packsFolder, config.screens, 'docs/plans']
+export const leftOutFolders = [packsFolder, config.screens, config.components, 'docs/plans']
 
 // The files that are left out, relative to the project root.
 export const leftOutFiles = ['package-lock.json']

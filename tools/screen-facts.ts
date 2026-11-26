@@ -38,7 +38,8 @@ import { fragmentNames, importSources, isFragment, originOf, position, type Libr
 
 export type Place = { line: number; column: number }
 
-export type ElementFact = Place & { tag: string; origin: Origin }
+// `source` is the import of the tag of a `local` element, when it has one.
+export type ElementFact = Place & { tag: string; origin: Origin; source?: string }
 
 // `attribute` is the name of the attribute that has the literal `text`.
 // `number` is true for a number that stands for pixels (`fontSize: 14`).
@@ -389,7 +390,9 @@ export function screenFacts(code: string, file: string, library: LibrarySources 
       if (isFragment(name, fragments)) return
       const tag = name.replaceAll(/\s+/g, '')
       const place = position(code, node.start)
-      facts.elements.push({ ...place, tag, origin: originOf(tag, imports, library, file) })
+      const origin = originOf(tag, imports, library, file)
+      const source = origin === 'local' ? imports.get(tag.split('.')[0]) : undefined
+      facts.elements.push({ ...place, tag, origin, ...(source === undefined ? {} : { source }) })
 
       const values = tagValues(node, code, scale)
       if (values.style) facts.styles.push({ ...place, tag })

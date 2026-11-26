@@ -578,6 +578,14 @@ describe('affectedScreenIds', () => {
     expect(affectedScreenIds(file, [node(file, [frame])], folder)).toEqual(['onboarding/welcome'])
   })
 
+  test('gives the screens that import a changed file outside the screens folder (an own component)', () => {
+    const frame = node('/project/src/frame/main.tsx')
+    const welcome = node('/project/screens/onboarding/welcome.tsx', [frame])
+    const badge = node('/project/components/Badge.tsx', [welcome])
+    const ring = node('/project/components/Ring.tsx', [badge])
+    expect(affectedScreenIds('/project/components/Ring.tsx', [ring], folder)).toEqual(['onboarding/welcome'])
+  })
+
   test('gives the id of a changed file that no frame has loaded yet', () => {
     expect(affectedScreenIds('/project/screens/home.tsx', [], folder)).toEqual(['home'])
   })

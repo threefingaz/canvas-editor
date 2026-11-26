@@ -8,7 +8,7 @@
   },
   "overrides": [
     {
-      "files": ["screens/**"],
+      "files": ["screens/**", "components/**"],
       "rules": { "react/only-export-components": "off" }
     }
   ]

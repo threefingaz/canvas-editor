@@ -32,7 +32,7 @@ import { ScreenMenu } from '../screens/ScreenMenu.tsx'
 import { toFramePoint } from '../selection/geometry.ts'
 import { cn } from '../ui/lib/utils.ts'
 import { frameShadow } from './edge.ts'
-import { defaultFrameHeight, measureHeight, shownRect, type FrameBox } from './layout.ts'
+import { defaultFrameHeight, hidingParts, measureHeight, partsSelector, shownRect, type FrameBox } from './layout.ts'
 import { cropClip, partLoc, partSwitch, wholeShown } from './part.ts'
 import { markText, markWidth, pinsWidth, presentParts, titleParts } from './title.ts'
 import { useMeasureRects } from './use-screen-rects.ts'
@@ -208,12 +208,22 @@ export function Frame({
     // The measure writes only the iframe in the editor document, never the
     // frame document, thus it starts no mutation record. A result that is
     // equal to the last one is not reported, and the root keeps its size, thus
-    // the size observer does not start a new measure either.
+    // the size observer does not start a new measure either: the measure
+    // sets the iframe to the least height, to the probe and to trial heights
+    // in one task, and only the last height is there at the next paint.
     let last: number | null = null
     let pending = 0
     const measure = () => {
       pending = 0
-      const height = measureHeight(iframe)
+      // The parts that scroll inside a root as tall as the viewport; the
+      // body can be that part itself (`partsSelector`). The measure calls
+      // this only for a document that does not scroll by itself.
+      const height = measureHeight(iframe, () =>
+        hidingParts(
+          document.querySelectorAll<HTMLElement>(partsSelector(view.getComputedStyle(document.documentElement).overflowY)),
+          (element) => view.getComputedStyle(element),
+        ),
+      )
       if (height === null || height === last) return
       last = height
       heightCallback.current(screen.id, height)

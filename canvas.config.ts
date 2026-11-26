@@ -8,6 +8,10 @@ export type CanvasConfig = {
   widths: readonly number[]
   // The folder of the screen files, relative to the project root.
   screens: string
+  // The folder of the own components of the project, relative to the project
+  // root: the components that the library does not have, which a screen can
+  // import. The canvas marks each as not from the library.
+  components: string
   // The token file, relative to the project root.
   tokens: string
   // The work folder of the tool (request and issues files), relative to the
@@ -34,6 +38,7 @@ export type AgentSetting = 'auto' | 'clipboard' | AgentPreset | { command: strin
 export const config = {
   widths: [1440, 1024, 390],
   screens: 'screens',
+  components: 'components',
   tokens: 'tokens.json',
   work: '.canvas',
   agent: { command: 'code', args: ['chat', '--mode', 'agent', '--reuse-window'] },

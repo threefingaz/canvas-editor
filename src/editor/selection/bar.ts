@@ -30,6 +30,13 @@ export type BarAction = 'comment' | 'options' | 'remove'
 // The reason why an element with no place in the code takes no edit.
 export const noSite = 'The element has no place in the screen file.'
 
+// True when the selected element is inside an own component of the project:
+// its place in the code (`siteFile`) is not in the file of the screen. False
+// for an element with no place and for a screen that is not in the list.
+export function inOwnComponent(siteFile: string | null, screenFile: string | null): boolean {
+  return siteFile !== null && screenFile !== null && siteFile !== screenFile
+}
+
 // The actions of the bar, and the reason why they are off, or null when they
 // work: each action of the bar is on or off for the same reason, the arrows
 // of the move too. `option`: the screen is an option, thus it has no "Ask for
@@ -37,12 +44,15 @@ export const noSite = 'The element has no place in the screen file.'
 // takes no edit with a target (an open `keep`, see `editBlock`). `site`: the
 // element has a place in the code; with none, it takes no edit. Which arrow
 // of the move is on is `arrowNext` of `move.ts`, with `off`.
-export function barActions(state: { option: boolean; block: string | null; site: boolean }): {
+// `inComponent`: the element is inside an own component of the project: an
+// option is a copy of the screen file, and that element is not in it, thus
+// it has no "Ask for options" (the component on the screen has it).
+export function barActions(state: { option: boolean; block: string | null; site: boolean; inComponent: boolean }): {
   actions: BarAction[]
   off: string | null
 } {
   return {
-    actions: state.option ? ['comment', 'remove'] : ['comment', 'options', 'remove'],
+    actions: state.option || state.inComponent ? ['comment', 'remove'] : ['comment', 'options', 'remove'],
     off: state.site ? state.block : noSite,
   }
 }

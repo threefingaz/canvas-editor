@@ -1,6 +1,7 @@
 // The settings of a project from its own `canvas.config.ts`: `widths` and
-// `agent`. The names of the folders in a project (`screens`, `tokens`,
-// `work`) stay fixed in the config of the tool, which many modules import.
+// `agent`. The names of the folders in a project (`screens`, `components`,
+// `tokens`, `work`) stay fixed in the config of the tool, which many modules
+// import.
 //
 // `settingsOf` is pure: it checks the module of the file and takes the
 // default (`projectDefaults`: the widths of the tool and `agent: 'auto'`) for

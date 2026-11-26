@@ -20,7 +20,7 @@ import { useWindowKeys } from '../hooks.ts'
 import { removeEdit } from '../inspector/edit.ts'
 import { elementOf, siteOf } from '../locate/fiber.ts'
 import { Button, PanelSurface } from '../ui'
-import { barActions, barPlace, moveSides, type BarAction, type MoveSide } from './bar.ts'
+import { barActions, barPlace, inOwnComponent, moveSides, type BarAction, type MoveSide } from './bar.ts'
 import { moveDrag } from './drag-store.ts'
 import { arrowNext, type Arrow, type Flow } from './move.ts'
 import { MoveDrag } from './MoveDrag.tsx'
@@ -91,6 +91,7 @@ export function SelectionBar({ selected, rect, view, box }: SelectionBarProps) {
     option: screen?.optionOf !== undefined,
     block: editBlock(items),
     site: site !== null,
+    inComponent: inOwnComponent(site?.file ?? null, screen?.file ?? null),
   })
 
   const run: Record<BarAction, () => void> = {

@@ -1,6 +1,8 @@
 // The element-to-code step: adds
 // `data-loc-<line>-<column>={"<file>:<line>:<column> <Tag> <origin>"}` as the
-// last attribute of each JSX element of a screen file, for host elements
+// last attribute of each JSX element of a screen file, and of an own
+// component of the project (a `.tsx` file in its components folder; the
+// plugin gives the step these two kinds of file), for host elements
 // (`<div>`) and for components (`<Button>`). The editor reads it from the props
 // that React keeps for each element, thus a component does not have to pass it
 // on to the DOM.

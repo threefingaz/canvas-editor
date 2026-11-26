@@ -3,7 +3,9 @@
 // null when no library is connected). It reads each file with a parser and
 // never imports it.
 //
-// It also handles a change in the screens folder. A screen file exports `meta`
+// It also handles a change in the screens folder, and a change of an own
+// component of the project (the components folder): the frames of the
+// screens that import the changed file reload. A screen file exports `meta`
 // and a component, thus the dev server cannot replace it in place, and its
 // usual answer is a reload of each page, the editor too. In place of that, the
 // plugin tells the pages which screens changed, and only the frames of those
@@ -130,13 +132,22 @@ export type UpdateInput = {
   folder: string
   tokenFile: string
   frames: boolean
+  // The folder of the own components of the project.
+  components: string
   listChanged: () => boolean
   affected: () => string[]
 }
 
-export function screensUpdate({ file, type, folder, tokenFile, frames, listChanged, affected }: UpdateInput): ScreensUpdate {
+export function screensUpdate({ file, type, folder, tokenFile, frames, components, listChanged, affected }: UpdateInput): ScreensUpdate {
   const nothing: ScreensUpdate = { invalidateModules: false, send: null, result: 'pass' }
   if (file === tokenFile) return { ...nothing, result: listChanged() ? 'withList' : 'pass' }
+  // An own component: the frames of the screens that import it reload, as
+  // for a shared file of the screens folder, thus the editor reads the new
+  // places of its elements from a new document.
+  if (inFolder(file, components)) {
+    const ids = frames ? affected() : []
+    return ids.length > 0 ? { invalidateModules: false, send: ids, result: 'none' } : nothing
+  }
   if (!inFolder(file, folder)) return nothing
   const isScreen = screenIdOf(file, folder) !== null
   const ids = frames ? affected() : []
@@ -162,6 +173,7 @@ export function screensPlugin(pack: Pack | null, { project, widths, guide, frame
   let lastCode: string | undefined
   // The token file of the project: the level of the library depends on it.
   const tokenFile = normalizePath(join(root, config.tokens))
+  const componentsFolder = normalizePath(join(root, config.components))
   const info: ProjectInfo = { widths, guide }
 
   const moduleCode = () => {
@@ -207,6 +219,7 @@ export function screensPlugin(pack: Pack | null, { project, widths, guide, frame
           folder,
           tokenFile,
           frames,
+          components: componentsFolder,
           listChanged: () => {
             if (!listModule) return false
             const code = moduleCode()

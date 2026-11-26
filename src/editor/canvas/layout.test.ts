@@ -9,7 +9,9 @@ import {
   keepKeys,
   layoutFrames,
   maxFrameHeight,
+  hidingParts,
   measureHeight,
+  partsSelector,
   optionGap,
   rowGap,
   shownRect,
@@ -344,6 +346,167 @@ function fakeFrame(content: number, { fill = false, margin = 0, height = '' } = 
 }
 
 describe('measureHeight', () => {
+  // A part of the frame. A part with a `share` gets that share of each px of
+  // the frame above 100 px; with no share it has a height of its own. With
+  // `grows`, its content is always that much taller than the part.
+  const partOf = (frame: { style: { height: string } }, content: number, { share = 1, own = 0, grows = 0, fits = false } = {}) => ({
+    get clientHeight() {
+      const room = own > 0 ? own : (parseFloat(frame.style.height) - 100) * share
+      // With `fits`, the part is not taller than its content.
+      return fits ? Math.min(room, content) : room
+    },
+    get scrollHeight() {
+      return grows > 0 ? this.clientHeight + grows : content
+    },
+  })
+
+  test('grows for a part that follows the viewport and hides content', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    const part = partOf(frame, 2000)
+    // 2000 of content in a part of 800 at the least height: 1200 more.
+    expect(measureHeight(frame, () => [part])).toBe(defaultFrameHeight + 1200)
+    expect(frame.style.height).toBe(`${defaultFrameHeight + 1200}px`)
+    expect(part.scrollHeight - part.clientHeight).toBe(0)
+    expect(measureHeight(frame, () => [part])).toBe(defaultFrameHeight + 1200)
+  })
+
+  test('takes the part that hides the most, and leaves a part with a height of its own', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    const parts = [partOf(frame, 1000), partOf(frame, 1500), partOf(frame, 9000, { own: 200 })]
+    expect(measureHeight(frame, () => parts)).toBe(defaultFrameHeight + 700)
+    expect(measureHeight(frame, () => [parts[2]])).toBe(defaultFrameHeight)
+    expect(frame.style.height).toBe(`${defaultFrameHeight}px`)
+  })
+
+  test('grows by the share of the height that the part gets', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    // A half of the frame: 400 at the least height, 1200 of content.
+    const part = partOf(frame, 1200, { share: 0.5 })
+    expect(measureHeight(frame, () => [part])).toBe(defaultFrameHeight + 1600)
+    expect(part.scrollHeight - part.clientHeight).toBe(0)
+  })
+
+  test('looks again when the content of a part gets taller with the frame', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    // The content has a child of 40 % of the frame height, up to 600 px.
+    const part = {
+      get clientHeight() {
+        return parseFloat(frame.style.height) - 100
+      },
+      get scrollHeight() {
+        return 1000 + Math.min(600, parseFloat(frame.style.height) * 0.4)
+      },
+    }
+    const height = measureHeight(frame, () => [part])!
+    expect(height).toBe(1700)
+    expect(part.scrollHeight - part.clientHeight).toBe(0)
+    expect(measureHeight(frame, () => [part])).toBe(1700)
+  })
+
+  test('does not grow for a part with a small share of the viewport', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    expect(measureHeight(frame, () => [partOf(frame, 1800, { share: 0.4 })])).toBe(defaultFrameHeight)
+  })
+
+  test('grows only by what a part hides when the part stops at its content', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    // 805 of content in 800: 5 more, not the probe.
+    expect(measureHeight(frame, () => [partOf(frame, 805, { fits: true })])).toBe(defaultFrameHeight + 5)
+    // A half share: 80 hidden needs 160. The same at a second measure.
+    const half = partOf(frame, 480, { share: 0.5, fits: true })
+    expect(measureHeight(frame, () => [half])).toBe(defaultFrameHeight + 160)
+    expect(measureHeight(frame, () => [half])).toBe(defaultFrameHeight + 160)
+    // A share of 0.4 (a list with a greatest height): no growth.
+    expect(measureHeight(frame, () => [partOf(frame, 350, { share: 0.4, fits: true })])).toBe(defaultFrameHeight)
+  })
+
+  test('takes a share of more than one as a full share', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    // 1600 at the least height, 2000 of content: 400 hidden, and a full share at most.
+    expect(measureHeight(frame, () => [partOf(frame, 2000, { share: 2 })])).toBe(defaultFrameHeight + 400)
+  })
+
+  test('stops at the most height for a part with very long content', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    expect(measureHeight(frame, () => [partOf(frame, 1e9)])).toBe(maxFrameHeight)
+    expect(frame.style.height).toBe(`${maxFrameHeight}px`)
+  })
+
+  test('ends after a few rounds for content that gets taller with the frame and never fits', () => {
+    const { frame, writes } = fakeFrame(defaultFrameHeight, { fill: true })
+    // The content is 1.5 times the part and 100 more: it hides less at the
+    // probe (it has a least height of 1300), and more at each taller frame.
+    const part = {
+      get clientHeight() {
+        return parseFloat(frame.style.height) - 100
+      },
+      get scrollHeight() {
+        return Math.max(1300, this.clientHeight * 1.5 - 200)
+      },
+    }
+    const height = measureHeight(frame, () => [part])!
+    expect(height).toBeGreaterThan(defaultFrameHeight)
+    expect(height).toBeLessThanOrEqual(maxFrameHeight)
+    // The least height, the probe, four rounds at most, and the result.
+    expect(writes.length).toBeLessThanOrEqual(8)
+    expect(measureHeight(frame, () => [part])).toBe(height)
+  })
+
+  test('a part that stops at its content and a part that follows: the taller need wins', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    const follower = partOf(frame, 2000)
+    // A half share that stops at its content: 80 hidden needs 160, less than the follower.
+    const stopped = partOf(frame, 480, { share: 0.5, fits: true })
+    expect(measureHeight(frame, () => [stopped, follower])).toBe(defaultFrameHeight + 1200)
+    expect(stopped.scrollHeight - stopped.clientHeight).toBe(0)
+    // A half share with more hidden than the follower: 300 hidden needs 600.
+    const short = partOf(frame, 1000)
+    const half = partOf(frame, 700, { share: 0.5 })
+    expect(measureHeight(frame, () => [half, short])).toBe(defaultFrameHeight + 600)
+  })
+
+  test('a share between a half and one gets the exact height', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    // 600 at the least height, 690 of content: 90 hidden at a share of 0.75 needs 120.
+    const part = partOf(frame, 690, { share: 0.75, fits: true })
+    expect(measureHeight(frame, () => [part])).toBe(defaultFrameHeight + 120)
+    expect(measureHeight(frame, () => [part])).toBe(defaultFrameHeight + 120)
+  })
+
+  test('reads the parts of a document up to the least height and the probe, and not above', () => {
+    const at = (content: number) => {
+      const { frame } = fakeFrame(content)
+      let read = 0
+      measureHeight(frame, () => ((read += 1), []))
+      return read
+    }
+    expect(at(defaultFrameHeight + 200)).toBe(1)
+    expect(at(defaultFrameHeight + 201)).toBe(0)
+  })
+
+  test('keeps the margin around a root as tall as the viewport', () => {
+    const { frame } = fakeFrame(0, { fill: true, margin: 16 })
+    expect(measureHeight(frame, () => [partOf(frame, 2000)])).toBe(defaultFrameHeight + 16 + 1200)
+  })
+
+  test('leaves a part whose content is always taller than the part', () => {
+    const { frame } = fakeFrame(defaultFrameHeight, { fill: true })
+    expect(measureHeight(frame, () => [partOf(frame, 0, { grows: 60 })])).toBe(defaultFrameHeight)
+  })
+
+  test('does not read the parts of a document that is taller than the least height', () => {
+    const { frame } = fakeFrame(1500)
+    let read = 0
+    expect(measureHeight(frame, () => (read += 1, [partOf(frame, 5000)]))).toBe(1500)
+    expect(read).toBe(0)
+  })
+
+  test('does not probe when no part hides content', () => {
+    const { frame, writes } = fakeFrame(300, { height: `${defaultFrameHeight}px` })
+    expect(measureHeight(frame, () => [partOf(frame, 100)])).toBe(defaultFrameHeight)
+    expect(writes).toEqual([])
+  })
+
   test('measures at the least height and sets the result', () => {
     const { frame, writes } = fakeFrame(1500.4, { height: '1200px' })
     expect(measureHeight(frame)).toBe(1501)
@@ -421,5 +584,32 @@ describe('keepKeys', () => {
       ['a/gone', 2],
     ])
     expect([...keepKeys(map, new Set(['a/one']))]).toEqual([['a/one', 1]])
+  })
+})
+
+describe('hidingParts', () => {
+  const element = (clientHeight: number, scrollHeight: number, overflowY: string) => ({ clientHeight, scrollHeight, overflowY })
+  const parts = (list: ReturnType<typeof element>[]) => hidingParts(list, (item) => item)
+
+  test('gives an element that is shorter than its content and that a person can scroll', () => {
+    const list = [element(100, 300, 'auto'), element(100, 300, 'scroll'), element(100, 300, 'overlay')]
+    expect(parts(list)).toEqual(list)
+  })
+
+  test('leaves an element that shows or clips the rest', () => {
+    expect(parts([element(100, 300, 'visible'), element(100, 300, 'hidden'), element(100, 300, 'clip')])).toEqual([])
+  })
+
+  test('leaves an element that hides nothing, less than one px, or has no height', () => {
+    expect(parts([element(100, 100, 'auto'), element(100, 100.5, 'auto'), element(0, 50, 'scroll')])).toEqual([])
+    expect(parts([element(100, 101, 'auto')])).toHaveLength(1)
+  })
+})
+
+describe('partsSelector', () => {
+  test('leaves the body out when its overflow goes to the viewport', () => {
+    expect(partsSelector('visible')).toBe('body *')
+    expect(partsSelector('hidden')).toBe('body, body *')
+    expect(partsSelector('auto')).toBe('body, body *')
   })
 })

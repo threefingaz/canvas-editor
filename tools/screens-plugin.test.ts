@@ -63,9 +63,22 @@ describe('screensUpdate', () => {
     folder,
     tokenFile: '/p/tokens.json',
     frames: true,
+    components: '/p/components',
     listChanged: () => false,
     affected: () => ['a/one'],
     ...fields,
+  })
+
+  test('a change of an own component reloads the frames of the screens that use it', () => {
+    const own = { file: '/p/components/Ring.tsx' }
+    const reload = { invalidateModules: false, send: ['a/one'], result: 'none' }
+    const pass = { invalidateModules: false, send: null, result: 'pass' }
+    // A new or a removed component file changes no screen of the list: the map of the modules stays.
+    for (const type of ['update', 'create', 'delete'] as const) expect(screensUpdate(input({ ...own, type }))).toEqual(reload)
+    expect(screensUpdate(input({ ...own, affected: () => [] }))).toEqual(pass)
+    expect(screensUpdate(input({ ...own, frames: false }))).toEqual(pass)
+    // A folder with the same start is a file of no interest.
+    expect(screensUpdate(input({ file: '/p/components-old/Ring.tsx' }))).toEqual(pass)
   })
 
   test('a new or removed screen file invalidates the map of the modules in the frame server, and never in the editor server', () => {

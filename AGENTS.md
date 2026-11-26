@@ -2,7 +2,7 @@
 
 ## What this project is
 
-A canvas of screen prototypes. Each screen is a real code file, built only from the parts of one React component library, and the tool shows each screen as a frame on a canvas. A person edits the screens on the canvas; the tool saves each edit as a request, and you, the agent, write each request into the code. Code is the source of truth: you create the screens, you apply the requests, and you keep each screen within the library.
+A canvas of screen prototypes. Each screen is a real code file, built from the parts of one React component library, and the tool shows each screen as a frame on a canvas. A person edits the screens on the canvas; the tool saves each edit as a request, and you, the agent, write each request into the code. Code is the source of truth: you create the screens, you apply the requests, and you keep each screen within the library, except where the user asks for a part that the library lacks or brings a screen of the application as it is: the canvas then marks what is not from the library.
 
 Read this file first. Then read only the file of your job, as the table below says. Each path in this file is relative to the folder of this file.
 
@@ -11,6 +11,7 @@ Read this file first. Then read only the file of your job, as the table below sa
 | Path | What it is |
 |---|---|
 | `screens/<flow>/<name>.tsx` | The screens, one file for each. One folder is one flow and one row on the canvas. You write these files. |
+| `components/<Name>.tsx` | The own components of the project: parts that the library does not have and that the user asked for. A screen can import them, and the canvas marks each as not from the library. [guide/screen-files.md](guide/screen-files.md) says when you write one. |
 | `packs/<name>/` | The library pack: all that is specific to the component library. `packs/<name>/AGENTS.md` names its packages, its breakpoints and how an edit is written with it, and links its library skill. |
 | `.canvas/requests/` | The request files that the editor writes, one for each screen with open edits. |
 | `.canvas/issues/` | The Issues list of each screen, written by the editor while it is open. Read it; do not change it. |
@@ -28,6 +29,7 @@ Read this file first. Then read only the file of your job, as the table below sa
 | Level 2: the library is connected and its tokens are not set up: `canvas status` says level `connected`, the editor says "The tokens are not set up", or the user says `Set up the tokens of the library as the skill canvas-library-setup says.` You can create screens meanwhile, as `canvas-screen` says. | [guide/skills/canvas-library-setup/SKILL.md](guide/skills/canvas-library-setup/SKILL.md) |
 | The library is added, replaced or updated. | [guide/skills/canvas-library-setup/SKILL.md](guide/skills/canvas-library-setup/SKILL.md) |
 | **How to create a screen:** the user asks for a new screen, a flow, a state, an option, or a screen at a second width. | [guide/skills/canvas-screen/SKILL.md](guide/skills/canvas-screen/SKILL.md): the sequence of the work, and who decides what |
+| **Bring a screen:** the user asks to bring, copy or import a screen that the application already has onto the canvas. | [guide/skills/canvas-screen/SKILL.md](guide/skills/canvas-screen/SKILL.md), "Bring a screen that exists": the same screen, with its deviations shown, not a new design |
 | You create or change a screen in `screens/`, for each reason. | [guide/skills/canvas-screen-design/SKILL.md](guide/skills/canvas-screen-design/SKILL.md): what goes on a screen and what does not |
 | The screen has a chart, a diagram, a map, key numbers, numbers to compare, results of a survey, or a comparison of things. | [guide/skills/canvas-information-display/SKILL.md](guide/skills/canvas-information-display/SKILL.md), together with the design skill above |
 | **Screen files:** the rules of a screen file (`meta`, only the library, states, options, links). | [guide/screen-files.md](guide/screen-files.md) |
@@ -41,9 +43,9 @@ The two design skills (`canvas-screen-design` and `canvas-information-display`) 
 
 These three things hold also when the user asks for a different thing:
 
-1. **The form of a screen file:** one file for one screen, with `meta`; only the parts of the library; no state, no handlers, no component of your own, and no import from the tool. [guide/screen-files.md](guide/screen-files.md) has the rules.
+1. **The form of a screen file:** one file for one screen, with `meta`; the parts of the library, and what is not from the library only where the user asked for it (an own component in `components/`, a screen brought as it is); no state, no handlers, and no import from the tool. [guide/screen-files.md](guide/screen-files.md) has the rules.
 2. **No change of the library:** not of its pack in `packs/`, and not of `tokens.json`. When a task needs one, say so in your reply. The one exception is the setup of the library itself (`canvas-library-setup`: its two levels, and an update of the library), and the provider step of `canvas-screen` ("Before the tokens are set up").
-3. **No change outside `screens/` for a request**, except the request files in `.canvas/requests/`, as [guide/requests.md](guide/requests.md) says. What a command of the tool writes (`dist/` of `canvas build`) is not your change.
+3. **No change outside `screens/` and `components/` for a request**, except the request files in `.canvas/requests/`, as [guide/requests.md](guide/requests.md) says. What a command of the tool writes (`dist/` of `canvas build`) is not your change.
 
 ## Commands
 

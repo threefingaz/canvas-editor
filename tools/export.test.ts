@@ -14,7 +14,7 @@ import {
 } from './export.ts'
 
 describe('exportedFiles', () => {
-  test('leaves out the pack, the screens, the lock file and the plans', () => {
+  test('leaves out the pack, the screens, the own components, the lock file and the plans', () => {
     const tracked = [
       'AGENTS.md',
       'package.json',
@@ -24,6 +24,8 @@ describe('exportedFiles', () => {
       'packs/demo/library/provider.tsx',
       'screens/.gitkeep',
       'screens/onboarding/welcome.tsx',
+      'components/Ring.tsx',
+      'src/editor/ui/components/button.tsx',
       'docs/plans/20261120-library-packs.md',
       'docs/plans/completed/20261116-canvas-read-only-path.md',
       'docs/canvas-tool-plan.md',
@@ -36,6 +38,8 @@ describe('exportedFiles', () => {
       'packs/.gitkeep',
       'screens/.gitkeep',
       'src/editor/main.tsx',
+      // Only the components folder at the root is content of the project.
+      'src/editor/ui/components/button.tsx',
     ])
   })
 

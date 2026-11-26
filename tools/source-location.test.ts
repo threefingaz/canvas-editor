@@ -299,6 +299,14 @@ describe('screenModuleFile', () => {
     expect(screenModuleFile('/project/screens/a.tsx', '/project/', 'screens/')).toBe('screens/a.tsx')
   })
 
+  test('gives the relative path of an own component, with the components folder', () => {
+    expect(screenModuleFile('/project/components/Ring.tsx', root, 'components')).toBe('components/Ring.tsx')
+    expect(screenModuleFile('/project/components/Ring.tsx', root, 'screens')).toBeNull()
+    expect(screenModuleFile('/project/components-old/Ring.tsx', root, 'components')).toBeNull()
+    // Only a `.tsx` file gets the locations: the check says so for a `.jsx` own component.
+    expect(screenModuleFile('/project/components/Ring.jsx', root, 'components')).toBeNull()
+  })
+
   test('gives null for a .jsx file, which is not a screen', () => {
     expect(screenModuleFile('/project/screens/a.jsx', root, 'screens')).toBeNull()
   })

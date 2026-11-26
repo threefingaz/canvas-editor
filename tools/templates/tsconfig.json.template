@@ -15,6 +15,6 @@
     "moduleDetection": "force",
     "paths": { "canvas-editor/tokens": ["{{tokens}}"] }
   },
-  "include": ["screens", "packs", "canvas.config.ts"],
+  "include": ["screens", "components", "packs", "canvas.config.ts"],
   "exclude": ["**/*.test.ts", "packs/*/library/tokens.ts"]
 }

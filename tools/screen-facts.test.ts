@@ -174,3 +174,33 @@ export default function S() {
     expect(() => screenFacts('const a = <', 'screens/a.tsx', null)).toThrow('screens/a.tsx')
   })
 })
+
+describe('the source of a local element', () => {
+  const code = [
+    "import Default from '../../components/Default.tsx'",
+    "import { Ring, Ring as Alias } from '../../components/Ring.tsx'",
+    "import { Box } from '@lib/core'",
+    'function Local() {',
+    '  return <i />',
+    '}',
+    'export default function S() {',
+    '  return <Box><Ring /><Ring.Part /><Alias /><Default /><Local /><div /></Box>',
+    '}',
+  ].join('\n')
+  const elements = screenFacts(code, 'screens/a/t.tsx', { packages: ['@lib/core'], folders: [] }).elements
+  const sourceOf = (tag: string) => elements.find((element) => element.tag === tag)
+
+  it('is the import of the tag, also for a dotted tag, an alias and a default import', () => {
+    expect(sourceOf('Ring')?.source).toBe('../../components/Ring.tsx')
+    expect(sourceOf('Ring.Part')?.source).toBe('../../components/Ring.tsx')
+    expect(sourceOf('Alias')?.source).toBe('../../components/Ring.tsx')
+    expect(sourceOf('Default')?.source).toBe('../../components/Default.tsx')
+  })
+
+  it('is not there for a component of the file, a library element and a plain element', () => {
+    expect(sourceOf('Local')).toEqual(expect.objectContaining({ origin: 'local' }))
+    expect(sourceOf('Local')).not.toHaveProperty('source')
+    expect(sourceOf('Box')).not.toHaveProperty('source')
+    expect(sourceOf('div')).not.toHaveProperty('source')
+  })
+})
