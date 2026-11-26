@@ -41,8 +41,9 @@ export type BubbleEvent =
   // the same element with a new node after a reload of its frame.
   | { type: 'selected'; same: boolean }
   // The comments of the open pin that are still in the list, after a change
-  // of the list: an undo, a discard, a new request file.
-  | { type: 'comments'; left: number }
+  // of the list: an undo, a discard, a new request file. `draft`: the box of
+  // a new comment of the pin has a text.
+  | { type: 'comments'; left: number; draft?: boolean }
   // The agent wrote the screen file, and the selected element at `from` is at
   // `to` now (`refind`): a bubble or options panel of that place follows it,
   // and the store moves the draft of the place.
@@ -57,7 +58,8 @@ export const closedBubble: Bubble = { kind: 'closed' }
 // The next state. An open event replaces the bubble or the options panel that
 // is open. A different element or no element closes each of them; the same
 // element after a reload keeps it open. A pin with no comment left closes
-// the bubble. A moved element takes the bubble of its place with it, with the
+// the bubble, except with a draft in its box: then it is the bubble of a new
+// comment of its place. A moved element takes the bubble of its place with it, with the
 // same key; a gone element leaves it open and detached, with the same key. An
 // open event for the panel that is open keeps its key too, but not for a
 // detached one: an open event of the user attaches a fresh panel to its place.
@@ -76,7 +78,13 @@ export function bubbleAfter(state: Bubble, event: BubbleEvent): Bubble {
     case 'selected':
       return event.same || state.kind === 'closed' ? state : closedBubble
     case 'comments':
-      return state.kind === 'pin' && event.left === 0 ? closedBubble : state
+      if (state.kind !== 'pin' || event.left > 0) return state
+      // The text that the user types stays: the bubble of its place, with the
+      // same key, thus the box keeps its focus.
+      if (event.draft && state.target !== null) {
+        return { kind: 'new', target: state.target, key: bubblePlace(state), ...(state.detached ? { detached: true } : {}) }
+      }
+      return closedBubble
     case 'moved':
       if (state.kind === 'closed' || state.detached) return state
       if (!bubbleAt(state, { screenId: event.screenId, loc: event.from })) return state

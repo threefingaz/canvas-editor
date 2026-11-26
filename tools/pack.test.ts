@@ -7,6 +7,7 @@ import {
   isFolderSource,
   levelOf,
   librarySources,
+  sourceFolders,
   noProviderMessage,
   packChange,
   packLibraryFolder,
@@ -322,6 +323,19 @@ describe('packChange', () => {
   })
 })
 
+describe('sourceFolders', () => {
+  test('each folder source as an absolute folder: from the host, or as it is with /', () => {
+    const kit = { name: 'kit', sources: ['@acme/kit', './src/ui/', '../shared/ui', '/opt/ui', 'C:\\ui\\kit', 'D:/', '/'], folder: 'packs/kit' }
+    expect(sourceFolders(kit, '/host')).toEqual(['/host/src/ui', '/shared/ui', '/opt/ui', 'C:/ui/kit', 'D:/', '/'])
+  })
+
+  test('a host on a drive of Windows keeps its drive, also above its root, and a \\ in a relative source is a /', () => {
+    const kit = { name: 'kit', sources: ['./src\\ui', '../..', '../../../ui'], folder: 'packs/kit' }
+    expect(sourceFolders(kit, 'C:/app')).toEqual(['C:/app/src/ui', 'C:/', 'C:/ui'])
+    expect(librarySources(kit, 'C:/app/canvas', 'C:/app').folders).toEqual(['../src/ui', '../..', '../../ui'])
+  })
+})
+
 describe('librarySources', () => {
   const kit = { name: 'kit', sources: ['@acme/kit', './src/design-system', '../shared/ui', '/opt/ui'], folder: 'packs/kit' }
 
@@ -336,6 +350,11 @@ describe('librarySources', () => {
     expect(librarySources(kit, '/repo', '/repo').folders).toEqual(['src/design-system', '../shared/ui', '../opt/ui'])
   })
 
+  test('an absolute folder of Windows: relative on the drive of the project, in each case of its letter, absolute on a different drive', () => {
+    const windows = { name: 'kit', sources: ['c:/shared/ui', 'C:\\other\\ui', 'D:/ui'], folder: 'packs/kit' }
+    expect(librarySources(windows, 'C:/host/canvas', 'C:/host').folders).toEqual(['../../shared/ui', '../../other/ui', 'D:/ui'])
+  })
+
   test('a pack of packages only has no folder', () => {
     expect(librarySources(pack, '/repo', '/repo')).toEqual({ packages: ['@mui/material'], folders: [] })
   })
@@ -344,6 +363,9 @@ describe('librarySources', () => {
     expect(['./ui', '../ui', '/ui', '@acme/ui', 'ui'].map(isFolderSource)).toEqual([true, true, true, false, false])
     // An absolute folder of Windows.
     expect(['C:/ui', 'C:\\ui', 'c:ui'].map(isFolderSource)).toEqual([true, true, false])
+    // A relative folder of Windows.
+    expect(['.\\ui', '..\\ui', '.ui', '..ui'].map(isFolderSource)).toEqual([true, true, false, false])
+    expect(librarySources({ ...pack, sources: ['.\\src\\ui'] }, '/repo/canvas', '/repo').folders).toEqual(['../src/ui'])
   })
 })
 

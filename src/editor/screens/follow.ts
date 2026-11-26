@@ -50,11 +50,15 @@ export function movedScreens(list: readonly RelatedScreen[], action: ScreenActio
   return [action.screen, ...groupMembers(list, action.screen).map((screen) => screen.id)]
 }
 
-// The path of the file of a screen with a new id: the end `<from>.tsx` of the
-// path is `<to>.tsx`. A path with a different end stays.
-function movedFile(file: string, from: string, to: string): string {
-  const end = `${from}.tsx`
-  return file === end || file.endsWith(`/${end}`) ? `${file.slice(0, -end.length)}${to}.tsx` : file
+// The screens whose request files an action moves or changes: the moved
+// screens, and for a rename of an option its base, whose `keep` of the option
+// the server gives the new id (`renameRequests` of `tools/screen-ops.ts`). A
+// save of the base that is pending would write the old id back.
+export function heldScreens(list: readonly RelatedScreen[], action: ScreenAction): string[] {
+  const moved = movedScreens(list, action)
+  if (action.action !== 'rename') return moved
+  const base = list.find((screen) => screen.id === action.screen)?.optionOf
+  return base === undefined || moved.includes(base) ? moved : [...moved, base]
 }
 
 export type Carried = {
@@ -67,15 +71,19 @@ export type Carried = {
 // The edits of each renamed screen whose edits changed while the rename ran
 // (a new item, a changed one, a discarded one), by new id: the base and the
 // edits of the editor, each with its target in the file of the new id and the
-// `option` of a `keep` at its new id. A delete carries nothing.
+// `option` of a `keep` at its new id. A target moves only when its file is
+// one that the plan moved (`moves`), as the server moves the targets of the
+// request files: a target in an own component stays. A delete carries
+// nothing.
 export function carriedEdits(
-  screens: readonly IdChange[],
+  plan: Pick<AppliedAction, 'screens' | 'moves'>,
   before: ReadonlyMap<string, readonly Edit[]>,
   now: (id: string) => readonly Edit[],
 ): Map<string, Carried> {
-  const ids = new Map(screens.flatMap((change) => (change.from !== null && change.to !== null ? [[change.from, change.to] as const] : [])))
-  const moved = (from: string, to: string) => (edit: Edit): Edit => {
-    const target = edit.target === null ? null : { ...edit.target, file: movedFile(edit.target.file, from, to) }
+  const ids = new Map(plan.screens.flatMap((change) => (change.from !== null && change.to !== null ? [[change.from, change.to] as const] : [])))
+  const files = new Map(plan.moves.map((step) => [step.from, step.to]))
+  const moved = (edit: Edit): Edit => {
+    const target = edit.target === null ? null : { ...edit.target, file: files.get(edit.target.file) ?? edit.target.file }
     const change = edit.change.kind === 'keep' && ids.has(edit.change.option) ? { ...edit.change, option: ids.get(edit.change.option)! } : edit.change
     return { ...edit, target, change }
   }
@@ -84,7 +92,7 @@ export function carriedEdits(
     const base = before.get(from) ?? []
     const edits = now(from)
     if (sameEdits(base, edits)) continue
-    carried.set(to, { base: base.map(moved(from, to)), edits: edits.map(moved(from, to)) })
+    carried.set(to, { base: base.map(moved), edits: edits.map(moved) })
   }
   return carried
 }
@@ -129,18 +137,23 @@ export type RunDeps = FollowDeps & { client: Pick<ScreensClient, 'run'>; list: r
 // the editor after it. A blocked action gives a refusal and makes no call.
 export async function runAction(action: ScreenAction, deps: RunDeps): Promise<ActionResult> {
   const moved = movedScreens(deps.list, action)
-  const block = deps.sync ? saveBlock(moved, deps.sync.requests.saveState) : null
+  const held = heldScreens(deps.list, action)
+  const block = deps.sync ? saveBlock(held, deps.sync.requests.saveState) : null
   if (block !== null) return { status: 'refused', refusals: [block] }
   const editsOf = (id: string) => deps.edits.get(id).map((item) => item.edit)
   const before = new Map(moved.map((id) => [id, editsOf(id)]))
-  // While the call runs, the sync holds the moved screens: it neither loads,
-  // saves, ends nor starts them, also when the new list comes before the
-  // answer. Thus the edits of the store after the call are what the user did.
-  const release = moved.length > 0 ? (deps.sync?.requests.hold(moved) ?? null) : null
+  // While the call runs, the syncs hold the screens: the request sync neither
+  // loads, saves, ends nor starts them, also when the new list comes before
+  // the answer, and the issues sync writes no issues file at an old id. Thus
+  // the edits of the store after the call are what the user did.
+  const holds = held.length > 0 && deps.sync ? [deps.sync.requests.hold(held), deps.sync.issues.hold(held)] : []
+  const release = () => {
+    for (const end of holds) end()
+  }
   try {
     const result = await deps.client.run(action)
     if (result.status === 'applied') {
-      const carried = carriedEdits(result.plan.screens, before, editsOf)
+      const carried = carriedEdits(result.plan, before, editsOf)
       followAction(result.plan, deps, new Map([...carried].map(([id, item]) => [id, item.base])))
       for (const [id, item] of carried) {
         // An edit that the store has at the new id already (unsaved edits of
@@ -152,6 +165,6 @@ export async function runAction(action: ScreenAction, deps: RunDeps): Promise<Ac
     }
     return result
   } finally {
-    release?.()
+    release()
   }
 }

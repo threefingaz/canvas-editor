@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import type { Site } from '../locate/fiber.ts'
 import type { LinkNode } from '../../frame/screen-link.ts'
-import { brokenLinks, innerLocs, placesOf } from './collect.ts'
+import { brokenLinks, crossingSites, innerLocs, placesOf } from './collect.ts'
 
 function site(line: number, tag: string, origin: Site['origin'] = 'library'): Site {
   const file = 'screens/onboarding/welcome.tsx'
@@ -185,5 +185,27 @@ describe('brokenLinks', () => {
       hidden,
     )
     expect([...links]).toEqual([[site(90, 'Card').loc, ['#/missing']]])
+  })
+})
+
+describe('crossingSites', () => {
+  test('each visible copy that goes over the right edge, also a later copy of a place', () => {
+    const rects: Record<string, { right: number; width: number }> = {
+      stack: { right: 390, width: 390 },
+      'chip-1': { right: 100, width: 80 },
+      'chip-2': { right: 420, width: 80 },
+      'chip-3': { right: 500, width: 80 },
+    }
+    const sites = [
+      { node: 'stack', site: stack },
+      { node: 'chip-1', site: chip },
+      { node: 'chip-2', site: chip },
+      { node: 'chip-3', site: chip },
+    ]
+    expect(crossingSites(sites, (node) => node === 'chip-3', (node) => rects[node], 390, 0)).toEqual([
+      { tag: 'Chip', file: 'screens/onboarding/welcome.tsx', line: 53, width: 80 },
+    ])
+    // Scrolled to the side: the right edge of a rectangle is in the view.
+    expect(crossingSites(sites, () => false, (node) => rects[node], 390, 40).map((entry) => entry.line)).toEqual([51, 53, 53])
   })
 })

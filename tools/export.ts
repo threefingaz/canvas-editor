@@ -16,11 +16,12 @@
 // a file that Git does not track does not. The report says how many exported
 // files have changes that are not committed.
 
-import { copyFileSync, existsSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
-import { dirname, isAbsolute, join, relative } from 'node:path'
+import { copyFileSync, existsSync, lstatSync, mkdirSync, readdirSync, realpathSync, rmSync, statSync } from 'node:fs'
+import { basename, dirname, isAbsolute, join, relative, sep } from 'node:path'
 import { config } from '../canvas.config.ts'
 import { connectSentence } from '../src/frame/library-setup.ts'
 import { packsFolder } from './pack.ts'
+import { foldsCase } from './project.ts'
 
 // The folders whose files are left out, relative to the project root.
 export const leftOutFolders = [packsFolder, config.screens, config.components, 'docs/plans']
@@ -50,16 +51,43 @@ export function parseFileList(output: string): string[] {
 
 // Why the target folder cannot take the export, or null when it can: it does
 // not exist yet, or it is an empty folder, and it is not in the project
-// (`root`), where the lint and the dev server would read it.
-export function targetProblem(target: string, root: string): string | null {
-  const path = relative(root, target)
-  if (path === '' || (!path.startsWith('..') && !isAbsolute(path))) {
+// (`root`), where the lint and the dev server would read it. Where the file
+// system has no case in a name (`fold`), `/Work/Tool/x` is in `/work/tool`.
+export function targetProblem(target: string, root: string, fold: boolean = foldsCase): string | null {
+  // The folders as the disk has them: a link (`/tmp` of macOS) into the
+  // project is in it.
+  const [to, from] = [realFolder(target), realFolder(root)]
+  const path = fold ? relative(from.toLowerCase(), to.toLowerCase()) : relative(from, to)
+  const outside = path === '..' || path.startsWith(`..${sep}`) || isAbsolute(path)
+  if (!outside) {
     return `${target} is in the project: choose a folder outside ${root}`
   }
-  if (!existsSync(target)) return null
+  if (!existsSync(target)) {
+    // A link to nothing: the copy cannot make the folder there.
+    return isLink(target) ? `${target} is a link to a folder that does not exist` : null
+  }
   if (!statSync(target).isDirectory()) return `${target} is not a folder`
   if (readdirSync(target).length > 0) return `${target} is not empty: choose a new or an empty folder`
   return null
+}
+
+// The real path of a folder, also of one that does not exist yet: the real
+// path of the nearest folder above it that exists, with the rest of the path.
+function realFolder(path: string): string {
+  try {
+    return realpathSync(path)
+  } catch {
+    const parent = dirname(path)
+    return parent === path ? path : join(realFolder(parent), basename(path))
+  }
+}
+
+function isLink(path: string): boolean {
+  try {
+    return lstatSync(path).isSymbolicLink()
+  } catch {
+    return false
+  }
 }
 
 // Copies each file from `source` to `target` (both folders; `files` relative

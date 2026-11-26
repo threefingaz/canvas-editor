@@ -1,9 +1,11 @@
+import { useEffect, useReducer } from 'react'
 import type { Target } from '../../requests/format.ts'
 import type { FrameBox } from '../canvas/layout.ts'
 import type { View } from '../canvas/viewport.ts'
 import { editBlock, optionsBlock } from '../edits/keep.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
 import { optionsEdit } from '../inspector/edit.ts'
+import { onPreviewApplied } from '../preview/use-preview.ts'
 import { useSelection } from '../selection/store.ts'
 import { selectionTarget } from '../selection/target.ts'
 import { PanelSurface } from '../ui'
@@ -36,6 +38,11 @@ export function OptionsPanel({ target, live, view, box, document }: OptionsPanel
 
   // The element of the options and its place in the code.
   const { node, site } = targetSite(live ? target : null, document, selected, items)
+
+  // A preview can move the element (an edit of the inspector while the panel
+  // is open): the anchor is read again after it.
+  const [, remeasure] = useReducer((count: number) => count + 1, 0)
+  useEffect(() => onPreviewApplied(remeasure), [])
 
   // The anchor on the canvas: the top right corner of the element. Null: the
   // button in the title row, or the title.

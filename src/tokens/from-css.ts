@@ -71,39 +71,77 @@ const shadowName = /shadow|elevation/i
 
 const colorKeywords = new Set(['transparent', 'black', 'white'])
 
-// A color text: hex, a color function, or one of the keywords that the editor
-// reads (`transparent`, `black`, `white`).
+// True when the parenthesis of the first call in `text` closes at the last
+// character: `rgb(0 0 0)` and `var(--a, var(--b))`, not
+// `rgba(0,0,0,0.1) 0 1px 2px` or `var(--a) var(--b)`. A parenthesis in a
+// quoted text does not count.
+export function isWholeCall(text: string): boolean {
+  const open = text.indexOf('(')
+  if (open === -1) return false
+  let depth = 0
+  for (let index = open; index < text.length; index++) {
+    const char = text[index]
+    if (char === '"' || char === "'") {
+      index = quoteEnd(text, index)
+      if (index === -1) return false
+    } else if (char === '(') depth++
+    else if (char === ')' && --depth === 0) return index === text.length - 1
+  }
+  return false
+}
+
+// The index of the quote that ends the quoted text that starts at `open`, or
+// -1 when it does not end. A quote after a backslash is a part of the text.
+function quoteEnd(text: string, open: number): number {
+  for (let index = open + 1; index < text.length; index++) {
+    if (text[index] === '\\') index++
+    else if (text[index] === text[open]) return index
+  }
+  return -1
+}
+
+// A color text: hex of 3, 4, 6 or 8 digits, one color function, or one of the
+// keywords that the editor reads (`transparent`, `black`, `white`).
 export function isColorText(text: string): boolean {
   const value = text.trim().toLowerCase()
   return (
-    /^#[0-9a-f]{3,8}$/.test(value) ||
-    /^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(.*\)$/.test(value) ||
+    /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/.test(value) ||
+    (/^(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/.test(value) && isWholeCall(value)) ||
     colorKeywords.has(value)
   )
 }
 
-const lengthPattern = /^-?\d*\.?\d+px$|^0$/
+// A unit of CSS has no case (`16PX` is `16px`).
+const lengthPattern = /^-?\d*\.?\d+px$|^0$/i
 
 function isLength(text: string) {
   return lengthPattern.test(text.trim())
 }
 
-function px(value: number) {
+// A number of pixels as a CSS length, rounded to 3 places (`from-object.ts`
+// uses it too).
+export function px(value: number): string {
   const rounded = Number(value.toFixed(3))
   return `${rounded === 0 ? 0 : rounded}px`
 }
 
 // --- The reader -------------------------------------------------------------
 
+// The text with no comments. A backslash escapes the next character also
+// outside a string (a selector of a utility class, `.w-\[10px\]`, or
+// `.content-\[\'x\'\]`): it starts no string and no comment.
 function withoutComments(css: string): string {
   let out = ''
   let quote = ''
   for (let index = 0; index < css.length; index++) {
     const char = css[index]
+    if (char === '\\') {
+      out += char + (css[++index] ?? '')
+      continue
+    }
     if (quote) {
       out += char
-      if (char === '\\') out += css[++index] ?? ''
-      else if (char === quote) quote = ''
+      if (char === quote) quote = ''
       continue
     }
     if (char === '"' || char === "'") quote = char
@@ -119,15 +157,19 @@ function withoutComments(css: string): string {
 }
 
 // Reads from `start` to the first `;`, `{` or `}` outside a string and outside
-// brackets. Gives the text and the character that ended it ('' at the end).
+// brackets. Gives the text and the character that ended it ('' at the end). A
+// character after a backslash counts as none of these, also outside a string.
 function readUntil(css: string, start: number): { text: string; end: number; stop: string } {
   let depth = 0
   let quote = ''
   for (let index = start; index < css.length; index++) {
     const char = css[index]
+    if (char === '\\') {
+      index++
+      continue
+    }
     if (quote) {
-      if (char === '\\') index++
-      else if (char === quote) quote = ''
+      if (char === quote) quote = ''
       continue
     }
     if (char === '"' || char === "'") quote = char
@@ -160,10 +202,70 @@ function collapse(text: string) {
   return text.replace(/\s+/g, ' ').trim()
 }
 
+// The parts of a media query list, split at the commas outside a parenthesis.
+function mediaList(query: string): string[] {
+  const parts: string[] = []
+  let depth = 0
+  let from = 0
+  for (let index = 0; index < query.length; index++) {
+    const char = query[index]
+    if (char === '(') depth++
+    else if (char === ')') depth--
+    else if (char === ',' && depth === 0) {
+      parts.push(query.slice(from, index).trim())
+      from = index + 1
+    }
+  }
+  parts.push(query.slice(from).trim())
+  return parts
+}
+
+// The condition of a media rule inside a media rule: each query of the outer
+// list with each query of the inner one (`screen, print` in `(width < 768px)`
+// is `screen and (width < 768px), print and (width < 768px)`).
 function joinMedia(outer: string, inner: string) {
   if (!outer) return inner
   if (!inner) return outer
-  return `${outer} and ${inner}`
+  return mediaList(outer)
+    .flatMap((first) => mediaList(inner).map((second) => joinQuery(first, second)))
+    .join(', ')
+}
+
+// A media query as its media type (lowercase, or '' for none) and its
+// condition, or null for a `not` before a media type (`not print`), whose
+// negation covers the whole query. A condition with an `or` outside a
+// parenthesis gets one around it, thus `and` can follow it.
+function queryParts(query: string): { type: string; condition: string } | null {
+  const text = query.trim()
+  if (/^not\s/i.test(text)) return /^not\s*\(/i.test(text) ? { type: '', condition: `(${text})` } : null
+  const typed = /^(?:only\s+)?([a-z][\w-]*)(?:\s+and\s+([\s\S]+))?$/i.exec(text)
+  if (typed) return { type: typed[1].toLowerCase(), condition: typed[2]?.trim() ?? '' }
+  return { type: '', condition: topOr(text) ? `(${text})` : text }
+}
+
+function topOr(text: string): boolean {
+  let depth = 0
+  for (let index = 0; index < text.length; index++) {
+    if (text[index] === '(') depth++
+    else if (text[index] === ')') depth--
+    else if (depth === 0 && /^\sor\s/i.test(text.slice(index, index + 4))) return true
+  }
+  return false
+}
+
+// One query of a media rule inside one query around it, as one query: the
+// media type once (`screen` around `screen and (min-width: 768px)` is
+// `screen and (min-width: 768px)`), and `not all` for two different types.
+// A `not` before a media type has no form that `and` can join: the inner
+// query stands alone (`not print` holds on each screen).
+export function joinQuery(outer: string, inner: string): string {
+  const first = queryParts(outer)
+  const second = queryParts(inner)
+  if (first === null || second === null) return inner.trim()
+  const types = [first.type, second.type].filter((type) => type !== '' && type !== 'all')
+  if (types.length === 2 && types[0] !== types[1]) return 'not all'
+  const type = types[0] ?? (first.type || second.type)
+  return [type, first.condition, second.condition].filter((part) => part !== '').join(' and ')
 }
 
 type Scope = { root: boolean; inRule: boolean; media: string }
@@ -192,7 +294,9 @@ function rootDeclarations(css: string, rootSelectors: readonly string[]): Declar
         const at = /^@([\w-]+)\s*(.*)$/s.exec(head)
         if (at) {
           const name = at[1].toLowerCase()
-          if (name === 'media') walk(part.end + 1, close, { ...scope, media: joinMedia(scope.media, collapse(at[2])) })
+          // `all` holds everywhere, as no condition.
+          const query = collapse(at[2])
+          if (name === 'media') walk(part.end + 1, close, { ...scope, media: query.toLowerCase() === 'all' ? scope.media : joinMedia(scope.media, query) })
           else if (name === 'layer') walk(part.end + 1, close, scope)
         } else {
           const root = isRootRule(head, scope, rootSelectors)
@@ -233,7 +337,12 @@ function callArguments(text: string, open: number): { args: string[]; close: num
   const args: string[] = []
   for (let index = open; index < text.length; index++) {
     const char = text[index]
-    if (char === '(') depth++
+    // A quoted text is skipped: a parenthesis or a comma in it does not count.
+    if (char === '"' || char === "'") {
+      const end = quoteEnd(text, index)
+      if (end === -1) return null
+      index = end
+    } else if (char === '(') depth++
     else if (char === ')') {
       depth--
       if (depth === 0) {
@@ -253,8 +362,11 @@ function callArguments(text: string, open: number): { args: string[]; close: num
 function substitute(text: string, lookup: (name: string, seen: Set<string>) => string | null, seen: Set<string>): string | null {
   let out = ''
   let index = 0
+  // `var(` in any case, as a word of its own (not the end of `--my-var(`).
+  const varCall = /(?<![\w-])var\(/gi
   while (index < text.length) {
-    const found = text.indexOf('var(', index)
+    varCall.lastIndex = index
+    const found = varCall.exec(text)?.index ?? -1
     if (found === -1) {
       out += text.slice(index)
       break
@@ -275,19 +387,24 @@ function substitute(text: string, lookup: (name: string, seen: Set<string>) => s
 // A `calc()` of px lengths and numbers, with `+ - * /` and brackets, as px or
 // a number. Null for each other content.
 function computeCalc(expression: string): string | null {
-  const tokens = expression.match(/-?\d*\.?\d+(?:px)?|[-+*/()]|\S+/g) ?? []
+  const tokens = expression.match(/-?\d*\.?\d+(?:px)?|[-+*/()]|\S+/gi) ?? []
   let place = 0
   type Amount = { value: number; length: boolean }
 
   const primary = (): Amount | null => {
     const token = tokens[place++]
+    // A sign before a bracket or a number: `-(8px * 2)`, `+ 4px`.
+    if (token === '-' || token === '+') {
+      const inner = primary()
+      return inner && token === '-' ? { ...inner, value: -inner.value } : inner
+    }
     if (token === '(') {
       const inner = sum()
       if (tokens[place++] !== ')') return null
       return inner
     }
-    if (token === undefined || !/^-?\d*\.?\d+(px)?$/.test(token)) return null
-    return { value: parseFloat(token), length: token.endsWith('px') }
+    if (token === undefined || !/^-?\d*\.?\d+(px)?$/i.test(token)) return null
+    return { value: parseFloat(token), length: token.toLowerCase().endsWith('px') }
   }
   const product = (): Amount | null => {
     let left = primary()
@@ -321,19 +438,30 @@ function computeCalc(expression: string): string | null {
   return result.length ? px(result.value) : String(Number(result.value.toFixed(3)))
 }
 
+// A rem length as a word of its own: not a part of a name (`icon-2rem`).
+const remLength = /(^|[\s(,+*/])(-?\d*\.?\d+)rem\b/gi
+const remPattern = /(^|[\s(,+*/])-?\d*\.?\d+rem\b/i
+
 function finish(text: string, rootSize: number): string {
-  let value = collapse(text).replace(/(^|[\s(,+*/-])(-?\d*\.?\d+)rem\b/g, (_, before: string, amount: string) => {
+  let value = collapse(text).replace(remLength, (_, before: string, amount: string) => {
     return `${before}${px(Number(amount) * rootSize)}`
   })
-  // A calc in a calc (from an alias) is a bracket in the outer calc.
-  for (;;) {
-    const found = /calc\(/i.exec(value)
+  // A calc in a calc (from an alias) is a bracket in the outer calc. A calc
+  // that cannot be computed stays, and the next one is computed all the same.
+  const calcCall = /(?<![\w-])calc\(/gi
+  for (let from = 0; ; ) {
+    calcCall.lastIndex = from
+    const found = calcCall.exec(value)
     if (!found) break
     const call = callArguments(value, found.index + 4)
-    if (!call || call.args.length !== 1) break
-    const computed = computeCalc(call.args[0].replace(/calc\(/gi, '('))
-    if (computed === null) break
+    if (!call) break
+    const computed = call.args.length === 1 ? computeCalc(call.args[0].replace(/(?<![\w-])calc\(/gi, '(')) : null
+    if (computed === null) {
+      from = call.close + 1
+      continue
+    }
     value = value.slice(0, found.index) + computed + value.slice(call.close + 1)
+    from = found.index + computed.length
   }
   return value
 }
@@ -341,11 +469,12 @@ function finish(text: string, rootSize: number): string {
 // The root font size in px from the text of a `font-size` of the root rule.
 function rootSizeOf(text: string | undefined, base: number): number {
   if (!text) return base
-  const match = /^(\d*\.?\d+)(px|rem|em|%)$/.exec(text.trim())
+  const match = /^(\d*\.?\d+)(px|rem|em|%)$/i.exec(text.trim())
   if (!match) return base
   const amount = Number(match[1])
-  if (match[2] === 'px') return amount
-  if (match[2] === '%') return (amount / 100) * base
+  const unit = match[2].toLowerCase()
+  if (unit === 'px') return amount
+  if (unit === '%') return (amount / 100) * base
   return amount * base
 }
 
@@ -398,7 +527,8 @@ function featureRange(feature: string): WidthRange | null {
   const last = widthLast.exec(feature)
   if (last) return sideRange(flipped[last[3]], mediaPx(last[1], last[2]))
   const between = widthBetween.exec(feature)
-  if (between) {
+  // `600px <= width < 900px`: the two signs point the same way.
+  if (between && between[3][0] === between[4][0]) {
     return meet(
       sideRange(flipped[between[3]], mediaPx(between[1], between[2])),
       sideRange(between[4], mediaPx(between[5], between[6])),
@@ -462,9 +592,10 @@ export function orderMedia(queries: readonly string[]): string[] {
 
 // The declarations that hold in a context: those with no media condition,
 // those of the condition `media`, and those of each condition that holds
-// wherever `media` holds; a later one wins, as in the stylesheet.
-function contextValues(declarations: readonly Declaration[], media: string): Map<string, string> {
-  const values = new Map<string, string>()
+// wherever `media` holds; a later one wins, as in the stylesheet. Each value
+// has the media condition of its declaration.
+function contextValues(declarations: readonly Declaration[], media: string): Map<string, { value: string; media: string }> {
+  const values = new Map<string, { value: string; media: string }>()
   const within = new Map<string, boolean>()
   for (const declaration of declarations) {
     let holds = declaration.media === '' || declaration.media === media
@@ -473,26 +604,46 @@ function contextValues(declarations: readonly Declaration[], media: string): Map
       holds = known ?? mediaHoldsWithin(declaration.media, media)
       within.set(declaration.media, holds)
     }
-    if (holds) values.set(declaration.property, declaration.value)
+    if (holds) values.set(declaration.property, { value: declaration.value, media: declaration.media })
   }
   return values
 }
 
-function resolveAll(declarations: readonly Declaration[], media: string, base: number): Map<string, string> {
+// The resolved value of each variable in the context `media`, and `own`: the
+// variables whose value reads a declaration of the condition `media` itself
+// (the variable, a variable of a `var()` in it, or the font size of the root).
+// The value of a different variable is the value of the conditions around
+// `media`, which have entries of their own; a condition that only overlaps
+// `media` is not in it, thus such a value can be wrong in the overlap.
+function resolveAll(declarations: readonly Declaration[], media: string, base: number): { values: Map<string, string>; own: Set<string> } {
   const raw = contextValues(declarations, media)
-  const rootSize = rootSizeOf(raw.get('font-size'), base)
+  const size = raw.get('font-size')
+  let read = false
   const lookup = (name: string, seen: Set<string>): string | null => {
-    const text = raw.get(name)
-    if (text === undefined || seen.has(name)) return null
-    return substitute(text, lookup, new Set([...seen, name]))
+    const entry = raw.get(name)
+    if (entry === undefined || seen.has(name)) return null
+    if (media !== '' && entry.media === media) read = true
+    return substitute(entry.value, lookup, new Set([...seen, name]))
   }
-  const resolved = new Map<string, string>()
+  // The font size of the root, also through a `var()`: it is of `media` when
+  // its declaration or a variable that it reads is.
+  const sizeText = size === undefined ? undefined : substitute(size.value, lookup, new Set())
+  const sizeOwn = media !== '' && (size?.media === media || read)
+  const rootSize = rootSizeOf(sizeText ?? undefined, base)
+  const values = new Map<string, string>()
+  const own = new Set<string>()
   for (const name of raw.keys()) {
     if (!name.startsWith('--')) continue
+    read = false
     const text = lookup(name, new Set())
-    if (text !== null && text !== '') resolved.set(name, finish(text, rootSize))
+    if (text === null || text === '') continue
+    values.set(name, finish(text, rootSize))
+    // The font size of the root of the condition counts only for a value in
+    // `rem`: a color or a length in px does not read it.
+    if (sizeOwn && remPattern.test(text)) read = true
+    if (read) own.add(name)
   }
-  return resolved
+  return { values, own }
 }
 
 function groupOf(name: string, value: string, rules: readonly CssTokenRule[]): TokenGroup | null {
@@ -500,7 +651,7 @@ function groupOf(name: string, value: string, rules: readonly CssTokenRule[]): T
     if (rule.match.test(name)) return rule.group
   }
   if (isColorText(value)) return 'color'
-  if (shadowName.test(name) && value !== 'none') return 'shadow'
+  if (shadowName.test(name) && value.trim().toLowerCase() !== 'none') return 'shadow'
   if (!isLength(value)) return null
   if (radiusName.test(name)) return 'radius'
   if (strokeName.test(name)) return 'stroke'
@@ -512,8 +663,9 @@ type Resolved = {
   // The names of the variables, in the sequence of their first declaration.
   names: string[]
   base: Map<string, string>
-  // The values of each media condition, in the sequence of `orderMedia`.
-  media: { query: string; values: Map<string, string> }[]
+  // The values of each media condition, in the sequence of `orderMedia`, and
+  // the variables that the condition declares itself (`resolveAll`).
+  media: { query: string; values: Map<string, string>; own: Set<string> }[]
 }
 
 function resolveCss(css: string, options: CssVariableOptions): Resolved {
@@ -523,8 +675,8 @@ function resolveCss(css: string, options: CssVariableOptions): Resolved {
   const properties = new Set(declarations.map((declaration) => declaration.property))
   return {
     names: [...properties].filter((name) => name.startsWith('--')),
-    base: resolveAll(declarations, '', rootSize),
-    media: queries.map((query) => ({ query, values: resolveAll(declarations, query, rootSize) })),
+    base: resolveAll(declarations, '', rootSize).values,
+    media: queries.map((query) => ({ query, ...resolveAll(declarations, query, rootSize) })),
   }
 }
 
@@ -532,19 +684,24 @@ function resolveCss(css: string, options: CssVariableOptions): Resolved {
 // conditions, in their sequence, without each one that the entries before it
 // already give. For a condition of the width, the value before it is the base
 // value or the value of the last wider condition; an entry also stays when a
-// condition that only overlaps it has a different value.
+// condition that only overlaps it, or a condition that is not only about the
+// width, has a different value.
 function neededMedia(base: string, entries: readonly TokenMediaEntry[]): TokenMediaEntry[] {
   const kept: (TokenMediaEntry & { range: WidthRange | null })[] = []
   for (const entry of entries) {
     const range = widthRange(entry.query)
     let before = base
     let unsure = false
-    if (range) {
-      for (const earlier of kept) {
-        if (!earlier.range || !overlaps(earlier.range, range)) continue
-        if (contains(earlier.range, range)) before = earlier.value
-        else if (earlier.value !== entry.value) unsure = true
+    for (const earlier of kept) {
+      // A condition that is not only about the width (a color scheme, a
+      // media type) can hold at the same time as each other one.
+      if (!earlier.range || !range) {
+        if (earlier.value !== entry.value) unsure = true
+        continue
       }
+      if (!overlaps(earlier.range, range)) continue
+      if (contains(earlier.range, range)) before = earlier.value
+      else if (earlier.value !== entry.value) unsure = true
     }
     if (entry.value !== before || unsure) kept.push({ ...entry, range })
   }
@@ -553,10 +710,15 @@ function neededMedia(base: string, entries: readonly TokenMediaEntry[]): TokenMe
 
 type TokenMediaEntry = { query: string; value: string }
 
-function mediaOf(resolved: Resolved, name: string): TokenMediaEntry[] {
+// The value of a variable for each condition. With `own`, a value that the
+// condition does not declare itself is left out: the conditions around it
+// give it, and the value of the context of the condition is wrong where a
+// condition that only overlaps it holds too. With no `own`, each condition
+// has its entry, in one sequence for all variables.
+function mediaOf(resolved: Resolved, name: string, own = false): TokenMediaEntry[] {
   const entries: TokenMediaEntry[] = []
   for (const entry of resolved.media) {
-    const value = entry.values.get(name)
+    const value = !own || entry.own.has(name) ? entry.values.get(name) : undefined
     if (value !== undefined) entries.push({ query: entry.query, value })
   }
   return entries
@@ -590,7 +752,7 @@ export function tokensFromCss(css: string, options: CssTokenOptions = {}): Token
     if (value === undefined) continue
     const group = groupOf(name, value, options.rules ?? [])
     if (group === null) continue
-    const media: TokenMediaValue[] = neededMedia(value, mediaOf(resolved, name))
+    const media: TokenMediaValue[] = neededMedia(value, mediaOf(resolved, name, true))
     const id = name.slice(2)
     tokens.push({
       id,

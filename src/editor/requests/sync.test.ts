@@ -58,6 +58,8 @@ describe('changedScreens', () => {
     const b = [item(edit('e2', undefined, 20))]
     const before: Screens = { one: a, two: b }
     expect(changedScreens(before, { one: a, two: [...b, item(edit('e3', undefined, 30))] })).toEqual(['two'])
+    expect(changedScreens({}, { constructor: a })).toEqual(['constructor'])
+    expect(changedScreens({ constructor: a }, {})).toEqual(['constructor'])
     expect(changedScreens(before, { one: a })).toEqual(['two'])
     expect(changedScreens(before, { one: a, two: b, three: a })).toEqual(['three'])
     expect(changedScreens(before, before)).toEqual([])
@@ -139,6 +141,14 @@ describe('mergeEdits', () => {
   test('the local version of an item stays when only the editor changed it', () => {
     const local = edit('b', text('Local'), 20)
     expect(mergeEdits([a, b], [a, local], [a, b])).toEqual([a, local])
+  })
+
+  test('keeps one keep item when the editor and the file each got a different one', () => {
+    const mine: Edit = { id: 'k1', target: null, width: 390, change: { kind: 'keep', option: 'onboarding/welcome-option-1' } }
+    const theirs: Edit = { id: 'k2', target: null, width: 390, change: { kind: 'keep', option: 'onboarding/welcome-option-2' } }
+    const merged = mergeEdits([a], [a, mine], [a, theirs])
+    expect(merged).toEqual([a, mine])
+    expect(() => formatRequest(requestOf(welcome, merged))).not.toThrow()
   })
 
   test('keeps a remote item that is new in the file', () => {
@@ -349,6 +359,41 @@ describe('createSync', () => {
     expect(errors.at(-1)!.size).toBe(0)
   })
 
+  test('a load of the same file after a failed save saves the edits again, and only then the screen is saved', async () => {
+    const { server, sync, store, errors, outside } = setup()
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    server.fail('500 disk full')
+    store.apply(welcome.id, edit('e1'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(sync.saveState(welcome.id)).toBe('failed')
+    server.fail(null)
+    // An event of the file with no change of its text: the load gives the
+    // same hash.
+    outside(welcome.id)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(server.edits(welcome.id)).toEqual(['e1'])
+    expect(errors.at(-1)!.size).toBe(0)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+  })
+
+  test('a conflict that saves the merged edits at once leaves no save in the delay', async () => {
+    const { server, sync, store } = setup()
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    store.apply(welcome.id, edit('a'))
+    store.apply(welcome.id, edit('b', text('Hi'), 20))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    server.write(welcome.id, [edit('b', text('Hi'), 20)])
+    store.apply(welcome.id, edit('c', undefined, 30))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.edits(welcome.id)).toEqual(['b', 'c'])
+    expect(sync.saveState(welcome.id)).toBe('saved')
+    const saves = server.calls.filter((call) => call.startsWith('save')).length
+    await vi.advanceTimersByTimeAsync(saveDelay * 2)
+    expect(server.calls.filter((call) => call.startsWith('save')).length).toBe(saves)
+  })
+
   test('an undo to the saved edits after a failed save clears the error', async () => {
     const { server, sync, store, errors } = setup()
     sync.setScreens([welcome])
@@ -372,7 +417,39 @@ describe('createSync', () => {
     ])
     store.apply(welcome.id, edit('e1'))
     await vi.advanceTimersByTimeAsync(saveDelay)
-    expect(server.calls).toEqual(['load onboarding/welcome'])
+    // The save loads again first; the load fails again, and nothing is saved.
+    expect(server.calls).toEqual(['load onboarding/welcome', 'load onboarding/welcome'])
+  })
+
+  test('a load that throws is a failed load: the screen is not busy after it, and the next change loads again', async () => {
+    const { server, sync, store, errors } = setup()
+    const loadRequest = server.client.loadRequest
+    let throws = true
+    server.client.loadRequest = (id) => (throws ? Promise.reject(new Error('the client broke')) : loadRequest(id))
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    expect([...errors.at(-1)!.values()]).toEqual(['Cannot sync the changes of onboarding/welcome: the client broke'])
+    throws = false
+    store.apply(welcome.id, edit('e1'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.calls).toEqual(['load onboarding/welcome', 'save onboarding/welcome'])
+    expect(errors.at(-1)!.size).toBe(0)
+  })
+
+  test('after a failed load, the next change loads again and saves the edits', async () => {
+    const { server, sync, store, errors } = setup()
+    server.write(welcome.id, [edit('a')])
+    server.fail('offline')
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    server.fail(null)
+    store.apply(welcome.id, edit('e1', text('Hi'), 20))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.calls).toEqual(['load onboarding/welcome', 'load onboarding/welcome', 'save onboarding/welcome'])
+    expect(errors.at(-1)!.size).toBe(0)
+    expect(server.edits(welcome.id)).toEqual(['a', 'e1'])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(sync.saveState(welcome.id)).toBe('saved')
   })
 
   test('edits made before the load are kept and saved', async () => {
@@ -487,6 +564,22 @@ describe('createSync', () => {
     expect(server.edits(profile.id)).toEqual([])
   })
 
+  test('a removed screen whose edits were all undone and saved takes no old edits back with an undo or a redo', async () => {
+    const { server, sync, store, local } = setup()
+    sync.setScreens([welcome, profile])
+    await vi.advanceTimersByTimeAsync(0)
+    store.apply(profile.id, edit('old'))
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    store.undo()
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(server.edits(profile.id)).toEqual([])
+    sync.setScreens([welcome])
+    store.redo()
+    expect(local(profile.id)).toEqual([])
+    store.undo()
+    expect(local(profile.id)).toEqual([])
+  })
+
   test('a screen file that comes back gets the edits of its request file again', async () => {
     const { server, sync, store, local } = setup()
     sync.setScreens([welcome])
@@ -581,6 +674,75 @@ describe('createSync', () => {
     expect(sync.saveState(welcome.id)).toBe('failed')
   })
 
+  test('saveState: a load that takes the edits of the file is saved at once, with no wait for a save', async () => {
+    const { server, store, sync, outside } = setup()
+    server.write(welcome.id, [edit('e1')])
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.get(welcome.id)).toHaveLength(1)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+    // A change of the file from outside, too.
+    server.write(welcome.id, [edit('e1'), edit('e2', text('Hi'), 20)])
+    outside(welcome.id)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(store.get(welcome.id)).toHaveLength(2)
+    expect(sync.saveState(welcome.id)).toBe('saved')
+    expect(server.calls.filter((call) => call.startsWith('save'))).toEqual([])
+  })
+
+  test('saveState: the edits of a moved file that the user discarded, with a failed first load, are failed', async () => {
+    const { server, store, sync } = setup()
+    const account = { id: 'settings/account', file: 'screens/settings/account.tsx' }
+    server.fail('offline')
+    sync.replaceScreens([], [account.id], new Map([[account.id, [edit('a')]]]))
+    store.replace(account.id, [])
+    sync.setScreens([account])
+    await vi.advanceTimersByTimeAsync(saveDelay)
+    expect(sync.saveState(account.id)).toBe('failed')
+  })
+
+  test('saveState: a screen of the list that a hold keeps from its start, with edits, is pending', () => {
+    const { store, sync } = setup()
+    const release = sync.hold([profile.id])
+    store.apply(welcome.id, edit('e1'))
+    sync.setScreens([welcome])
+    expect(sync.saveState(welcome.id)).toBe('pending')
+    expect(sync.saveState(profile.id)).toBe('saved')
+    release()
+  })
+
+  test('saveState: a screen of the list that a hold keeps from its start, with no edits, is pending until the hold ends', async () => {
+    const { sync } = setup()
+    const account = { id: 'settings/account', file: 'screens/settings/account.tsx' }
+    const release = sync.hold([profile.id])
+    // The list of a rename comes before the answer of the action.
+    sync.setScreens([welcome, account])
+    expect(sync.saveState(account.id)).toBe('pending')
+    release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(sync.saveState(account.id)).toBe('saved')
+  })
+
+  test('a call that throws after its screen left the list reports no error', async () => {
+    const store = createEditsStore()
+    const errors: ReadonlyMap<string, string>[] = []
+    let fail: (error: Error) => void = () => {}
+    const sync = createSync({
+      store,
+      client: {
+        loadRequest: () => new Promise((_resolve, reject) => (fail = reject)),
+        saveRequest: () => Promise.reject(new Error('not used')),
+      },
+      listen: () => () => {},
+      report: createErrorList((next) => errors.push(next)),
+    })
+    sync.setScreens([welcome])
+    sync.setScreens([])
+    fail(new Error('offline'))
+    await vi.advanceTimersByTimeAsync(0)
+    expect(errors.every((map) => !map.has(`requests:${welcome.id}`))).toBe(true)
+  })
+
   test('replaceScreens: a dropped id stops at once and is not loaded again while the list still has it', async () => {
     const { server, store, sync, errors } = setup()
     server.write(welcome.id, [edit('e1')])
@@ -629,6 +791,27 @@ describe('createSync', () => {
     await vi.advanceTimersByTimeAsync(saveDelay)
     expect(server.edits(account.id)).toEqual(['a'])
     expect(sync.saveState(account.id)).toBe('saved')
+  })
+
+  test('a load that saves the edits of the editor at once leaves no save in the delay', async () => {
+    const { server, store, sync } = setup()
+    sync.setScreens([welcome])
+    await vi.advanceTimersByTimeAsync(0)
+    const account = { id: 'settings/account', file: 'screens/settings/account.tsx' }
+    // The moved file has a and b; during its load the user discards b.
+    server.write(account.id, [edit('a'), edit('b', undefined, 30)])
+    sync.replaceScreens([], [account.id], new Map([[account.id, [edit('a'), edit('b', undefined, 30)]]]))
+    server.hold()
+    sync.setScreens([welcome, account])
+    await vi.advanceTimersByTimeAsync(0)
+    store.replace(account.id, [edit('a')])
+    server.release()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(server.edits(account.id)).toEqual(['a'])
+    expect(sync.saveState(account.id)).toBe('saved')
+    const saves = server.calls.filter((call) => call.startsWith('save')).length
+    await vi.advanceTimersByTimeAsync(saveDelay * 2)
+    expect(server.calls.filter((call) => call.startsWith('save')).length).toBe(saves)
   })
 
   test('replaceScreens: a new id of the list loads its file again; an id that comes back is loaded', async () => {
@@ -698,7 +881,7 @@ describe('createSync with a rename', () => {
           answer = resolve
         }),
     )
-    const issuesSync = { setScreens: () => {}, stop: () => {}, replaceScreens: () => {} }
+    const issuesSync = { setScreens: () => {}, stop: () => {}, replaceScreens: () => {}, hold: () => () => {} }
     const done = runAction(rename, {
       sync: { requests: sync, issues: issuesSync },
       edits: store,
@@ -755,7 +938,7 @@ describe('createSync with a rename', () => {
       new Promise<ActionResult>((resolve) => {
         answer = resolve
       })
-    const issuesSync = { setScreens: () => {}, stop: () => {}, replaceScreens: () => {} }
+    const issuesSync = { setScreens: () => {}, stop: () => {}, replaceScreens: () => {}, hold: () => () => {} }
     const done = runAction(rename, {
       sync: { requests: sync, issues: issuesSync },
       edits: store,
@@ -875,6 +1058,30 @@ describe('createIssuesSync', () => {
     expect(errors.at(-1)).toEqual(new Map())
   })
 
+  test('a save that throws is a failed save: the screen is not busy after it', async () => {
+    const store = createIssuesStore()
+    const errors: ReadonlyMap<string, string>[] = []
+    let calls = 0
+    const sync = createIssuesSync({
+      store,
+      client: {
+        saveIssues: () => {
+          calls += 1
+          return calls === 1 ? Promise.reject(new Error('the network is down')) : Promise.resolve({ status: 'saved' })
+        },
+      },
+      report: createErrorList((next) => errors.push(next)),
+    })
+    sync.setScreens([welcome, profile])
+    store.set(welcome.id, [gap])
+    for (let step = 0; step < 4; step += 1) await Promise.resolve()
+    expect(errors.at(-1)).toEqual(new Map([[`issues:${welcome.id}`, 'Cannot save the issues of onboarding/welcome: the network is down']]))
+    store.set(profile.id, [])
+    for (let step = 0; step < 4; step += 1) await Promise.resolve()
+    expect(calls).toBe(3)
+    expect(errors.at(-1)).toEqual(new Map())
+  })
+
   test('replaceScreens: a dropped id saves nothing more while the list still has it; a new id is saved', async () => {
     const { store, sync, saved, finishAll, errors } = setupIssues()
     const account = { id: 'settings/account', file: 'screens/settings/account.tsx' }
@@ -891,6 +1098,43 @@ describe('createIssuesSync', () => {
     sync.setScreens([welcome, account])
     store.set(account.id, [error])
     expect(saved().at(-1)).toBe('settings/account render-error')
+  })
+
+  test('the issues of a screen that leaves the list go out of the store; a new screen with its id saves only its own', async () => {
+    const { store, sync, saved, finishAll } = setupIssues()
+    sync.setScreens([welcome, profile])
+    sync.replaceScreens([profile.id], [])
+    // A late collection of the frame of the dropped screen, before the list
+    // that removes it.
+    store.set(profile.id, [gap])
+    await finishAll()
+    sync.setScreens([welcome])
+    expect(store.get(profile.id)).toBeUndefined()
+    sync.setScreens([welcome, profile])
+    expect(saved()).toEqual([])
+    store.set(profile.id, [error])
+    expect(saved()).toEqual(['settings/profile render-error'])
+  })
+
+  test('replaceScreens: an id that comes back does not save the issues of the old screen', async () => {
+    const { store, sync, saved } = setupIssues()
+    sync.setScreens([welcome, profile])
+    sync.replaceScreens([profile.id], [])
+    store.set(profile.id, [gap])
+    sync.replaceScreens([], [profile.id])
+    expect(store.get(profile.id)).toBeUndefined()
+    expect(saved()).toEqual([])
+  })
+
+  test('hold: a held screen saves nothing until the end of the hold', async () => {
+    const { store, sync, saved } = setupIssues()
+    sync.setScreens([welcome, profile])
+    const release = sync.hold([welcome.id])
+    store.set(welcome.id, [gap])
+    store.set(profile.id, [])
+    expect(saved()).toEqual(['settings/profile '])
+    release()
+    expect(saved()).toEqual(['settings/profile ', 'onboarding/welcome no-token'])
   })
 
   test('a removed screen and a stopped sync save nothing more', async () => {

@@ -1,4 +1,4 @@
-import type { Rect, Size } from './viewport.ts'
+import { sameRect, type Rect, type Size } from './viewport.ts'
 
 // The part of an option on the canvas. An option of one element is a full
 // screen file that marks its block (`part` of its entry in the list,
@@ -93,7 +93,11 @@ export function inCrop(rect: Rect, crop: Rect | null): Rect | null {
   const y = Math.max(rect.y, crop.y)
   const right = Math.min(rect.x + rect.width, crop.x + crop.width)
   const bottom = Math.min(rect.y + rect.height, crop.y + crop.height)
-  return right < x || bottom < y ? null : { x, y, width: right - x, height: bottom - y }
+  if (right < x || bottom < y) return null
+  // A rectangle with a size that only touches the crop at an edge is out of
+  // it; a line with no width or height (the line of a drop) on the edge stays.
+  if ((right === x && rect.width > 0) || (bottom === y && rect.height > 0)) return null
+  return { x, y, width: right - x, height: bottom - y }
 }
 
 // The rectangle of the part of each screen that the layout crops: each
@@ -110,10 +114,6 @@ export function croppedParts(
 // frame shows the block (`part`) or the whole screen (`whole`).
 export function partSwitch(whole: boolean): { label: string; next: 'part' | 'whole' } {
   return whole ? { label: 'Show the block only', next: 'part' } : { label: 'Show the whole screen', next: 'whole' }
-}
-
-function sameRect(a: Rect | undefined, b: Rect): boolean {
-  return a !== undefined && a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
 
 export type PartRectsStore = {

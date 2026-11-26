@@ -1,4 +1,4 @@
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, test } from 'vitest'
@@ -205,6 +205,22 @@ describe('the copy', () => {
     expect(targetProblem(source, source)).toBe(`${source} ${problem}`)
     expect(targetProblem(join(source, 'out'), source)).toBe(`${join(source, 'out')} ${problem}`)
     expect(targetProblem(join(folder, 'source-2'), source)).toBeNull()
+    // A folder of the project whose name starts with two dots is in it.
+    expect(targetProblem(join(source, '..export'), source)).toBe(`${join(source, '..export')} ${problem}`)
+  })
+
+  test.skipIf(process.platform === 'win32')('a link into the project is in it; a link to nothing is refused', () => {
+    const link = join(folder, 'link')
+    symlinkSync(source, link)
+    expect(targetProblem(join(link, 'out'), source)).toBe(`${join(link, 'out')} is in the project: choose a folder outside ${source}`)
+    symlinkSync(join(folder, 'nothing'), target)
+    expect(targetProblem(target, source)).toBe(`${target} is a link to a folder that does not exist`)
+  })
+
+  test('where a name has no case, a folder of the project in a different case is in it', () => {
+    const upper = join(source.toUpperCase(), 'out')
+    expect(targetProblem(upper, source, true)).toBe(`${upper} is in the project: choose a folder outside ${source}`)
+    expect(targetProblem(upper, source, false)).toBeNull()
   })
 
   test('a file that is missing in the source stops the copy before it starts', () => {

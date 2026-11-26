@@ -313,6 +313,53 @@ describe('readStyles', () => {
     expect(styles.textStyle.matches('.MuiTypography-h6')).toBe(false)
   })
 
+  test('the selector test leaves out a parent that gives no part of the text style', () => {
+    const sheets = [
+      {
+        cssRules: [
+          styleRule('.MuiTypography-body1', { 'font-size': '1rem', 'font-weight': '400' }),
+          styleRule('.own', {
+            'font-family': 'system-ui',
+            'font-size': '16px',
+            'font-weight': '400',
+            'line-height': '24px',
+            'letter-spacing': 'normal',
+          }),
+        ],
+      },
+    ]
+    const body = frameNode({ classes: ['MuiTypography-body1'], sheets })
+    const own = frameNode({ classes: ['own'], sheets, parent: body })
+    const plain = frameNode({ classes: ['plain'], sheets, parent: body })
+    expect(readStyles(own).textStyle.matches('.MuiTypography-body1')).toBe(false)
+    expect(readStyles(plain).textStyle.matches('.MuiTypography-body1')).toBe(true)
+  })
+
+  test('the mark of a previewed text style counts on its element and on a node that declares no part of its own', () => {
+    const mark = '--canvas-preview-text-style'
+    const sheets = [
+      {
+        cssRules: [
+          styleRule(
+            '.target',
+            { 'font-size': '16px', 'font-weight': '400', [mark]: '"typography.plain"' },
+            ['font-size', 'font-weight', mark],
+          ),
+          styleRule('.raw', { 'font-size': '15px' }),
+        ],
+      },
+    ]
+    // The mark inherits: each node computes it.
+    const computed = { [mark]: '"typography.plain"' }
+    const target = frameNode({ classes: ['target'], sheets, computed })
+    const plain = frameNode({ classes: ['plain'], sheets, computed, parent: target })
+    const raw = frameNode({ classes: ['raw'], sheets, computed, parent: target })
+    expect(readStyles(target).textStyle.previewed).toBe('typography.plain')
+    expect(readStyles(plain).textStyle.previewed).toBe('typography.plain')
+    // A node inside it that declares its own part does not take the mark.
+    expect(readStyles(raw).textStyle.previewed).toBeNull()
+  })
+
   test('a value from a parent is inherited, and an inline text style of a parent is not inline', () => {
     const sheets = [{ cssRules: [styleRule('.title', { 'font-weight': '700' })] }]
     const footer = frameNode({ classes: ['footer'], sheets, inline: { color: '#667085', 'font-size': '14px' } })

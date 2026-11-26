@@ -5,8 +5,10 @@
 // The tool changes `screens/` only when the result is fully given by the
 // action: it moves whole files, writes `flow.json`, and replaces text literals
 // that the parser found (the address of a link, `stateOf`, `optionOf`, the
-// `title` of `meta`). It never writes markup. A link that the code computes is
-// not found: after a rename or a delete it shows as a `broken-link` issue.
+// `title` of `meta`, and the relative imports of a file that moves to a
+// different folder). It never writes markup. A link that the code computes,
+// and a link in an own component (only the screen files are read), is not
+// found: after a rename or a delete it shows as a `broken-link` issue.
 //
 // Each action is a plan first: the functions `plan…` read the files through a
 // `Reader` and change nothing. A plan has the text of each file that it read,
@@ -17,18 +19,21 @@
 //
 // Each path is relative to the project root, with `/` between the parts.
 
-import { mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
+import { dirname, join, posix } from 'node:path'
 import MagicString from 'magic-string'
+import { parseSync } from 'vite'
 import { config } from '../canvas.config.ts'
+import { counted } from '../src/words.ts'
 import { screenHash } from '../src/frame/screen-link.ts'
-import { groupMembers } from '../src/related/groups.ts'
-import { flowOfId, flowProblem, idOf, memberName, nameOfId, nameProblem } from '../src/related/names.ts'
+import { groupMembers, relationOf } from '../src/related/groups.ts'
+import { flowOfId, flowProblem, idOf, memberName, nameOfId, nameProblem, renameClashes } from '../src/related/names.ts'
 import type { IdChange, TrashItem } from '../src/requests/api.ts'
 import { fileText, parseIssues, parseRequest, type IssuesFile, type RequestFile, type Target } from '../src/requests/format.ts'
 import { messageOf } from '../src/tokens/format.ts'
 import { flowFileName, movedOrder, parseFlow, type FlowFile } from './flow.ts'
-import { readText } from './project.ts'
+import { moduleSources } from './jsx.ts'
+import { isInnerPath, readText } from './project.ts'
 import { tempName } from './requests.ts'
 import { screenFacts, type TextRange } from './screen-facts.ts'
 import { folderPrefix, metaRanges, screenExtension, screenList, type ScreenEntry } from './screens.ts'
@@ -51,6 +56,20 @@ export const manifestName = 'manifest.json'
 export type Reader = {
   read(path: string): string | null
   list(folder: string): string[]
+  // True when two paths that differ only in their case are one file (a file
+  // system that ignores the case). With none, two such paths are two files.
+  same?(a: string, b: string): boolean
+}
+
+// True when two paths on the disk are one file.
+function sameFile(a: string, b: string): boolean {
+  try {
+    const one = statSync(a, { bigint: true })
+    const two = statSync(b, { bigint: true })
+    return one.dev === two.dev && one.ino === two.ino
+  } catch {
+    return false
+  }
 }
 
 // A file that the plan read: its text then, or null when there was no file.
@@ -85,6 +104,7 @@ export type TrashManifest = { screen: string; files: string[]; flowOrder: string
 export function diskReader(root: string): Reader {
   return {
     read: (path) => readText(join(root, path)),
+    same: (a, b) => sameFile(join(root, a), join(root, b)),
     list(folder) {
       let names: string[]
       try {
@@ -92,9 +112,16 @@ export function diskReader(root: string): Reader {
       } catch {
         return []
       }
+      // A path that cannot be read (a link to nothing) is left out.
       return names
         .map((name) => `${folderPrefix(folder)}${name.replaceAll('\\', '/')}`)
-        .filter((path) => statSync(join(root, path)).isFile())
+        .filter((path) => {
+          try {
+            return statSync(join(root, path)).isFile()
+          } catch {
+            return false
+          }
+        })
     },
   }
 }
@@ -122,7 +149,7 @@ function caseOnly(a: string, b: string): boolean {
 }
 
 function isBase(entry: ScreenEntry): boolean {
-  return entry.stateOf === undefined && entry.optionOf === undefined
+  return relationOf(entry) === 'base'
 }
 
 // A text literal that names a screen: the address of a link (`link`), or
@@ -132,16 +159,23 @@ export type IdLiteral = TextRange & { id: string; link: boolean }
 // The literals of a screen file that name a screen. A file that the parser
 // cannot read has none.
 export function idLiterals(code: string, file: string): IdLiteral[] {
+  let links: IdLiteral[]
   try {
-    const links = screenFacts(code, file, null).links.map((link) => ({ ...link.range, id: link.id, link: true }))
-    const ranges = metaRanges(code, file)
-    const relations = [ranges.stateOf, ranges.optionOf].flatMap((range) =>
-      range === undefined ? [] : [{ start: range.start, end: range.end, id: range.value, link: false }],
-    )
-    return [...links, ...relations]
+    links = screenFacts(code, file, null).links.map((link) => ({ ...link.range, id: link.id, link: true }))
   } catch {
     return []
   }
+  // A file with no `meta` that the reader takes still has its links.
+  let relations: IdLiteral[] = []
+  try {
+    const ranges = metaRanges(code, file)
+    relations = [ranges.stateOf, ranges.optionOf].flatMap((range) =>
+      range === undefined ? [] : [{ start: range.start, end: range.end, id: range.value, link: false }],
+    )
+  } catch {
+    // No relations.
+  }
+  return [...links, ...relations]
 }
 
 // The source with each literal whose id `map` names replaced by the new id, in
@@ -159,6 +193,48 @@ export function rewriteIds(source: string, literals: readonly IdLiteral[], map: 
     output.overwrite(literal.start, literal.end, `${quote}${literal.link ? screenHash(next) : next}${quote}`)
   }
   return output.toString()
+}
+
+// The source of each relative import, re-export and `import()` of a file
+// (`'./data.ts'`, `'../../components/Ring.tsx'`), with the range of its
+// literal (`moduleSources` in `jsx.ts`). A file that the parser cannot read
+// has none.
+export function relativeImports(code: string, file: string): (TextRange & { source: string })[] {
+  const { program, errors } = parseSync(file, code)
+  if (errors.length > 0) return []
+  return moduleSources(program)
+    .filter((item) => item.source.startsWith('.'))
+    .map(({ start, end, source }) => ({ start, end, source }))
+}
+
+// The source of a file that moves from `from` to `to` with each relative
+// import changed so that it names the same file from the new folder; an
+// import of a file that moves too (`files`, old path to new path) names its
+// new path. The other parts of the source stay.
+export function movedImports(source: string, from: string, to: string, files: ReadonlyMap<string, string>): string {
+  const imports = relativeImports(source, to)
+  if (imports.length === 0) return source
+  const output = new MagicString(source)
+  for (const literal of imports) {
+    const target = posix.normalize(posix.join(posix.dirname(from), literal.source))
+    const moved = files.get(target) ?? target
+    const relative = innerRelative(posix.dirname(to), moved)
+    const next = relative === '..' || relative.startsWith('../') ? relative : `./${relative}`
+    if (next === literal.source) continue
+    const quote = source[literal.start]
+    output.overwrite(literal.start, literal.end, quoted(next, quote))
+  }
+  return output.toString()
+}
+
+// The path of `to` from the folder `from`, two paths relative to the project
+// root. `posix.relative` resolves a relative path against the current folder
+// of the process, and its root swallows each `..` that goes above it: both go
+// below a root of their own that is deeper than each `..` part.
+export function innerRelative(from: string, to: string): string {
+  const ups = (path: string) => posix.normalize(path).split('/').filter((part) => part === '..').length
+  const root = `/${'r/'.repeat(Math.max(ups(from), ups(to)) + 1)}`
+  return posix.relative(posix.join(root, from), posix.join(root, to))
 }
 
 // A text as a literal in the quotes `quote` (`'` or `"`).
@@ -352,10 +428,13 @@ type RenameParts = {
 }
 
 // A file at the new path is a refusal. A move that changes only the case of
-// the name reads no file there: on a file system that ignores the case, the
-// read would give the file itself.
+// the name records no read there: on a file system that ignores the case, the
+// read gives the file itself; on one that keeps the case apart, a file there
+// is a different file (one left from a screen that is gone).
 function takenPath(session: Session, source: string, target: string): boolean {
-  return !caseOnly(source, target) && session.read(target) !== null
+  if (!caseOnly(source, target)) return session.read(target) !== null
+  const reader = session.reader
+  return reader.read(target) !== null && !(reader.same?.(source, target) ?? false)
 }
 
 // A request or issues file at the new id: no screen has that id (the check of
@@ -369,9 +448,17 @@ function leftover(path: string): string {
 // write of an agent there does not stop the rename.
 function renameRequests({ session, moved, files, moves, writes, refusals }: RenameParts): void {
   const folder = workFolder('requests')
+  // A moved screen with no request file: a file at its new id is left over
+  // too, and the screen would take its edits.
+  for (const [from, next] of moved) {
+    const path = workFile('requests', from)
+    const newPath = workFile('requests', next)
+    if (session.reader.read(path) === null && takenPath(session, path, newPath)) refusals.push(leftover(newPath))
+  }
   for (const path of session.reader.list(folder).filter((path) => path.endsWith('.json'))) {
     const id = path.slice(`${folder}/`.length, -'.json'.length)
-    const next = moved.get(id)
+    const from = movedOwner(session.reader, moved, id, path)
+    const next = from === undefined ? undefined : moved.get(from)
     const text = next === undefined ? session.reader.read(path) : session.read(path)
     if (text === null) continue
     const request = parsed(text, parseRequest)
@@ -379,17 +466,37 @@ function renameRequests({ session, moved, files, moves, writes, refusals }: Rena
       if (next !== undefined) refusals.push(`the request file ${path} is not valid: ${request.message}`)
       continue
     }
+    // The file of a moved screen under a name in a different case is its file
+    // only when it says so; else it is left from a screen that is gone.
+    if (from !== undefined && from !== id && request.screen !== from) {
+      refusals.push(leftover(path))
+      continue
+    }
     const newRequest = movedRequest(request, moved, files)
     const changed = fileText(newRequest) !== fileText(request)
     if (next === undefined && !changed) continue
     session.record(path, text)
     const newPath = next === undefined ? path : workFile('requests', next)
-    if (next !== undefined) {
-      if (takenPath(session, path, newPath)) refusals.push(leftover(newPath))
-      moves.push({ from: path, to: newPath })
+    if (from !== undefined && next !== undefined) {
+      // The move starts at the path of the id: a move between two names of
+      // one file in a different case goes through a temporary name.
+      const source = from === id ? path : workFile('requests', from)
+      if (takenPath(session, source, newPath)) refusals.push(leftover(newPath))
+      moves.push({ from: source, to: newPath })
     }
     writes.push({ path: newPath, text: fileText(newRequest) })
   }
+}
+
+// The moved screen whose request file is the listed file `path` of the id
+// `id`: the same id, or on a file system that ignores the case, a moved id
+// whose file is this file under a name in a different case (a folder of a
+// flow that an older flow left in its own case).
+function movedOwner(reader: Reader, moved: ReadonlyMap<string, string>, id: string, path: string): string | undefined {
+  if (moved.has(id)) return id
+  return [...moved.keys()].find(
+    (from) => caseOnly(from, id) && (reader.same?.(workFile('requests', from), path) ?? false),
+  )
 }
 
 // The issues files of the moved screens. One that is not valid moves as it is.
@@ -397,9 +504,9 @@ function renameIssues({ session, moved, files, moves, writes, refusals }: Rename
   for (const [from, next] of moved) {
     const path = workFile('issues', from)
     const text = session.read(path)
-    if (text === null) continue
     const newPath = workFile('issues', next)
     if (takenPath(session, path, newPath)) refusals.push(leftover(newPath))
+    if (text === null) continue
     moves.push({ from: path, to: newPath })
     const issues = parsed(text, parseIssues)
     if (!(issues instanceof Error)) writes.push({ path: newPath, text: fileText(movedIssues(issues, moved, files)) })
@@ -462,21 +569,11 @@ export function planRename(
     ids.set(member.id, idOf(to.flow, name))
   }
   const moved = [...ids].filter(([from, next]) => from !== next)
-  // A file system can ignore the case of a name (macOS, Windows): a flow or an
-  // id that differs from one that exists only in its case would be the same
-  // file there, with a different id in the links and the request files.
-  const existing = new Map(session.entries.map((item) => [item.id.toLowerCase(), item.id]))
-  const refusals: string[] = []
-  const flows = new Set(session.entries.map((item) => item.flow))
-  const sameFlow = [...flows].find((flow) => flow !== to.flow && flow.toLowerCase() === to.flow.toLowerCase())
-  if (sameFlow !== undefined) refusals.push(`the flow '${sameFlow}' exists; a flow name that differs only in its case is the same folder on some file systems`)
-  const targets = new Set<string>()
-  for (const [from, next] of moved) {
-    const other = existing.get(next.toLowerCase())
-    if (other !== undefined && other !== from) refusals.push(`a screen with the id '${other}' exists`)
-    else if (targets.has(next.toLowerCase())) refusals.push(`two screens would get the id '${next}'`)
-    targets.add(next.toLowerCase())
-  }
+  const refusals = renameClashes(
+    session.entries.map((item) => item.id),
+    moved,
+    to.flow,
+  )
   if (refusals.length > 0) return refuse(...refusals)
 
   const files = new Map(moved.map(([from, next]) => [screenPath(from), screenPath(next)]))
@@ -486,11 +583,14 @@ export function planRename(
     parts.moves.push({ from, to: next })
   }
 
-  // Each screen file: the links and the relations to a moved screen.
+  // Each screen file: the links and the relations to a moved screen, and the
+  // relative imports of a moved file whose folder changes.
   for (const item of session.entries) {
     const code = session.codes.get(item.file)!
-    const text = rewriteIds(code, idLiterals(code, item.file), ids)
-    if (text !== code) parts.writes.push({ path: files.get(item.file) ?? item.file, text })
+    const path = files.get(item.file) ?? item.file
+    const ided = rewriteIds(code, idLiterals(code, item.file), ids)
+    const text = posix.dirname(path) === posix.dirname(item.file) ? ided : movedImports(ided, item.file, path, files)
+    if (text !== code) parts.writes.push({ path, text })
   }
   renameRequests(parts)
   renameIssues(parts)
@@ -559,9 +659,13 @@ export function planDelete(reader: Reader, screen: string, time: Date, widths: W
   })
 }
 
-// A relative path with no `..` part and no root.
-function isInnerPath(path: string): boolean {
-  return path !== '' && !path.startsWith('/') && !/^[A-Za-z]:/.test(path) && !path.split(/[\\/]/).includes('..')
+// Why `id` cannot be the id of a screen in the screens folder, or null: an
+// inner path with `/` between its parts, and no empty part and no `.` part.
+function screenIdProblem(id: string): string | null {
+  const parts = id.split('/')
+  return isInnerPath(id) && !id.includes('\\') && parts.every((part) => part !== '' && part !== '.')
+    ? null
+    : `'${id}' is not the id of a screen`
 }
 
 // Checks the text of a manifest, or throws.
@@ -595,7 +699,7 @@ function restoredOrder(order: readonly string[], before: readonly string[], name
 // exists again at its path is a refusal.
 export function planRestore(reader: Reader, name: string, widths: Widths = config.widths): Plan {
   const session = new Session(reader, widths)
-  if (name.includes('/') || name.includes('\\') || !isInnerPath(name)) {
+  if (name === '.' || name.includes('/') || name.includes('\\') || !isInnerPath(name)) {
     return session.refuse('restore', name, `'${name}' is not a folder of the trash`)
   }
   const folder = `${trashFolder()}/${name}`
@@ -608,17 +712,38 @@ export function planRestore(reader: Reader, name: string, widths: Widths = confi
   } catch (error) {
     return session.refuse('restore', name, `${manifestPath} is not valid: ${messageOf(error)}`)
   }
-  // A manifest is a file that an agent or a person can change: it names only a
-  // valid id, and only screen files, request files and issues files.
-  const idProblem = nameProblem(nameOfId(manifest.screen)) ?? flowProblem(flowOfId(manifest.screen))
+  // A manifest is a file that an agent or a person can change: it names only
+  // an id in the screens folder, and only screen files, request files and
+  // issues files. The id is any path that the list of screens takes (the
+  // delete takes a screen whose name the rename would refuse, `step.2`).
+  const idProblem = screenIdProblem(manifest.screen)
   if (idProblem !== null) return session.refuse('restore', name, `${manifestPath} is not valid: ${idProblem}`)
   const work = folderPrefix(config.work)
+  // A name with no stem (`.tsx`) is not the file of a screen.
+  const named = (path: string, extension: string) => path.endsWith(extension) && !path.endsWith(`/${extension}`)
   const allowed = (path: string) =>
-    (path.startsWith(folderPrefix(config.screens)) && path.endsWith(screenExtension)) ||
-    ((path.startsWith(`${work}requests/`) || path.startsWith(`${work}issues/`)) && path.endsWith('.json'))
-  const other = manifest.files.find((path) => !allowed(path))
+    (path.startsWith(folderPrefix(config.screens)) && named(path, screenExtension)) ||
+    ((path.startsWith(`${work}requests/`) || path.startsWith(`${work}issues/`)) && named(path, '.json'))
+  // A path with `/` between its parts, no `\`, and no empty or `.` part,
+  // thus the id of a restored screen is its path.
+  const plain = (path: string) => !path.includes('\\') && path.split('/').every((part) => part !== '' && part !== '.')
+  const other = manifest.files.find((path) => !allowed(path) || !plain(path))
   if (other !== undefined) return session.refuse('restore', name, `${manifestPath} is not valid: ${other} is not a screen, request or issues file`)
-  const refusals: string[] = []
+  // In each case: on a file system that ignores the case, it is one file.
+  const folded = manifest.files.map((path) => path.toLowerCase())
+  const twice = manifest.files.find((path, at) => folded.indexOf(path.toLowerCase()) !== at)
+  if (twice !== undefined) return session.refuse('restore', name, `${manifestPath} is not valid: it names ${twice} twice`)
+  const prefix = folderPrefix(config.screens)
+  const restored = manifest.files
+    .filter((path) => path.startsWith(prefix) && path.endsWith(screenExtension))
+    .map((path) => path.slice(prefix.length, -screenExtension.length))
+  // A flow, a folder or an id that differs only in its case from one that
+  // exists, as for a rename; the same id is the file that exists, below.
+  const refusals = renameClashes(
+    session.entries.map((item) => item.id),
+    restored.map((id) => [id, id] as const),
+    flowOfId(manifest.screen),
+  )
   const moves = manifest.files.map((path) => ({ from: `${folder}/${path}`, to: path }))
   for (const move of moves) {
     if (session.read(move.from) === null) refusals.push(`the trash has no file ${move.from}`)
@@ -634,10 +759,6 @@ export function planRestore(reader: Reader, name: string, widths: Widths = confi
       writes.push({ path: flowPath(flowOfId(manifest.screen)), text: flowText(flow.text, order) })
     }
   }
-  const prefix = folderPrefix(config.screens)
-  const restored = manifest.files
-    .filter((path) => path.startsWith(prefix) && path.endsWith(screenExtension))
-    .map((path) => path.slice(prefix.length, -screenExtension.length))
   return session.plan('restore', manifest.screen, {
     screens: [manifest.screen, ...restored.filter((id) => id !== manifest.screen)].map((id) => ({ from: null, to: id })),
     moves,
@@ -668,6 +789,29 @@ export function trashItems(reader: Reader): TrashItem[] {
 
 export type ApplyResult = { applied: true } | { applied: false; refusals: string[] }
 
+// The error of a plan whose step failed. `restored` is false when a step
+// could not be put back: then the files are not as before.
+export class ApplyError extends Error {
+  readonly restored: boolean
+  constructor(message: string, restored: boolean, cause: unknown) {
+    super(message, { cause })
+    this.restored = restored
+  }
+}
+
+// The folders that a write or a move to `paths` would make: each folder above
+// a path that does not exist yet, the deepest first.
+function newFolders(root: string, paths: readonly string[]): string[] {
+  const folders = new Set<string>()
+  for (const path of paths) {
+    for (let folder = posix.dirname(path); folder !== '.' && folder !== '' && folder !== '/'; folder = posix.dirname(folder)) {
+      if (existsSync(join(root, folder))) break
+      folders.add(folder)
+    }
+  }
+  return [...folders].sort((a, b) => b.split('/').length - a.split('/').length)
+}
+
 let tempCount = 0
 
 // A path in the folder of the temporary files of the work folder.
@@ -693,6 +837,34 @@ function writeWhole(root: string, path: string, text: string): void {
   }
 }
 
+// A move through a temporary name that stopped half way: the file could go
+// neither to its new path nor back, and it is at `temp`. The message says
+// where the file is; `cause` is the error of the step.
+export class StrandedMove extends Error {
+  readonly temp: string
+  constructor(message: string, temp: string, cause: unknown) {
+    super(message, { cause })
+    this.temp = temp
+  }
+}
+
+// Moves `from` to `to` through `temp` with `rename`. When the second step
+// fails, the file goes back to `from` and the error of the step is thrown;
+// when that fails too, a `StrandedMove` names the place of the file.
+export function moveThrough(from: string, temp: string, to: string, rename: (from: string, to: string) => void = renameSync): void {
+  rename(from, temp)
+  try {
+    rename(temp, to)
+  } catch (error) {
+    try {
+      rename(temp, from)
+    } catch {
+      throw new StrandedMove(`the file ${from} is at ${temp}`, temp, error)
+    }
+    throw error
+  }
+}
+
 // Moves a file. A move that changes only the case of the name goes through a
 // temporary name, because a file system that ignores the case can refuse it or
 // do nothing.
@@ -702,14 +874,14 @@ function move(root: string, from: string, to: string): void {
     renameSync(from, to)
     return
   }
-  const temp = tempPath(root)
-  renameSync(from, temp)
-  renameSync(temp, to)
+  moveThrough(from, tempPath(root), to)
 }
 
 // Does a plan in the folder `root`. A plan with a refusal, and a plan whose
 // files changed after it read them, change nothing and give the refusals. A
-// step that fails puts back each step before it, and then throws. At the end,
+// step that fails puts back each step before it, removes the folders that the
+// plan made, and then throws an `ApplyError`, which says whether each step
+// was put back. At the end,
 // each folder that a move or a remove left empty goes, up to the folders of
 // the screens folder and of the work folder.
 export function applyPlan(root: string, plan: Plan): ApplyResult {
@@ -719,12 +891,13 @@ export function applyPlan(root: string, plan: Plan): ApplyResult {
     return { applied: false, refusals: changed.map((path) => `${path} changed after the tool read it; try again`) }
   }
 
+  const made = newFolders(root, [...plan.moves.map((step) => step.to), ...plan.writes.map((write) => write.path)])
   const undo: (() => void)[] = []
   try {
     for (const step of plan.moves) {
       const from = join(root, step.from)
       const to = join(root, step.to)
-      if (!caseOnly(step.from, step.to) && readText(to) !== null) throw new Error(`the file ${step.to} exists`)
+      if (readText(to) !== null && !(caseOnly(step.from, step.to) && sameFile(from, to))) throw new Error(`the file ${step.to} exists`)
       move(root, from, to)
       undo.push(() => move(root, to, from))
     }
@@ -741,14 +914,28 @@ export function applyPlan(root: string, plan: Plan): ApplyResult {
       undo.push(() => writeWhole(root, path, old))
     }
   } catch (error) {
+    // A move through a temporary name that could not go back is a step that
+    // is not put back.
+    const failed: string[] = error instanceof StrandedMove ? [error.message] : []
     for (const step of undo.reverse()) {
       try {
         step()
-      } catch {
+      } catch (undoError) {
         // Put back the other steps.
+        failed.push(messageOf(undoError))
       }
     }
-    throw error
+    // The folders that the plan made go when they are empty again.
+    for (const folder of made) {
+      try {
+        rmdirSync(join(root, folder))
+      } catch {
+        // Not empty, or gone.
+      }
+    }
+    const reason = messageOf(error instanceof StrandedMove ? error.cause : error)
+    if (failed.length === 0) throw new ApplyError(reason, true, error)
+    throw new ApplyError(`${reason}; ${counted(failed.length, 'step')} could not be put back: ${failed.join('; ')}`, false, error)
   }
 
   const kept = new Set(
@@ -757,7 +944,7 @@ export function applyPlan(root: string, plan: Plan): ApplyResult {
     ),
   )
   for (const path of [...plan.moves.map((move) => move.from), ...plan.removes]) {
-    for (let folder = dirname(path); !kept.has(folder) && folder !== '' && folder !== '/'; folder = dirname(folder)) {
+    for (let folder = posix.dirname(path); !kept.has(folder) && folder !== '' && folder !== '/'; folder = posix.dirname(folder)) {
       try {
         if (readdirSync(join(root, folder)).length > 0) break
         rmdirSync(join(root, folder))

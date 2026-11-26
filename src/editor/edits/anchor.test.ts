@@ -503,6 +503,19 @@ describe('nextReading and baseOf', () => {
     expect(baseOf(nextReading(last, second, b), edit('e2'))).toBe('unknown')
   })
 
+  test('an unknown target that a reloaded document renders later is found on the next read of that document', () => {
+    const last = anchorWrites([{ edit: edit('e0') }], nextReading(undefined, first, a)).reading
+    // The request file gets e2 from outside; its element is in a lazy part.
+    const target = edit('e2', { line: 20, column: 5, tag: 'Button', label: 'Start' })
+    const before = anchorWrites([{ edit: target }], nextReading(last, second, b))
+    expect(before.writes).toEqual([{ id: 'e2', stale: true }])
+    const later = nextReading(before.reading, second, [...b, element(20, 5, 'Button', 'Start')])
+    expect(baseOf(later, target)).toBe('unknown')
+    expect(anchorWrites([{ edit: target, stale: true }], later).writes).toEqual([{ id: 'e2', stale: false }])
+    // A new document after it counts the target as seen.
+    expect(baseOf(nextReading(before.reading, { id: 'third' }, b), target)).toBe('lost')
+  })
+
   test('a second read of the same document keeps the bases', () => {
     const more = [...b, element(20, 5, 'Button', 'Start')]
     const last = reading({ document: second, elements: b, previous: a, carried: new Set(['x']) })
@@ -828,6 +841,21 @@ describe('followPlace', () => {
   test('null for a new text when the change also moved elements', () => {
     const after = shifted(before, 8, 2).map((entry) => (entry.line === 16 ? { ...entry, label: 'Begin' } : entry))
     expect(followPlace(at(14), 0, before, after)).toBeNull()
+  })
+
+  test('the selected copy of a list place: its own text, not the text of the first copy', () => {
+    const copies = [
+      element(8, 3, 'Stack', 'Welcome A B'),
+      element(10, 5, 'Typography', 'Welcome'),
+      element(12, 5, 'Button', 'A'),
+      element(12, 5, 'Button', 'B'),
+    ]
+    const after = shifted(copies, 8, 2)
+    expect(followPlace(at(12), 1, copies, after)).toBe(at(14))
+    // The agent added lines above and replaced the second copy.
+    const replaced = after.map((entry, at) => (at === 3 ? { ...entry, label: 'C' } : entry))
+    expect(followPlace(at(12), 0, copies, replaced)).toBe(at(14))
+    expect(followPlace(at(12), 1, copies, replaced)).toBeNull()
   })
 
   describe('two siblings with the same tag and no label, where the anchor pass is not certain', () => {

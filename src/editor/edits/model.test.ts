@@ -102,6 +102,58 @@ describe('addEdit', () => {
     expect(list.map((item) => item.edit)).toEqual([style('e2', sides, px('20px'), token('spacing.3', '24px'))])
   })
 
+  test('a row of four sides over an earlier edit of one side keeps the value in the code of each side', () => {
+    // The code has 8px on the right and 16px on the other sides; the user set
+    // the right to 16px, then all four sides to 24px.
+    let list = addEdit([], style('e1', ['padding-right'], px('8px'), px('16px')))
+    list = addEdit(list, style('e2', sides, px('16px'), px('24px')))
+    expect(list.map((item) => item.edit)).toEqual([
+      style('e2', ['padding-top', 'padding-bottom', 'padding-left'], px('16px'), px('24px')),
+      style('e2-2', ['padding-right'], px('8px'), px('24px')),
+    ])
+    // All four sides to 8px: the right is back at its code value; the others
+    // change.
+    list = addEdit(list, style('e3', sides, px('24px'), px('8px')))
+    expect(list.map((item) => item.edit)).toEqual([style('e3', ['padding-top', 'padding-bottom', 'padding-left'], px('16px'), px('8px'))])
+  })
+
+  test('a second edit of a value of a media rule keeps the media of the first one', () => {
+    // The page shows the preview of the first edit, which has no media rule.
+    const first = edit('e1', { kind: 'style', properties: sides, before: px('16px'), after: px('24px'), media: '(min-width: 900px)' })
+    let list = addEdit([], first)
+    list = addEdit(list, style('e2', sides, px('24px'), px('32px')))
+    expect(list.map((item) => item.edit)).toEqual([
+      edit('e2', { kind: 'style', properties: sides, before: px('16px'), after: px('32px'), media: '(min-width: 900px)' }),
+    ])
+    // One side of a value with no media rule, then the four sides: two edits.
+    list = addEdit([], first)
+    list = addEdit(list, style('e3', ['padding-top'], px('24px'), px('8px')))
+    expect(list.map((item) => item.edit)).toEqual([
+      edit('e1', { kind: 'style', properties: sides.slice(1), before: px('16px'), after: px('24px'), media: '(min-width: 900px)' }),
+      edit('e3', { kind: 'style', properties: ['padding-top'], before: px('16px'), after: px('8px'), media: '(min-width: 900px)' }),
+    ])
+  })
+
+  test('a style edit of the same properties with the same after gives the same list', () => {
+    const list = addEdit([], style('e1', sides, px('20px'), token('spacing.2', '16px')))
+    expect(addEdit(list, style('e2', [...sides].reverse(), token('spacing.2', '16px'), token('spacing.2', '16px')))).toBe(list)
+    // A part of the properties is a new edit of those.
+    expect(ids(addEdit(list, style('e2', ['padding-top'], token('spacing.2', '16px'), token('spacing.2', '16px'))))).toEqual(['e1', 'e2'])
+    // An earlier edit with a reply is made again.
+    const replied: Item[] = [{ edit: { ...list[0].edit, reply: { status: 'unclear', text: 'Which?' } } }]
+    expect(ids(addEdit(replied, style('e2', sides, token('spacing.2', '16px'), token('spacing.2', '16px'))))).toEqual(['e2'])
+  })
+
+  test('a row of four sides with the same after as the parts of a split edit gives the same list', () => {
+    let list = addEdit([], style('e1', ['padding-right'], px('8px'), px('16px')))
+    list = addEdit(list, style('e2', sides, px('16px'), px('24px')))
+    expect(ids(list)).toEqual(['e2', 'e2-2'])
+    expect(addEdit(list, style('e3', sides, px('24px'), px('24px')))).toBe(list)
+    // A part with a different after is a new edit.
+    const changed: Item[] = [list[0], { edit: { ...list[1].edit, change: { ...list[1].edit.change, after: px('20px') } as Change } }]
+    expect(addEdit(changed, style('e3', sides, px('24px'), px('24px')))).not.toBe(changed)
+  })
+
   test('a style edit on a different target or other properties keeps the earlier edit', () => {
     let list = addEdit([], style('e1', ['padding-top'], px('20px'), token('spacing.2', '16px')))
     list = addEdit(list, style('e2', ['padding-top'], px('8px'), token('spacing.1', '8px'), other))

@@ -3,8 +3,10 @@ import { requestChangedEvent } from '../../requests/api.ts'
 import { formatVersion, type Edit, type Issue, type IssuesFile, type RequestFile } from '../../requests/format.ts'
 import { edits, type EditsStore, type Screens } from '../edits/store.ts'
 import { issues, type IssuesStore } from '../issues/store.ts'
-import { requestsClient, type RequestsClient } from './client.ts'
+import { messageOf } from '../../tokens/format.ts'
+import { requestsClient, type IssuesSaved, type RequestsClient } from './client.ts'
 import { fileErrors, type ReportError } from './file-errors.ts'
+import { own } from '../../own.ts'
 
 // Keeps the edits store and the request files of the screens the same:
 //
@@ -33,8 +35,8 @@ export type ScreenRef = { id: string; file: string }
 export function changedScreens(before: Screens, after: Screens): string[] {
   const keys = new Set([...Object.keys(before), ...Object.keys(after)])
   return [...keys].filter((key) => {
-    const a = before[key] ?? []
-    const b = after[key] ?? []
+    const a = own(before, key) ?? []
+    const b = own(after, key) ?? []
     return a.length !== b.length || a.some((item, index) => item.edit !== b[index].edit)
   })
 }
@@ -68,6 +70,9 @@ export function sameEdits(a: readonly Edit[], b: readonly Edit[]): boolean {
 // - An item that only the editor changed keeps the version of the editor; when
 //   both changed it, the file wins.
 // - The new items of the editor (not in the base) are added at the end.
+// - A screen has at most one `keep` item (`parseRequest` refuses a second):
+//   when the two sides each have a different one, the last one stays, as a
+//   new `keep` of the store replaces the older one.
 export function mergeEdits(base: readonly Edit[], local: readonly Edit[], remote: readonly Edit[]): Edit[] {
   const baseById = new Map(base.map((value) => [value.id, value]))
   const localById = new Map(local.map((value) => [value.id, value]))
@@ -80,7 +85,9 @@ export function mergeEdits(base: readonly Edit[], local: readonly Edit[], remote
     return [sameEdit(value, before) ? mine : value]
   })
   const added = local.filter((value) => !baseById.has(value.id) && !remoteIds.has(value.id))
-  return [...kept, ...added]
+  const merged = [...kept, ...added]
+  const keep = merged.findLast((value) => value.change.kind === 'keep')
+  return keep === undefined ? merged : merged.filter((value) => value.change.kind !== 'keep' || value === keep)
 }
 
 type ScreenState = {
@@ -172,8 +179,21 @@ export function createSync({ store, client, listen, report }: SyncDeps): Request
     const merged = mergeEdits(state.base, mine, remote)
     state.base = remote
     state.hash = hash
+    const changed = !sameEdits(merged, mine)
     if (!sameEdits(merged, remote)) state.needSave = true
-    if (!sameEdits(merged, mine)) store.replace(id, merged)
+    if (changed) store.replace(id, merged)
+    // The change of the store asks for a save with the delay: a list that the
+    // file has needs none, and a list that it has not is saved at once
+    // (`needSave`), also the edits that a save with the delay waits for (a
+    // change during the load), thus the delay is not a second save to wait
+    // for.
+    if (changed || state.needSave) cancelTimer(state)
+  }
+
+  const cancelTimer = (state: ScreenState) => {
+    if (state.timer === null) return
+    clearTimeout(state.timer)
+    state.timer = null
   }
 
   const load = async (state: ScreenState) => {
@@ -189,12 +209,24 @@ export function createSync({ store, client, listen, report }: SyncDeps): Request
     setError(id, null)
     // A text that the editor did not load or write last came from outside.
     if (state.hash !== result.hash) reconcile(state, result.file.edits, result.hash)
+    // The same file with edits that it does not have (a save that failed
+    // before) is saved again: the error clears only with them in the file.
+    else if (!sameEdits(local(id), state.base)) {
+      state.needSave = true
+      // The save at once takes the edits of a save with the delay.
+      cancelTimer(state)
+    }
   }
 
   const save = async (state: ScreenState) => {
     const id = state.screen.id
-    // Nothing is saved before a load: the base is not known.
-    if (state.hash === null) return
+    // Nothing is saved before a load: the base is not known. After a failed
+    // load the save loads again first (a short failure of the dev server),
+    // and that load saves the edits when it succeeds.
+    if (state.hash === null) {
+      if (state.failed) state.needLoad = true
+      return
+    }
     const mine = local(id)
     // The file has these edits: nothing is unsaved, also after a failed save.
     if (sameEdits(mine, state.base)) {
@@ -234,10 +266,19 @@ export function createSync({ store, client, listen, report }: SyncDeps): Request
       return
     }
     state.busy = true
-    void next(state).finally(() => {
-      state.busy = false
-      run(state)
-    })
+    // The client answers each error; a call that throws all the same is an
+    // error of the file, and the work of the screen goes on.
+    void next(state)
+      .catch((error: unknown) => {
+        // A screen that left the list or a sync that stopped has no error.
+        if (stopped || states.get(state.screen.id) !== state) return
+        state.failed = true
+        setError(state.screen.id, `Cannot sync the changes of ${state.screen.id}: ${messageOf(error)}`)
+      })
+      .finally(() => {
+        state.busy = false
+        run(state)
+      })
   }
 
   const scheduleSave = (state: ScreenState) => {
@@ -301,9 +342,9 @@ export function createSync({ store, client, listen, report }: SyncDeps): Request
       // after a `keep` deleted the old one, a file that comes back) loads
       // its file, and old edits do not go into it. Edits that are not saved
       // yet (in the save delay, or made during a save) stay: when the screen
-      // comes back, the load merges them as new items and saves them.
-      const mine = local(id)
-      if (mine.length > 0 && state.hash !== null && sameEdits(mine, state.base)) store.replace(id, [])
+      // comes back, the load merges them as new items and saves them. With no
+      // edits left, the history still goes: an undo would bring old ones back.
+      if (state.hash !== null && sameEdits(local(id), state.base)) store.replace(id, [])
     }
     for (const screen of list) {
       if (gone.has(screen.id)) continue
@@ -359,10 +400,17 @@ export function createSync({ store, client, listen, report }: SyncDeps): Request
     },
     saveState: (id) => {
       const state = states.get(id)
-      if (!state) return 'saved'
+      // A screen of the list that is not started yet has a load to come: one
+      // with edits, and each one while a hold keeps it from its start (a new
+      // id of a screen action whose list came before its answer).
+      if (!state) {
+        const waits = (local(id).length > 0 || holds.size > 0) && !gone.has(id)
+        return waits && list.some((screen) => screen.id === id) ? 'pending' : 'saved'
+      }
       if (state.timer !== null || state.busy || state.needSave || state.needLoad) return 'pending'
-      const mine = local(id)
-      if (state.hash === null ? mine.length === 0 : sameEdits(mine, state.base)) return 'saved'
+      // Before the first load the base is the edits of a moved file (the
+      // seed of a rename), or none.
+      if (sameEdits(local(id), state.base)) return 'saved'
       return state.failed ? 'failed' : 'pending'
     },
     stop: () => {
@@ -382,7 +430,7 @@ export function issuesFileOf(screen: ScreenRef, list: Issue[]): IssuesFile {
 }
 
 export type IssuesSyncDeps = {
-  store: Pick<IssuesStore, 'screens' | 'subscribe'>
+  store: Pick<IssuesStore, 'screens' | 'subscribe' | 'drop'>
   client: Pick<RequestsClient, 'saveIssues'>
   // The errors of the save of each screen.
   report: ReportError
@@ -401,24 +449,47 @@ type IssuesState = {
 // compare of the lists is sufficient. One save at a time for each screen; a
 // list that changes during a save is saved after it, only the last one. A
 // failed save is tried again at the next change of the store or of the list
-// of screens.
-export function createIssuesSync({ store, client, report }: IssuesSyncDeps): Sync {
+// of screens. The issues of each screen that is not in a new list go out of
+// the store, thus a screen with that id later (a new option after a `keep`, a
+// restored screen) does not write the issues of the old one; so do the issues
+// that the store has for a dropped id that a screen action loads again (a
+// late collection of the frame of the old screen). The frame of the new
+// screen collects its own.
+export type IssuesSync = Sync & {
+  // Holds the issues files of `ids` while a screen action moves them
+  // (`RequestSync.hold`): they save nothing until the end of the hold.
+  hold: (ids: readonly string[]) => () => void
+}
+
+export function createIssuesSync({ store, client, report }: IssuesSyncDeps): IssuesSync {
   const states = new Map<string, IssuesState>()
   let stopped = false
   let list: readonly ScreenRef[] = []
   // The ids that a screen action dropped, while the list still has them.
   const gone = new Set<string>()
+  const holds = new Set<ReadonlySet<string>>()
+  const held = (id: string) => [...holds].some((ids) => ids.has(id))
 
   const setError = (id: string, error: string | null) => report(`issues:${id}`, error)
 
+  const add = (screen: ScreenRef) => {
+    store.drop(screen.id)
+    states.set(screen.id, { screen, saved: null, busy: false })
+  }
+
   const run = (state: IssuesState) => {
-    if (stopped || state.busy) return
+    if (stopped || state.busy || held(state.screen.id)) return
     const id = state.screen.id
-    const list = store.screens()[id]
+    const list = own(store.screens(), id)
     if (list === undefined || list === state.saved) return
     state.busy = true
     state.saved = list
-    void client.saveIssues(issuesFileOf(state.screen, list)).then((result) => {
+    // A call that throws is an error of the save too: the screen is not busy
+    // after it.
+    const saved = client.saveIssues(issuesFileOf(state.screen, list)).catch(
+      (error: unknown): IssuesSaved => ({ status: 'error', error: messageOf(error) }),
+    )
+    void saved.then((result) => {
       state.busy = false
       if (stopped || states.get(id) !== state) return
       if (result.status === 'error') {
@@ -448,6 +519,7 @@ export function createIssuesSync({ store, client, report }: IssuesSyncDeps): Syn
         states.delete(id)
         setError(id, null)
       }
+      for (const id of Object.keys(store.screens())) if (!ids.has(id)) store.drop(id)
       for (const screen of list) {
         if (gone.has(screen.id)) continue
         const known = states.get(screen.id)
@@ -467,9 +539,16 @@ export function createIssuesSync({ store, client, report }: IssuesSyncDeps): Syn
       for (const id of load) {
         gone.delete(id)
         const screen = list.find((item) => item.id === id)
-        if (screen && !states.has(id)) states.set(id, { screen, saved: null, busy: false })
+        if (screen && !states.has(id)) add(screen)
       }
       runAll()
+    },
+    hold: (ids) => {
+      const set: ReadonlySet<string> = new Set(ids)
+      holds.add(set)
+      return () => {
+        if (holds.delete(set)) runAll()
+      }
     },
     stop: () => {
       stopped = true
@@ -490,7 +569,7 @@ function listenToServer(handler: (id: string) => void): () => void {
 
 // The syncs of the editor while `useRequestSync` runs, for the screen
 // actions: the state of a save, and the change of the ids after an action.
-export type EditorSync = { requests: RequestSync; issues: Sync }
+export type EditorSync = { requests: RequestSync; issues: IssuesSync }
 
 let running: EditorSync | null = null
 

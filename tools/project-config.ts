@@ -15,7 +15,7 @@ import { runnerImport } from 'vite'
 import { config } from '../canvas.config.ts'
 import { isRecord } from '../src/tokens/format.ts'
 import { choiceOf, isPreset, type AgentChoice } from './agent.ts'
-import { projectConfigName, toolRoot } from './project.ts'
+import { projectConfigName, samePath, toolRoot } from './project.ts'
 
 export type ProjectSettings = { widths: readonly number[]; agent: AgentChoice }
 
@@ -64,7 +64,7 @@ export function settingsOf(module: unknown, file: string, defaults: ProjectSetti
 
 // The settings of the project at `project` (with `/` between the parts).
 export async function readProjectSettings(project: string): Promise<ProjectSettings> {
-  if (project === toolRoot) return toolSettings
+  if (samePath(project, toolRoot)) return toolSettings
   const file = posix.join(project, projectConfigName)
   if (!existsSync(file)) return projectDefaults
   const { module } = await runnerImport<unknown>(file)

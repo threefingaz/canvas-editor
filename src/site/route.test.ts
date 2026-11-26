@@ -27,17 +27,17 @@ describe('routeOf', () => {
   })
 
   test('gives unknown for an id that no screen has', () => {
-    expect(routeOf('#/nothing', screens)).toEqual({ kind: 'unknown', id: 'nothing' })
-    expect(routeOf('#/onboarding', screens)).toEqual({ kind: 'unknown', id: 'onboarding' })
+    expect(routeOf('#/nothing', screens)).toEqual({ kind: 'unknown', id: 'nothing', address: '#/nothing' })
+    expect(routeOf('#/onboarding', screens)).toEqual({ kind: 'unknown', id: 'onboarding', address: '#/onboarding' })
   })
 
   test('gives unknown for an escape that cannot be decoded', () => {
-    expect(routeOf('#/bad%E0', screens)).toEqual({ kind: 'unknown', id: 'bad%E0' })
+    expect(routeOf('#/bad%E0', screens)).toEqual({ kind: 'unknown', id: 'bad%E0', address: '#/bad%E0' })
   })
 
   test('with an empty list: the index, and unknown for each id', () => {
     expect(routeOf('', [])).toEqual({ kind: 'index' })
-    expect(routeOf('#/home', [])).toEqual({ kind: 'unknown', id: 'home' })
+    expect(routeOf('#/home', [])).toEqual({ kind: 'unknown', id: 'home', address: '#/home' })
   })
 })
 
@@ -73,7 +73,7 @@ describe('titleOf', () => {
   })
 
   test('an unknown id gives a fixed title', () => {
-    expect(titleOf({ kind: 'unknown', id: 'nothing' })).toBe(unknownTitle)
+    expect(titleOf({ kind: 'unknown', id: 'nothing', address: '#/nothing' })).toBe(unknownTitle)
     expect(unknownTitle).toBe('Unknown screen')
   })
 

@@ -14,7 +14,7 @@
 // current folder and a test for a path as arguments. `currentProject` calls
 // the first with the values of this process.
 
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, realpathSync, statSync } from 'node:fs'
 import { posix, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -35,7 +35,10 @@ export const guideName = 'AGENTS.md'
 export const distFolder = 'dist'
 
 // The folder of the tool, with `/` between the parts and no `/` at the end.
-export const toolRoot = slashes(fileURLToPath(new URL('..', import.meta.url)))
+// In the case of the disk (`diskCase`): a command typed in a different case
+// names the same folder, and the relative paths from a project to the tool
+// must not go up and down again.
+export const toolRoot = diskCase(slashes(fileURLToPath(new URL('..', import.meta.url))))
 
 export type Exists = (path: string) => boolean
 
@@ -50,10 +53,45 @@ function absolute(path: string, cwd: string): string {
   return slashes(resolve(cwd, path))
 }
 
-// The parent of a folder, or null at the root of the file system.
-function parentOf(folder: string): string | null {
+// True on a platform whose file systems by default have no case in a name
+// (macOS, Windows): `/Work/App` and `/work/app` are one folder there.
+export const foldsCase: boolean = process.platform === 'darwin' || process.platform === 'win32'
+
+// True when two absolute paths are one folder: with `/` or `\` between the
+// parts, and with no regard to the case of the letters where the file system
+// has none (`fold`).
+export function samePath(a: string, b: string, fold: boolean = foldsCase): boolean {
+  const [x, y] = [slashes(a), slashes(b)]
+  return fold ? x.toLowerCase() === y.toLowerCase() : x === y
+}
+
+// The folder as the disk spells it, when it differs only in the case of its
+// letters (`--project ~/work/App` for `~/Work/app` on macOS): the file watcher
+// gives each path in the case of the disk, and the plugins compare paths as
+// they are. A link stays as it is. A folder that is not there yet (`canvas/`
+// of `canvas init`) gets the case of its nearest parent that is there.
+export function diskCase(folder: string): string {
+  try {
+    const real = slashes(realpathSync.native(folder))
+    return real !== folder && samePath(real, folder, true) ? real : folder
+  } catch {
+    const parent = parentOf(folder)
+    if (parent === null) return folder
+    const cased = diskCase(parent)
+    if (cased === parent) return folder
+    const rest = folder.slice(parent.length).replace(/^\//, '')
+    return cased.endsWith('/') ? `${cased}${rest}` : `${cased}/${rest}`
+  }
+}
+
+// The parent of an absolute folder with `/` between the parts, or null at the
+// root of the file system: `/`, or the root of a drive of Windows (`C:/`).
+// `posix.dirname` reads `C:/x` as `C:` and `C:/` as `.`, a relative folder.
+export function parentOf(folder: string): string | null {
+  if (/^[A-Za-z]:\/?$/.test(folder)) return null
   const parent = posix.dirname(folder)
-  return parent === folder ? null : parent
+  if (/^[A-Za-z]:$/.test(parent)) return `${parent}/`
+  return parent === folder || parent === '.' ? null : parent
 }
 
 // The folder that the user named: the option `--project`, else the variable
@@ -118,19 +156,20 @@ export function isInstalled(tool: string): boolean {
 // command runs in the folder of the tool (standalone). An installed tool is
 // never a project, and a clone of the tool run from a different folder (a
 // host before `canvas init`) is not the project of that folder.
-export function noProjectProblem(project: string, tool: string, cwd: string): string | null {
-  if (project !== slashes(tool)) return null
-  if (!isInstalled(tool) && isInside(slashes(cwd), slashes(tool))) return null
+export function noProjectProblem(project: string, tool: string, cwd: string, fold: boolean = foldsCase): string | null {
+  if (!samePath(project, tool, fold)) return null
+  if (!isInstalled(tool) && isInside(slashes(cwd), slashes(tool), fold)) return null
   return `No canvas project was found from ${slashes(cwd)} upward (a ${projectConfigName}, or ${hostProjectFolder}/${projectConfigName}). Run canvas init in the host first, or name the project with --project <folder>.`
 }
 
 // The message for a host that `canvas init` and `canvas sync` must not write
-// into, or null: the home folder or the root of the file system. The lookup of
+// into, or null: the home folder, a folder above it (`/Users`), or the root of
+// the file system. The lookup of
 // the host goes upward with no bound, thus a folder with no `package.json`
 // and no `.git` can give a home folder that is a repository.
-export function hostProblem(host: string, home: string): string | null {
+export function hostProblem(host: string, home: string, fold: boolean = foldsCase): string | null {
   const folder = slashes(host)
-  if (folder !== slashes(home) && parentOf(folder) !== null) return null
+  if (!isInside(slashes(home), folder, fold) && parentOf(folder) !== null) return null
   return `The host would be ${folder}: canvas init writes AGENTS.md and the skill folders there. Run the command in the folder of the host project (a folder with package.json or .git), or name the project with --project <folder>.`
 }
 
@@ -140,9 +179,31 @@ export function guidePathOf(project: string, host: string): string {
   return posix.join(posix.relative(host, project), guideName)
 }
 
-// True when `path` is the folder `folder` or a path in it.
-export function isInside(path: string, folder: string): boolean {
-  return path === folder || path.startsWith(folder.endsWith('/') ? folder : `${folder}/`)
+// The path of `to` relative to the folder `from`, both absolute with `/`
+// between the parts; `to` itself when the two are on different drives of
+// Windows, which no relative path joins (`posix.relative` would give
+// `../../D:/x`). A drive letter has no case (`c:` is `C:`).
+export function relativePath(from: string, to: string): string {
+  const drive = (path: string) => /^([A-Za-z]):/.exec(path)?.[1].toUpperCase() ?? ''
+  const upper = (path: string) => (drive(path) === '' ? path : `${drive(path)}${path.slice(1)}`)
+  return drive(from) === drive(to) ? posix.relative(upper(from), upper(to)) : to
+}
+
+
+// True when `path` is the folder `folder` or a path in it, with no regard to
+// the case of the letters where the file system has none (`fold`).
+export function isInside(path: string, folder: string, fold: boolean = foldsCase): boolean {
+  const [x, y] = [slashes(path), slashes(folder)]
+  const [inner, outer] = fold ? [x.toLowerCase(), y.toLowerCase()] : [x, y]
+  return inner === outer || inner.startsWith(outer.endsWith('/') ? outer : `${outer}/`)
+}
+
+// True for a relative path that stays in its folder: not empty, no root (`/`,
+// or `\` of Windows, also `\\server`), no drive of Windows, no `..`
+// part (with `/` or `\` between the parts), and no NUL character, which no
+// file name has.
+export function isInnerPath(path: string): boolean {
+  return path !== '' && !path.includes('\0') && !/^[\\/]/.test(path) && !/^[A-Za-z]:/.test(path) && !path.split(/[\\/]/).includes('..')
 }
 
 // A matcher of the file watcher: true for a cache of the dependency step in
@@ -183,7 +244,9 @@ export function folderProblem(folder: string, folderTest: (path: string) => bool
 }
 
 // The project of this process: the variable (which the command sets), else the
-// lookup from the current folder, else the tool.
+// lookup from the current folder, else the tool. In the case of the disk
+// (`diskCase`), as the command gives it, thus a run of Vite or of a script
+// with no command compares the same paths as the file watcher.
 export function currentProject(): string {
-  return projectRoot(null, process.env, process.cwd(), toolRoot, existsSync)
+  return diskCase(projectRoot(null, process.env, diskCase(slashes(process.cwd())), toolRoot, existsSync))
 }

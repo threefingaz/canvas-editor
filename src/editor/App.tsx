@@ -9,12 +9,12 @@ import { EditMarks } from './canvas/EditMarks.tsx'
 import { readLinksShown, writeLinksShown } from './canvas/flow.ts'
 import { FlowLayer } from './canvas/FlowLayer.tsx'
 import { Frame, type KeepBase } from './canvas/Frame.tsx'
-import { keepKeys, layoutFrames, shownRect } from './canvas/layout.ts'
+import { keepKeys, layoutFrames, shownRect, type FrameBox } from './canvas/layout.ts'
 import { readMarkersShown, writeMarkersShown } from './canvas/markers.ts'
 import { Markers } from './canvas/Markers.tsx'
 import { NoLibrary, NoTokens } from './canvas/NoLibrary.tsx'
 import { followLink, operate, useOperate } from './canvas/operate.ts'
-import { croppedParts, partRects, wholeShown } from './canvas/part.ts'
+import { croppedParts, inCrop, partRects, wholeShown } from './canvas/part.ts'
 import { titleRowHeight } from './canvas/title.ts'
 import { Toolbar } from './canvas/Toolbar.tsx'
 import {
@@ -40,16 +40,16 @@ import { Pins } from './comments/Pins.tsx'
 import { edits } from './edits/store.ts'
 import { escapeAction, historyKey, typingInActive, viewKey } from './focus.ts'
 import { inLiveFrame } from './frame-window.ts'
-import { useWindowKeys } from './hooks.ts'
+import { minEditorWidth, narrowQuery, useWindowKeys } from './hooks.ts'
 import { Inspector } from './inspector/Inspector.tsx'
 import { clearsSelection, tabAfter, type Tab, type TabEvent } from './inspector/tabs.ts'
 import { useMediaQuery } from './media-query.ts'
 import { hiddenIn } from './preview/css.ts'
-import { useRequestSync } from './requests/sync.ts'
+import { RequestSync } from './requests/RequestSync.tsx'
 import { ScreenDialogs } from './screens/ScreenMenu.tsx'
 import { viewAfter } from './screens/screen-actions.ts'
 import { moveDrag } from './selection/drag-store.ts'
-import { canvasRectOf } from './selection/geometry.ts'
+import { canvasCropOf, canvasRectOf } from './selection/geometry.ts'
 import { hitAt, pickAt, type Hovered } from './selection/pick.ts'
 import { SelectionOverlay } from './selection/SelectionOverlay.tsx'
 import { selection } from './selection/store.ts'
@@ -95,49 +95,49 @@ function TokenFileError() {
 // server only.
 if (import.meta.env.DEV) Object.assign(window, { __canvasEdits: edits })
 
+// True while a dialog of the screen actions is open: it is modal, thus the
+// keys of the history and of the view do nothing behind it.
+function screenDialogOpen(): boolean {
+  return document.querySelector('[data-screen-dialog]') !== null
+}
+
 // Ctrl or Cmd with Z undoes the last edit, and Shift with them redoes it, on
 // the edits of all screens. The keys do nothing when a field that takes text
-// has the focus: the field undoes its own typing.
+// has the focus (the field undoes its own typing) or a dialog is open.
 function useHistoryKeys() {
-  useEffect(() => {
-    const onKeyDown = (event: KeyboardEvent) => {
-      const action = historyKey(event)
-      if (action === null || event.defaultPrevented) return
-      if (typingInActive()) return
-      event.preventDefault()
-      if (action === 'undo') edits.undo()
-      else edits.redo()
-    }
-    window.addEventListener('keydown', onKeyDown)
-    return () => window.removeEventListener('keydown', onKeyDown)
-  }, [])
+  useWindowKeys((event) => {
+    const action = historyKey(event)
+    if (action === null || event.defaultPrevented) return
+    if (typingInActive() || screenDialogOpen()) return
+    event.preventDefault()
+    if (action === 'undo') edits.undo()
+    else edits.redo()
+  })
 }
 
 // A value that goes back to null a time after it is set: the mark of the
 // frame of a link target, the message of a link to an unknown screen. A new
 // value starts the time again.
+//
+// The time is an effect of the value: a refresh of this module in the dev
+// server runs each effect again, and the value then still goes back to null.
+// Each flash is a new object, thus the same value flashed again starts a new
+// time.
 function useFlash<T>(duration: number): [T | null, (value: T) => void] {
-  const [value, setValue] = useState<T | null>(null)
-  const timer = useRef(0)
-  useEffect(() => () => window.clearTimeout(timer.current), [])
-  const flash = useCallback(
-    (next: T) => {
-      window.clearTimeout(timer.current)
-      setValue(next)
-      timer.current = window.setTimeout(() => setValue(null), duration)
-    },
-    [duration],
-  )
-  return [value, flash]
+  const [flashed, setFlashed] = useState<{ value: T } | null>(null)
+  useEffect(() => {
+    if (flashed === null) return
+    const timer = window.setTimeout(() => setFlashed(null), duration)
+    return () => window.clearTimeout(timer)
+  }, [flashed, duration])
+  const flash = useCallback((value: T) => setFlashed({ value }), [])
+  return [flashed?.value ?? null, flash]
 }
 
 // How long the frame of a link target keeps its mark, and how long the
 // message of a link to an unknown screen shows, in ms.
 const markDuration = 1500
 const noticeDuration = 4000
-
-// The least width of the editor window; a narrower window shows a message.
-const minEditorWidth = 1024
 
 // The strips of the canvas that a fit leaves free, in px on the screen: the
 // title row above a frame (it keeps its size at each zoom) and the toolbar at
@@ -156,7 +156,6 @@ const revealMargin = 48
 // the screen needs in the view, in px on the screen; its height is the strip
 // of the title row (`fitStrips.top`).
 const titleRowWidth = 320
-const narrowQuery = `(max-width: ${minEditorWidth - 1}px)`
 
 export default function App() {
   const { theme, toggle } = useEditorTheme()
@@ -190,8 +189,6 @@ export default function App() {
   const [marked, mark] = useFlash<string>(markDuration)
   const [notice, showNotice] = useFlash<string>(noticeDuration)
   useHistoryKeys()
-  // The edits of each screen are saved in its request file and loaded from it.
-  useRequestSync(screens)
   // A hot update of the virtual module renders the editor again with the new
   // list, and the memo is computed again.
   // The rectangle of the block of each option with a part, from the measure
@@ -220,11 +217,22 @@ export default function App() {
   // The listed screen when it is still in the list: the Changes tab shows it,
   // and its frame has a ring.
   const listedId = listed !== null && ids.has(listed) ? listed : null
-  const live = new Set(screens.filter((screen) => !screen.error).map((screen) => screen.id))
-  const frameDocuments = keepKeys(documents, live)
+  const live = useMemo(() => new Set(screens.filter((screen) => !screen.error).map((screen) => screen.id)), [])
+  // The document of a screen that is removed or has an error goes out of the
+  // state, thus a screen that comes back shows no old document before its
+  // frame loads, and the map stays the same object at each render.
+  const [prunedFor, setPrunedFor] = useState(live)
+  if (prunedFor !== live) {
+    setPrunedFor(live)
+    setDocuments((current) => keepKeys(current, live))
+    // A screen with an error has the height of an error frame, not its last
+    // measured height.
+    setHeights((current) => keepKeys(current, live))
+  }
+  const frameDocuments = useMemo(() => keepKeys(documents, live), [documents, live])
 
   const onHeight = (id: string, height: number) => {
-    setHeights((current) => (current.get(id) === height ? current : keepKeys(new Map(current).set(id, height), ids)))
+    setHeights((current) => (current.get(id) === height ? current : keepKeys(new Map(current).set(id, height), live)))
   }
 
   const onFrameLoad = (id: string, document: Document) => {
@@ -244,17 +252,20 @@ export default function App() {
 
   // The outline needs no index; the state stays when the element is the same.
   // With the Preview switch on there is no outline, and the cursor shows a
-  // link.
+  // link that a click follows (`followLink`): not a link to a different
+  // address. A frame with no element under the point (the pointer left it)
+  // clears only its own outline: the leave of a frame can come after the
+  // hover of the next one.
   const onHover = (id: string, point: Point | null) => {
     if (operating) {
-      const over = point !== null && linkUnder(id, point) !== null
+      const over = point !== null && followLink(linkUnder(id, point), layout.frames) !== null
       setLinkFrame((current) => (over ? id : current === id ? null : current))
       return
     }
     const document = frameDocuments.get(id)
     const hit = point && document ? hitAt(document, point, hiddenOf(id)) : null
     setHover((current) => {
-      if (hit === null) return null
+      if (hit === null) return current?.screenId === id ? null : current
       return current?.screenId === id && current.node === hit.node && current.name === hit.name ? current : { ...hit, screenId: id }
     })
   }
@@ -299,22 +310,25 @@ export default function App() {
   // of its frame, read at the moment of a zoom; null with no selection, or
   // when the node is not in the current document of its frame. The editor
   // does not subscribe to the selection: it reads the store.
-  const selectedPlace = (): { box: Point; nodeRect: Rect } | null => {
+  const selectedPlace = (): { box: FrameBox; nodeRect: Rect } | null => {
     const selected = selection.get()
     if (!selected || !inLiveFrame(selected.node)) return null
     if (selected.node.ownerDocument !== frameDocuments.get(selected.screenId)) return null
     const box = boxOf(selected.screenId)
     return box ? { box, nodeRect: selected.node.getBoundingClientRect() } : null
   }
+  // The rectangle of the selection on the canvas in a view: the part in the
+  // crop of a frame of an option with a part, as the selection frame shows
+  // it; null when the crop does not show it.
+  const selectedRect = (view: View, place: { box: FrameBox; nodeRect: Rect }): Rect | null =>
+    inCrop(canvasRectOf(view, place.box, place.nodeRect), canvasCropOf(view, place.box))
 
   // A zoom of the toolbar or of a key keeps the selection in its place when
   // it is in the view, else the middle of the canvas (`zoomAnchor`).
   const zoomBy = (zoom: (current: View, anchor: Point) => View) => {
     const place = selectedPlace()
     const canvas = size.current ?? { width: 0, height: 0 }
-    setView((current) =>
-      zoom(current, zoomAnchor(canvas, place ? canvasRectOf(current, place.box, place.nodeRect) : null)),
-    )
+    setView((current) => zoom(current, zoomAnchor(canvas, place ? selectedRect(current, place) : null)))
   }
   // Moves the view to the selected element when its middle is not in the
   // free part of the canvas, at least `revealMargin` px from each edge; the
@@ -323,9 +337,10 @@ export default function App() {
     const place = selectedPlace()
     const canvas = size.current
     if (!place || !canvas) return
-    setView((current) =>
-      revealView(current, canvasRectOf(current, place.box, place.nodeRect), canvas, revealMargin, overlayStrips),
-    )
+    setView((current) => {
+      const rect = selectedRect(current, place)
+      return rect ? revealView(current, rect, canvas, revealMargin, overlayStrips) : current
+    })
   }
 
   // Moves the view to the title row of the frame of a screen when it is not
@@ -437,12 +452,16 @@ export default function App() {
   // selected element (`moveDrag`, read at the key), else closes the comment
   // bubble or the options panel and keeps the selection, else turns the
   // Preview switch off, else clears the selection. A field that uses Escape
-  // for its own work prevents the default. The keys of the view (`viewKey`)
+  // for its own work prevents the default; an Escape of a composition and one
+  // behind a dialog of the screen actions do nothing. The keys of the view (`viewKey`)
   // do nothing while a field that takes text has the focus. The keys of the
   // bar of the selection (C, Delete) are its own (`SelectionBar.tsx`).
   useWindowKeys((event) => {
     if (event.defaultPrevented) return
     if (event.key === 'Escape') {
+      // An Escape that ends the composition of a text, or one behind an open
+      // dialog of the screen actions, is theirs.
+      if (event.isComposing || screenDialogOpen()) return
       const action = escapeAction({
         dragging: moveDrag.dragging(),
         floating: bubble.get().kind !== 'closed',
@@ -458,7 +477,7 @@ export default function App() {
       return
     }
     const key = viewKey(event)
-    if (key === null || typingInActive()) return
+    if (key === null || typingInActive() || screenDialogOpen()) return
     if (key === 'fit-all') fitAll()
     else if (key === 'actual') zoomReset()
     else {
@@ -566,6 +585,10 @@ export default function App() {
         />
       )}
       <ScreenDialogs onApplied={onScreenAction} />
+      {/* The edits of each screen are saved in its request file and loaded
+          from it (`RequestSync`: a child, thus a refresh of this module keeps
+          the syncs). */}
+      <RequestSync list={screens} />
       {narrow && (
         <div className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--background)] p-6 text-center text-sm">
           The editor needs a window that is {minEditorWidth}px wide or more.

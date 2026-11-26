@@ -61,6 +61,13 @@ export function stubOf(head: SkillHead, skillPath: string, stubPath: string): st
   ].join('\n')
 }
 
+// True for the text of a stub that the tool wrote (`stubOf`, and the older
+// form with no heading): the head, and one line that sends the agent to the
+// skill. A skill of the user that quotes that line is not a stub.
+export function isStub(text: string): boolean {
+  return /^---\nname: [^\n]*\ndescription: [^\n]*\n---\n\n(?:# [^\n]*\n\n)?This is a stub\. The skill is [^\n]*\n?$/.test(text.replaceAll('\r\n', '\n'))
+}
+
 // The stub of each skill in each folder. `guidePath` is the folder of the
 // guide relative to the root (`guide` in the tool, `canvas/guide` in a host).
 // Throws when a skill has a name that is not the name of its folder, or a

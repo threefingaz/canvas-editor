@@ -1,3 +1,4 @@
+import { relationOf } from '../../related/groups.ts'
 import type { Origin } from '../../requests/format.ts'
 
 // The quick requests: comments with a fixed text, which the user adds with
@@ -137,7 +138,7 @@ type PresetScreen = { id: string; width: number; stateOf?: string; optionOf?: st
 // a second file for a different width; `hasStates` says that the list has a
 // state of this screen. `widths` are the widths of the config.
 export function screenPresets(screen: PresetScreen, widths: readonly number[], hasStates: boolean): Preset[] {
-  const base = screen.stateOf === undefined && screen.optionOf === undefined
+  const base = relationOf(screen) === 'base'
   const others = [...new Set(widths)].filter((width) => width !== screen.width)
   return [
     ...(base
@@ -176,7 +177,7 @@ export function screenPresets(screen: PresetScreen, widths: readonly number[], h
     {
       key: 'fix-deviations',
       label: 'Fix the deviations',
-      text: `Fix the deviations of this screen from the design system: run \`npm run check -- ${screen.id}\`, read the issues file of the screen, link each value to a token, and rebuild each element that is not from the library with parts of the library. Do not change what an edit or a comment of the user asked for. Name what cannot be fixed.`,
+      text: `Fix the deviations of this screen from the design system: run \`canvas check -- ${screen.id}\` as AGENTS.md says, read the issues file of the screen, link each value to a token, and rebuild each element that is not from the library with parts of the library. Do not change what an edit or a comment of the user asked for. Name what cannot be fixed.`,
     },
     {
       key: 'design-check',
@@ -200,4 +201,11 @@ export function screenPresets(screen: PresetScreen, widths: readonly number[], h
 // bubble shows them as done, thus a second click adds no second comment.
 export function donePresets(presets: readonly Preset[], texts: readonly string[]): Set<string> {
   return new Set(presets.filter((preset) => texts.includes(preset.text)).map((preset) => preset.key))
+}
+
+// True for a key that opens the popup of a list (`select`): Space, F4, or Alt
+// with an up or down arrow. A change after it is a choice in the popup, not a
+// step of a closed list.
+export function opensList(key: string, altKey: boolean): boolean {
+  return key === ' ' || key === 'F4' || (altKey && (key === 'ArrowDown' || key === 'ArrowUp'))
 }

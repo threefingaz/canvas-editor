@@ -1,5 +1,7 @@
 import type { IdChange, ScreenAction } from '../../requests/api.ts'
-import { flowProblem, idOf, memberName, nameProblem } from '../../related/names.ts'
+import { relationOf } from '../../related/groups.ts'
+import { flowProblem, idOf, memberName, nameProblem, renameClashes } from '../../related/names.ts'
+import { capitalized } from '../../words.ts'
 import { movedScreens } from './follow.ts'
 
 // The screen actions of the menu at the end of the title row of a frame
@@ -35,7 +37,7 @@ export const menuLabels: Record<MenuAction, string> = {
 }
 
 function isBase(screen: ActionScreen): boolean {
-  return screen.stateOf === undefined && screen.optionOf === undefined
+  return relationOf(screen) === 'base'
 }
 
 // The place of a base screen among the base screens of its row, in the
@@ -103,20 +105,19 @@ export function renamePreview(
   if (next === id) return result([], 'This is the id of the screen now')
   const members = movedScreens(list, { action: 'rename', screen: id, flow: to.flow, name: to.name }).slice(1)
   const byId = new Map(list.map((item) => [item.id, item]))
-  const changes: IdChange[] = [{ from: id, to: next }]
+  const pairs: [string, string][] = [[id, next]]
   for (const member of members) {
     const entry = byId.get(member)!
     const moved = idOf(to.flow, memberName(entry.name, screen.name, to.name))
-    if (moved !== member) changes.push({ from: member, to: moved })
+    if (moved !== member) pairs.push([member, moved])
   }
-  const existing = new Set(list.map((item) => item.id))
-  const taken = new Set<string>()
-  for (const change of changes) {
-    if (existing.has(change.to!)) return result(changes, `A screen with the id '${change.to}' exists`)
-    if (taken.has(change.to!)) return result(changes, `Two screens would get the id '${change.to}'`)
-    taken.add(change.to!)
-  }
-  return result(changes, null)
+  const changes: IdChange[] = pairs.map(([from, moved]) => ({ from, to: moved }))
+  const clash = renameClashes(
+    list.map((item) => item.id),
+    pairs,
+    to.flow,
+  )[0]
+  return result(changes, clash === undefined ? null : capitalized(clash))
 }
 
 // What a delete takes into the trash with the screen (its states, and the

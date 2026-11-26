@@ -23,7 +23,7 @@
 // file changes, is added or is removed. A change in the work folder never
 // reloads the editor or a frame.
 
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, renameSync, rmdirSync, rmSync, writeFileSync } from 'node:fs'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { dirname, join } from 'node:path'
 import { normalizePath, type Plugin } from 'vite'
@@ -46,12 +46,14 @@ import {
   requestIdOf,
   parseScreenAction,
   routeOf,
+  otherOriginText,
   sameOrigin,
   screensRouteOf,
   tempName,
   workPath,
 } from './requests.ts'
 import {
+  ApplyError,
   applyPlan,
   diskReader,
   planDelete,
@@ -62,14 +64,10 @@ import {
   trashItems,
   type Plan,
 } from './screen-ops.ts'
+import { guarded, sendText, type Handler } from './http.ts'
 import { screenNames } from './screens-plugin.ts'
 import { folderPrefix, screenExtension } from './screens.ts'
 import { fileEvent } from './watch.ts'
-
-function sendText(res: ServerResponse, status: number, text: string) {
-  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' })
-  res.end(`${text}\n`)
-}
 
 function sendContent(res: ServerResponse, status: number, text: string) {
   res.writeHead(status, {
@@ -114,6 +112,9 @@ function readBody(req: IncomingMessage, res: ServerResponse): Promise<string | n
     req.on('data', onData)
     req.on('end', () => resolve(Buffer.concat(chunks).toString('utf8')))
     req.on('error', reject)
+    // A client that goes away before the end of the body: no answer to send.
+    // After the end the promise is settled, and this changes nothing.
+    req.on('close', () => resolve(null))
   })
 }
 
@@ -134,7 +135,12 @@ function writeFile(path: string, text: string, tempFolder: string) {
   tempCount += 1
   const temp = join(tempFolder, `${process.pid}-${Date.now()}-${tempCount}.json`)
   writeFileSync(temp, text)
-  renameSync(temp, path)
+  try {
+    renameSync(temp, path)
+  } catch (error) {
+    rmSync(temp, { force: true })
+    throw error
+  }
 }
 
 // The work folder of the project at `root`, or a folder in it: the folder of
@@ -144,9 +150,27 @@ function workFolderOf(root: string, part: FileKind | typeof tempName | '' = ''):
   return normalizePath(join(root, config.work, part))
 }
 
+// The folders of a flow above a removed file go when they are empty, up to
+// `top`, as after a screen action: a leftover folder would give a later flow
+// whose name differs only in its case the old name on a file system that
+// ignores the case.
+function removeEmptyFolders(path: string, top: string): void {
+  for (let folder = dirname(path); folder.startsWith(`${top}/`); folder = dirname(folder)) {
+    try {
+      if (readdirSync(folder).length > 0) return
+      rmdirSync(folder)
+    } catch {
+      return
+    }
+  }
+}
+
 function isJson(contentType: string | undefined): boolean {
   return contentType?.split(';', 1)[0].trim().toLowerCase() === 'application/json'
 }
+
+// The answer to a call whose content type `isJson` refuses (415).
+const jsonOnlyText = 'the content type must be application/json'
 
 export type HandlerDeps = {
   // The project root, with `/` between the parts.
@@ -160,7 +184,7 @@ export type HandlerDeps = {
   now?: () => Date
 }
 
-export type Handler = (req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>
+export type { Handler }
 
 // The middleware of the file API. The checks of a call come in this sequence:
 // the address (404), the origin (403), the screen (404), and for a `PUT` the
@@ -171,7 +195,7 @@ export type Handler = (req: IncomingMessage, res: ServerResponse, next: () => vo
 export function createRequestsHandler({ root, widths = config.widths, screenIds, now = () => new Date() }: HandlerDeps): Handler {
   const screens = async (req: IncomingMessage, res: ServerResponse, kind: 'action' | 'trash') => {
     if (!sameOrigin({ origin: req.headers.origin, host: req.headers.host })) {
-      sendText(res, 403, 'only the editor of this server can use this address')
+      sendText(res, 403, otherOriginText)
       return
     }
     const reader = diskReader(root)
@@ -180,7 +204,7 @@ export function createRequestsHandler({ root, widths = config.widths, screenIds,
       return
     }
     if (!isJson(req.headers['content-type'])) {
-      sendText(res, 415, 'the content type must be application/json')
+      sendText(res, 415, jsonOnlyText)
       return
     }
     const body = await readBody(req, res)
@@ -216,8 +240,11 @@ export function createRequestsHandler({ root, widths = config.widths, screenIds,
     try {
       result = applyPlan(root, plan)
     } catch (error) {
-      // A step failed; `applyPlan` put back the steps before it.
-      sendText(res, 500, `the action failed, and the files are as before: ${messageOf(error)}`)
+      // A step failed; `applyPlan` put back the steps before it, or says
+      // that it could not.
+      const restored = !(error instanceof ApplyError) || error.restored
+      const state = restored ? 'the files are as before' : 'some files could not be put back; check them with Git'
+      sendText(res, 500, `the action failed, and ${state}: ${messageOf(error)}`)
       return
     }
     if (!result.applied) {
@@ -244,7 +271,7 @@ export function createRequestsHandler({ root, widths = config.widths, screenIds,
       return
     }
     if (!sameOrigin({ origin: req.headers.origin, host: req.headers.host })) {
-      sendText(res, 403, 'only the editor of this server can use this address')
+      sendText(res, 403, otherOriginText)
       return
     }
     const path = workPath(route.kind, route.id, screenIds(), root)
@@ -259,7 +286,7 @@ export function createRequestsHandler({ root, widths = config.widths, screenIds,
     }
 
     if (!isJson(req.headers['content-type'])) {
-      sendText(res, 415, 'the content type must be application/json')
+      sendText(res, 415, jsonOnlyText)
       return
     }
     const body = await readBody(req, res)
@@ -296,6 +323,7 @@ export function createRequestsHandler({ root, widths = config.widths, screenIds,
     }
     if ('edits' in accepted.file && accepted.file.edits.length === 0) {
       rmSync(path, { force: true })
+      removeEmptyFolders(path, workFolderOf(root, 'requests'))
       sendContent(res, 200, emptyRequest(route.id))
       return
     }
@@ -318,12 +346,7 @@ export function requestsPlugin({ project, widths }: RequestsOptions): Plugin {
     name: 'canvas-requests',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        handle(req, res, next).catch((error: unknown) => {
-          if (res.headersSent) return
-          sendText(res, 500, messageOf(error))
-        })
-      })
+      server.middlewares.use(guarded(handle))
 
       const requestsFolder = workFolderOf(root, 'requests')
       server.watcher.on('all', (event, file) => {

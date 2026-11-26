@@ -119,4 +119,20 @@ describe('the guide', () => {
   test('AGENTS.md names no agent and no code editor', () => {
     expect(read(agents)).not.toMatch(/copilot|vs ?code|visual studio|claude|code chat/i)
   })
+
+  // A row of the table of a skill names the sections of a reference file
+  // after the colon of its link, by their headings, with ` · ` between them
+  // (`all` for the whole file). An agent reads only what the row names.
+  test.each(['canvas-screen-design', 'canvas-information-display'])('each section that the table of %s names is a heading of its file', (skill) => {
+    const folder = join(root, 'guide/skills', skill)
+    const text = read(join(folder, 'SKILL.md'))
+    const missing: string[] = []
+    for (const match of text.matchAll(/\]\((\.\/references\/[^)]+\.md)\):\s*(.+?)(?=<br>|\s\|)/g)) {
+      const headings = new Set([...read(join(folder, match[1])).matchAll(/^## (.+)$/gm)].map((heading) => heading[1].trim()))
+      for (const name of match[2].split(' · ').map((part) => part.trim())) {
+        if (name !== 'all' && !headings.has(name)) missing.push(`${match[1]}: ${name}`)
+      }
+    }
+    expect(missing).toEqual([])
+  })
 })

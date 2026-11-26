@@ -36,6 +36,27 @@ describe('edits store', () => {
     expect(Object.keys(store.screens()).sort()).toEqual([welcome, profile])
   })
 
+  test('a screen id that is the name of a property of each object has no items until it gets some', () => {
+    const store = createEditsStore()
+    expect(store.get('constructor')).toEqual([])
+    expect(store.get('toString')).toEqual([])
+    store.apply('constructor', edit('e1'))
+    expect(ids(store, 'constructor')).toEqual(['e1'])
+  })
+
+  test('the screen id __proto__ is an own key of the record, not its prototype', () => {
+    const store = createEditsStore()
+    store.apply('__proto__', edit('e1'))
+    expect(ids(store, '__proto__')).toEqual(['e1'])
+    expect(Object.keys(store.screens())).toEqual(['__proto__'])
+    expect(Object.getPrototypeOf(store.screens())).toBe(Object.prototype)
+    store.replace('__proto__', [edit('e2')])
+    expect(ids(store, '__proto__')).toEqual(['e2'])
+    store.discard('__proto__', 'e2')
+    expect(store.get('__proto__')).toEqual([])
+    expect(Object.keys(store.screens())).toEqual([])
+  })
+
   test('get gives the same list until the screen changes', () => {
     const store = createEditsStore()
     store.apply(welcome, edit('e1'))

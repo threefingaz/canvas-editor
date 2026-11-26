@@ -161,7 +161,10 @@ export function readScreenMeta(
     const name = propertyName(property)
     const value = property.value as Node
     if (name !== undefined) names.add(name)
+    // A later property of the same name wins, as in the object: one that is
+    // not a literal leaves no value.
     if (name !== undefined && value.type === 'Literal') values.set(name, value.value)
+    else if (name !== undefined) values.delete(name)
   }
 
   const title = values.get('title')

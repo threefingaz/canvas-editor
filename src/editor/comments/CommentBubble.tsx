@@ -1,5 +1,5 @@
 import { WarningCircleIcon, XIcon } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useReducer, useState } from 'react'
 import { project, screens } from 'virtual:canvas-screens'
 import type { Edit } from '../../requests/format.ts'
 import type { FrameBox } from '../canvas/layout.ts'
@@ -9,6 +9,7 @@ import { sameComment, type Item } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
 import { replyText } from '../edits/summary.ts'
 import { commentEdit } from '../inspector/edit.ts'
+import { onPreviewApplied } from '../preview/use-preview.ts'
 import { canvasRectOf } from '../selection/geometry.ts'
 import { useSelection } from '../selection/store.ts'
 import { selectionTarget } from '../selection/target.ts'
@@ -40,7 +41,8 @@ import { QuickRequests } from './QuickRequests.tsx'
 // reply of the agent, a change of the text and a discard, and has a box for a
 // new comment there, with the draft of its place (`draftKey`). The comments
 // of a pin come from the current list by their ids; when none is left (an
-// undo, a discard, a request file that the agent wrote), the bubble closes
+// undo, a discard, a request file that the agent wrote), the bubble closes,
+// or with a draft in its box it is the bubble of a new comment of its place
 // (`bubbleAfter`). A new text or reply of a comment from the file closes its
 // open text (`sameComment`), thus Save never writes over it.
 //
@@ -110,10 +112,14 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
   const target = state.target
 
   // The comments of the pin that are left after a change of the list.
+  // With none left, a draft of the box of the pin keeps the bubble open.
   const left = state.kind === 'pin' ? comments.length : null
   useEffect(() => {
-    if (left !== null) bubble.send({ type: 'comments', left })
-  }, [left])
+    if (left === null) return
+    const draft = target !== null && bubble.draft(draftKey(target)) !== ''
+    bubble.send({ type: 'comments', left, draft })
+    // The draft is read when the count changes, not at each key.
+  }, [left, target])
 
   // The pins of the screen, from the measure that the layer of the pins
   // reads: the anchor of a pin of an element.
@@ -127,11 +133,21 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
   // detached bubble, whose element the agent took out of the screen file.
   const { node, site } = targetSite(liveTarget(state), document, selected, items)
 
+  // A preview can move the element (an edit of the inspector while the
+  // bubble is open): the anchor is read again after it, as in the options
+  // panel. A pin moves with the measure of its layer.
+  const [, remeasure] = useReducer((count: number) => count + 1, 0)
+  useEffect(() => onPreviewApplied(remeasure), [])
+
   // The anchor on the canvas: the pin of the element, or the place of that
   // pin at the top right corner of the element. Null: the title row.
   const anchor = elementAnchor(pin?.rect ?? null, node, view, box)
   const pinKey =
-    state.kind === 'pin' ? (pin?.key ?? (target ? screenPin : lostPin)) : state.target.loc === null ? screenPin : null
+    state.kind === 'pin'
+      ? (pin?.key ?? (target === null ? lostPin : target.loc === null ? screenPin : null))
+      : state.target.loc === null
+        ? screenPin
+        : null
 
   // The anchor in the title row: the pin of the row, the button "Comment on
   // the screen", or the title.
@@ -147,6 +163,11 @@ function OpenBubble({ state, view, box, document }: OpenBubbleProps) {
 
   // The comment whose text is open for a change, as it was when it opened.
   const [editing, setEditing] = useState<Edit | null>(null)
+  // A comment that went out (a discard in the Changes tab) or changed (the
+  // file, an undo) closes its open text for good: an undo that brings it back
+  // does not open it again.
+  const editingShown = editing !== null && comments.some((item) => item.edit.id === editing.id && sameComment(editing, item.edit))
+  if (editing !== null && !editingShown) setEditing(null)
 
   const lost = target === null
   const name = bubbleName(state, site?.tag ?? null, comments)
@@ -350,7 +371,11 @@ function BubbleComment({ screenId, item, lost, open, onOpen, onClose }: BubbleCo
           variant="ghost"
           aria-label="Discard the comment"
           className="mt-0.5"
-          onClick={() => edits.discard(screenId, edit.id)}
+          onClick={() => {
+            edits.discard(screenId, edit.id)
+            // An undo of the discard does not open the text again.
+            if (open) onClose()
+          }}
           data-bubble-discard=""
         >
           <XIcon />

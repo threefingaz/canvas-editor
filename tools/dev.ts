@@ -115,7 +115,22 @@ export async function dev(options: ServeOptions): Promise<Servers> {
     throw error
   }
   servers.editor.printUrls()
-  servers.editor.bindCLIShortcuts({ print: true })
+  // The key `r` of Vite restarts only the server of the keys: here it
+  // restarts the frame server too, thus the two read the config again.
+  servers.editor.bindCLIShortcuts({
+    print: true,
+    customShortcuts: [
+      {
+        key: 'r',
+        description: 'restart the server',
+        async action(server) {
+          await servers.frame.restart()
+          await server.restart()
+          server.printUrls()
+        },
+      },
+    ],
+  })
   recordDev(servers.editor)
   return servers
 }

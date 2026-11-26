@@ -21,6 +21,7 @@ import {
 } from '@phosphor-icons/react'
 import type { ReactNode } from 'react'
 import { ToggleGroup, ToggleGroupItem } from '../ui'
+import { capitalized } from '../../words.ts'
 import { layoutKeywords, type LayoutProperty } from './edit.ts'
 
 // The controls of the Layout section: a segmented control for the direction,
@@ -44,8 +45,7 @@ type Option = { value: string; label: string; icon: ReactNode }
 
 // The text of a keyword for its tooltip: `space-between` gives "Space between".
 function keywordLabel(value: string): string {
-  const text = value.replace(/^flex-/, '').replace(/-/g, ' ')
-  return text.charAt(0).toUpperCase() + text.slice(1)
+  return capitalized(value.replace(/^flex-/, '').replace(/-/g, ' '))
 }
 
 // The icon of a keyword; null gives a text label.

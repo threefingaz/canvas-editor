@@ -16,8 +16,9 @@ import { selectionTarget } from './target.ts'
 // and gives the result to each part.
 //
 // - `plan`: the plan of the move (`movePlan`, `selectionMove`). It is read
-//   when the selection or the edits of the screen change, not at each render:
-//   a pan or a zoom renders the bar again and must not read the frame. A
+//   when the selection or the edits of the screen change, and again after the
+//   preview wrote (as `place`), not at each render: a pan or a zoom renders
+//   the bar again and must not read the frame. A
 //   change of the layout of the parent from outside the edits (a reload of
 //   the frame gives a new node) is not seen until then; that is accepted.
 // - `place`: the flow of the siblings (`flowOf`), for the arrows of the
@@ -64,8 +65,15 @@ export type Place = { flow: Flow; drag: boolean }
 
 export function useMove(selected: Selected, items: readonly Item[], width: number | null): UseMove | null {
   const { node, loc, screenId } = selected
+  // `tick` counts the applications of a preview (`onPreviewApplied`: the
+  // preview of a change writes after the render of that change) and the new
+  // sizes of the parent or of the element. The plan and the place are read
+  // again at each, thus an edit of the layout of the parent (`display`) is
+  // seen once its preview wrote.
+  const [tick, remeasure] = useReducer((count: number) => count + 1, 0)
   // The plan, and the layout of the parent (`siblingsOf`) for the flow.
   const read = useMemo(() => {
+    void tick
     if (!inLiveFrame(node)) return null
     const document = node.ownerDocument
     const parent = node.parentElement
@@ -76,14 +84,9 @@ export function useMove(selected: Selected, items: readonly Item[], width: numbe
       items,
     )
     return plan && siblings && { plan, container: siblings.container }
-  }, [node, loc, items])
+  }, [node, loc, items, tick])
 
-  // The place is read with the plan, and again after each application of a
-  // preview (`onPreviewApplied`: the preview of the same change writes after
-  // this render) and after a new size of the parent or of the element. `tick`
-  // counts these events: it is a dependency of the memo, thus each one reads
-  // the frame again.
-  const [tick, remeasure] = useReducer((count: number) => count + 1, 0)
+  // The place is read with the plan.
   const place = useMemo(() => {
     void tick
     const shown = read ? readShown(node, read.container) : null

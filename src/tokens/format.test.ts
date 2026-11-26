@@ -74,6 +74,13 @@ describe('parseTokens', () => {
     expect(() => parseTokens({ tokens: {} })).toThrow(/token list/)
   })
 
+  test('rejects a code that is not a finite number: the file would give null', () => {
+    for (const code of [Number.NaN, Number.NEGATIVE_INFINITY]) {
+      const file = fileWith(0, (token) => (token.code = code))
+      expect(() => parseTokens(file), String(code)).toThrow(/has no code/)
+    }
+  })
+
   test('rejects an unknown group and names the token', () => {
     const file = fileWith(0, (token) => (token.group = 'border'))
     expect(() => parseTokens(file)).toThrow(/palette\.primary\.main.*group "border"/)

@@ -12,6 +12,7 @@ import {
   type History,
 } from './history.ts'
 import { addEdit, discard, isPlaced, replaceComment, type Item } from './model.ts'
+import { own } from '../../own.ts'
 
 // The edits of all screens, by screen id. A screen with no edits has no key.
 export type Screens = Readonly<Record<string, Item[]>>
@@ -47,17 +48,19 @@ export type EditsStore = {
 
 const none: Item[] = []
 
+// A computed key in the literal defines an own property, also for the id
+// `__proto__`, where an assignment would set the prototype of the record.
 function withScreen(screens: Screens, screenId: string, list: Item[]): Screens {
+  if (list.length > 0) return { ...screens, [screenId]: list }
   const next = { ...screens }
-  if (list.length === 0) delete next[screenId]
-  else next[screenId] = list
+  delete next[screenId]
   return next
 }
 
 // The same lists of edits for the same screens.
 function sameScreens(a: Screens, b: Screens): boolean {
   const keys = Object.keys(a)
-  return keys.length === Object.keys(b).length && keys.every((key) => a[key] === b[key])
+  return keys.length === Object.keys(b).length && keys.every((key) => own(a, key) === own(b, key))
 }
 
 // Changes the item with the id. It gives the same list when the item is not
@@ -76,7 +79,7 @@ function updateItem(list: Item[], id: string, change: (item: Item) => Item): Ite
 export function createEditsStore(): EditsStore {
   let history: History<Screens> = startHistory({})
   const listeners = new Set<() => void>()
-  const get = (screenId: string) => history.present[screenId] ?? none
+  const get = (screenId: string) => own(history.present, screenId) ?? none
 
   const set = (next: History<Screens>) => {
     if (next === history) return
@@ -98,7 +101,7 @@ export function createEditsStore(): EditsStore {
   const changeEverywhere = (screenId: string, id: string, item: (item: Item) => Item) => {
     const present = history.present
     const next = mapHistory(history, (screens) => {
-      const list = screens[screenId]
+      const list = own(screens, screenId)
       if (list === undefined) return screens
       const changed = updateItem(list, id, item)
       return changed === list ? screens : withScreen(screens, screenId, changed)

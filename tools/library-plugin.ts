@@ -10,7 +10,7 @@
 import { existsSync } from 'node:fs'
 import { normalizePath, type Plugin } from 'vite'
 import { libraryModule, libraryModuleId } from './library.ts'
-import type { Pack } from './pack.ts'
+import { packErrorText, type Pack } from './pack.ts'
 import { toolRoot } from './project.ts'
 
 export function libraryPlugin(pack: Pack | null, project: string): Plugin {
@@ -20,7 +20,7 @@ export function libraryPlugin(pack: Pack | null, project: string): Plugin {
     name: 'canvas-library',
     configResolved() {
       const module = libraryModule(pack, normalizePath(project), toolRoot, existsSync)
-      if (module.kind === 'error') throw new Error(`canvas library: ${module.message}`)
+      if (module.kind === 'error') throw new Error(packErrorText(module.message))
       path = module.path
     },
     resolveId(id) {

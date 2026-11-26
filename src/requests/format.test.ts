@@ -252,6 +252,28 @@ describe('parseRequest', () => {
 
   test('rejects a wrong width', () => {
     expect(() => parseRequest(requestWith(0, (edit) => (edit.width = 0)))).toThrow(/"e1".*width/)
+    // JSON has no NaN or Infinity: they come from the editor as values.
+    for (const width of [-390, Number.NaN, Number.POSITIVE_INFINITY, '390']) {
+      const file = requestWith(0, () => {})
+      file.edits[0].width = width
+      expect(() => parseRequest(file), String(width)).toThrow(/"e1".*width/)
+    }
+  })
+
+  test('rejects a property two times, an observed value that is not true, and a media that is not a text', () => {
+    const twice = requestWith(0, (edit) => ((edit.change as Record<string, unknown>).properties = ['gap', 'gap']))
+    expect(() => parseRequest(twice)).toThrow(/"e1".*two times/)
+    const observed = requestWith(0, (edit) => ((edit.change as Record<string, Record<string, unknown>>).before.observed = false))
+    expect(() => parseRequest(observed)).toThrow(/"e1".*observed/)
+    const media = requestWith(0, (edit) => ((edit.change as Record<string, unknown>).media = 600))
+    expect(() => parseRequest(media)).toThrow(/"e1".*media/)
+  })
+
+  test('rejects an order of fewer than two places, and a position that is not less than the count', () => {
+    const one = requestWith(3, (edit) => Object.assign(edit.change as object, { before: 0, after: 0, of: 1 }))
+    expect(() => parseRequest(one)).toThrow(/"e4"/)
+    const before = requestWith(3, (edit) => Object.assign(edit.change as object, { before: 3, after: 0, of: 3 }))
+    expect(() => parseRequest(before)).toThrow(/"e4".*"before" that is not less than "of"/)
   })
 
   test('rejects a style change with no properties or a wrong value', () => {
@@ -360,6 +382,21 @@ describe('parseRequest of options and keep', () => {
     expect(() => parseRequest(file)).toThrow(/edit 3 "k1".*has a target/)
   })
 
+  test('rejects a second keep: a screen has at most one', () => {
+    const file = { ...tasks, edits: [...tasks.edits, { id: 'k2', target: null, width: 1440, change: { kind: 'keep', option: 'onboarding/welcome-option-1' } }] }
+    expect(() => parseRequest(file)).toThrow(/edit 4 "k2" is a second keep edit/)
+  })
+
+  test('rejects a token code that is not a finite number', () => {
+    for (const code of [Number.NaN, Number.POSITIVE_INFINITY]) {
+      const file = {
+        ...request,
+        edits: [{ id: 'e1', target, width: 390, change: { kind: 'style', properties: ['gap'], before: { value: '8px', observed: true }, after: { value: '16px', token: { id: 's', name: 's', code } } } }],
+      }
+      expect(() => parseRequest(file), String(code)).toThrow(/has no code/)
+    }
+  })
+
   test('drops fields that the format does not have', () => {
     const file = tasksWith(2, (edit) => (changeOf(edit).before = 'x'))
     expect(parseRequest(file).edits[2].change).toEqual({ kind: 'keep', option: 'onboarding/welcome-option-2' })
@@ -433,6 +470,12 @@ describe('parseIssues', () => {
 
   test('rejects a wrong version', () => {
     expect(() => parseIssues({ ...issues, version: '1' })).toThrow(/version/)
+  })
+
+  test('takes a layout issue with its text, and rejects one with no text', () => {
+    const layout = { ...issues, issues: [{ kind: 'layout', text: 'The content is wider than the screen' }] }
+    expect(parseIssues(structuredClone(layout)).issues).toEqual(layout.issues)
+    expect(() => parseIssues({ ...issues, issues: [{ kind: 'layout' }] })).toThrow(/issue 1 .*text/)
   })
 
   test('rejects an unknown kind and names the issue by its place', () => {

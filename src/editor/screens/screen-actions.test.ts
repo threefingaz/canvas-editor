@@ -137,6 +137,15 @@ describe('renamePreview', () => {
     )
   })
 
+  test('refuses a flow or an id that differs from one that exists only in its case, as the server does', () => {
+    expect(renamePreview(list, 'onboarding/welcome', { flow: 'Onboarding', name: 'hello' }).problem).toMatch(/^The flow 'onboarding' exists/)
+    expect(renamePreview(list, 'onboarding/welcome', { flow: 'onboarding', name: 'Done' }).problem).toBe(
+      "A screen with the id 'onboarding/done' exists",
+    )
+    // A screen may change only the case of its own name.
+    expect(renamePreview(list, 'onboarding/welcome', { flow: 'onboarding', name: 'Welcome' }).problem).toBeNull()
+  })
+
   test('refuses a name or a flow that is not valid, the same id, and a state in a different flow', () => {
     expect(renamePreview(list, 'onboarding/welcome', { flow: 'onboarding', name: '' }).problem).toBe('The name is empty')
     expect(renamePreview(list, 'onboarding/welcome', { flow: 'onboarding', name: 'a b' }).problem).toMatch(/is not a valid name/)

@@ -121,8 +121,18 @@ describe('dropLine', () => {
     expect(dropLine(inColumn, 2, 0, column)).toEqual({ x: 0, y: 0, width: 100, height: 0 })
   })
 
-  test('a sibling with no size gives no line', () => {
-    expect(dropLine([box(0, 0), box(110, 0), box(250, 0, 0, 0)], 0, 2, row)).toBeNull()
+  test('a drop next to a sibling with no size shows the line at the nearest sibling with a size on that side', () => {
+    // After a hidden last sibling: the end of the row, after the second one.
+    expect(dropLine([box(0, 0), box(110, 0), box(250, 0, 0, 0)], 0, 2, row)).toEqual({ x: 210, y: 0, width: 0, height: 40 })
+    // A, hidden, B with the element at A: after the hidden one is before B.
+    const hidden = [box(0, 0), box(0, 0, 0, 0), box(110, 0)]
+    expect(dropPosition(hidden, 0, row, { x: 120, y: 20 })).toBe(1)
+    expect(dropLine(hidden, 0, 1, row)).toEqual({ x: 110, y: 0, width: 0, height: 40 })
+    // B, hidden, A with the element at A: before the hidden one is after B.
+    const back = [box(0, 0), box(0, 0, 0, 0), box(110, 0)]
+    expect(dropLine(back, 2, 1, row)).toEqual({ x: 100, y: 0, width: 0, height: 40 })
+    // No sibling with a size on the side of the drop.
+    expect(dropLine([box(0, 0), box(0, 0, 0, 0)], 0, 1, row)).toBeNull()
   })
 
   test('a reversed column puts a later drop above the sibling', () => {

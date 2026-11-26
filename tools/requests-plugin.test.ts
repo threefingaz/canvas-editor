@@ -148,6 +148,9 @@ describe('createRequestsHandler', () => {
     expect(answer.body).toBe(emptyRequest(id))
     expect(answer.headers.ETag).toBe(quotedHash(hashOf(emptyRequest(id))))
     expect(existsSync(requestPath())).toBe(false)
+    // The empty folder of the flow goes too; the folder of the requests stays.
+    expect(existsSync(dirname(requestPath()))).toBe(false)
+    expect(existsSync(join(root, config.work, 'requests'))).toBe(true)
   })
 
   test('an issues file needs no If-Match', async () => {

@@ -10,6 +10,7 @@ import type { ScreenEntry } from 'virtual:canvas-screens'
 import { modules } from 'virtual:canvas-screen-modules'
 import { RenderError } from '../frame/RenderError.tsx'
 import { screenLoader, screensChangedEvent } from '../frame/screen-id.ts'
+import { screenHash } from '../frame/screen-link.ts'
 import { UnknownScreen } from './UnknownScreen.tsx'
 
 // One screen of the prototype site as the full page: the screen in the wrapper
@@ -40,7 +41,8 @@ export function ScreenPage({ screen }: { screen: ScreenEntry }) {
     return () => hot.off(screensChangedEvent, onChange)
   }, [id])
 
-  if (screenLoader(id, components) === null) return <UnknownScreen id={id} />
+  // An id of the list with no module: its address as the editor writes it.
+  if (screenLoader(id, components) === null) return <UnknownScreen address={screenHash(id)} />
   const Screen = components[id]
   return (
     <RenderError key={id} screen={id}>

@@ -10,7 +10,7 @@ import {
   MagnetIcon,
   SquaresFourIcon,
 } from '@phosphor-icons/react'
-import { Fragment, useEffect, useMemo, useReducer, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from 'react'
 import { library, screens, type ScreenEntry } from 'virtual:canvas-screens'
 import type { Edit, Target } from '../../requests/format.ts'
 import { messageOf } from '../../tokens/format.ts'
@@ -667,10 +667,25 @@ function RowActions({ row, onEdit, onSplit }: { row: InspectorRow; onEdit: Apply
 
 // The text of the element. The input saves the text on Enter and when it loses
 // the focus; Escape puts back the text. An empty text puts back the text too.
+// The text field commits on Enter and again on the blur that Enter calls, in
+// one run of the event, before the panel renders the new text. The second
+// commit of the same value in that run does nothing: after a text back to its
+// code value, the first one took the edit out, and the second one, with the
+// shown (previewed) text of this render, would make a new edit from it back
+// to the code. The mark goes away when the run ends.
 function ContentSection({ text, onText }: { text: string; onText: (text: string) => void }) {
+  const sent = useRef<string | null>(null)
+  const commit = (next: string) => {
+    if (sent.current === next) return
+    sent.current = next
+    queueMicrotask(() => {
+      sent.current = null
+    })
+    onText(next)
+  }
   return (
     <PanelSection title="Content" spacing="technical" data-section="Content">
-      <TextInputControl name="Text" value={text} commitOnBlur onValueChange={onText} />
+      <TextInputControl name="Text" value={text} commitOnBlur onValueChange={commit} />
     </PanelSection>
   )
 }

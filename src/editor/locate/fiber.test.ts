@@ -246,6 +246,13 @@ describe('siteOf', () => {
   test('gives null for a record with no location', () => {
     expect(siteOf(record('div'))).toBeNull()
   })
+
+  test('a text record, whose props are its text, carries no location', () => {
+    const card = record(Card, loc('screens/a.tsx:2:3', 'Card', 'library'))
+    const text = record(null, null, card)
+    text.memoizedProps = 'Hello' as unknown as Fiber['memoizedProps']
+    expect(siteOf(text)).toBeNull()
+  })
 })
 
 describe('hostNode', () => {

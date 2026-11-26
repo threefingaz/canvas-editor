@@ -34,17 +34,34 @@ export function dropPosition(rects: readonly Rect[], position: number, flow: Flo
 // The line of the drop at the edge of the sibling that the element goes
 // next to, in the coordinates of `rects`, with no thickness (the canvas
 // draws it at a fixed size on the screen): a vertical line in a row, a
-// horizontal line in a column. Null when the drop keeps the position or that
-// sibling has no size.
+// horizontal line in a column. A sibling with no size (a hidden one, where
+// `dropPosition` can land next to a sibling with a size) shows no edge: the
+// line is at the edge of the nearest sibling with a size on that side of the
+// place, which is the same place on the screen. Null when the drop keeps the
+// position, or no sibling with a size is there.
 export function dropLine(rects: readonly Rect[], position: number, drop: number, flow: Flow): Rect | null {
-  if (drop === position) return null
-  const rect = rects[drop]
-  if (!rect || !hasSize(rect)) return null
-  // A drop later in the code goes after that sibling, an earlier one before
-  // it; a reversed flow puts "after" at the left or above.
-  const far = drop > position !== flow.reversed
-  if (flow.axis === 'row') return { x: far ? rect.x + rect.width : rect.x, y: rect.y, width: 0, height: rect.height }
-  return { x: rect.x, y: far ? rect.y + rect.height : rect.y, width: rect.width, height: 0 }
+  if (drop === position || !rects[drop]) return null
+  const later = drop > position
+  const sized = (index: number) => index !== position && rects[index] !== undefined && hasSize(rects[index])
+  // A drop later in the code goes after the sibling at `drop`: after the last
+  // sibling with a size from the element to it, else before the first one
+  // after it. An earlier drop goes before the sibling at `drop`: before the
+  // first sibling with a size from it to the element, else after the last
+  // one before it.
+  const indexes = rects.map((_, index) => index)
+  const near = later
+    ? indexes.filter((index) => index > position && index <= drop && sized(index)).at(-1)
+    : indexes.find((index) => index >= drop && index < position && sized(index))
+  const far = later ? indexes.find((index) => index > drop && sized(index)) : indexes.filter((index) => index < drop && sized(index)).at(-1)
+  const index = near ?? far
+  if (index === undefined) return null
+  const rect = rects[index]!
+  // After the sibling, or before it; a reversed flow puts "after" at the left
+  // or above.
+  const after = near !== undefined ? later : !later
+  const end = after !== flow.reversed
+  if (flow.axis === 'row') return { x: end ? rect.x + rect.width : rect.x, y: rect.y, width: 0, height: rect.height }
+  return { x: rect.x, y: end ? rect.y + rect.height : rect.y, width: rect.width, height: 0 }
 }
 
 // The index of the rectangle with a size that is nearest to `point` (0 in

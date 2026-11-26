@@ -6,6 +6,7 @@
 // the same at each zoom.
 
 import { toScreen, type Point, type Rect, type View } from './viewport.ts'
+import { readStored, writeStored } from '../stored.ts'
 
 // A frame in canvas coordinates, with the flow of its screen.
 export type FlowFrame = { id: string; flow: string; rect: Rect }
@@ -320,14 +321,20 @@ export type FlowLabel = { flow: string; x: number; y: number }
 // first frame of the flow, `gap` px from it, at the height of its title row
 // (`rowHeight` px above the frame). The text is the flow as the folders write
 // it (`onboarding`, `settings/account`). The screens directly in the screens
-// folder have no flow name, thus no label.
-export function flowLabels(frames: readonly FlowFrame[], rowHeight: number, gap: number): FlowLabel[] {
+// folder have no flow name, thus no label, unless `errors` has their flow
+// (`''`: their `flow.json` is not valid): its label then has only the mark.
+export function flowLabels(
+  frames: readonly FlowFrame[],
+  rowHeight: number,
+  gap: number,
+  errors: { has(flow: string): boolean } = new Set<string>(),
+): FlowLabel[] {
   const labels: FlowLabel[] = []
   const seen = new Set<string>()
   for (const frame of frames) {
     if (seen.has(frame.flow)) continue
     seen.add(frame.flow)
-    if (frame.flow !== '') labels.push({ flow: frame.flow, x: round(frame.rect.x - gap), y: round(frame.rect.y - rowHeight) })
+    if (frame.flow !== '' || errors.has('')) labels.push({ flow: frame.flow, x: round(frame.rect.x - gap), y: round(frame.rect.y - rowHeight) })
   }
   return labels
 }
@@ -339,21 +346,11 @@ export function parseLinksShown(value: string | null): boolean {
   return value !== 'off'
 }
 
-// `localStorage` can be missing or blocked by the browser: then the arrows
-// show, and a choice is kept for this session only.
+// With no storage the arrows show (`readStored`).
 export function readLinksShown(): boolean {
-  try {
-    return parseLinksShown(window.localStorage.getItem(storageKey))
-  } catch {
-    return true
-  }
+  return parseLinksShown(readStored(storageKey))
 }
 
 export function writeLinksShown(shown: boolean) {
-  try {
-    if (shown) window.localStorage.removeItem(storageKey)
-    else window.localStorage.setItem(storageKey, 'off')
-  } catch {
-    // The choice is kept for this session only.
-  }
+  writeStored(storageKey, shown ? null : 'off')
 }

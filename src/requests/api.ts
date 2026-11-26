@@ -4,7 +4,9 @@
 // module, thus it has no imports and reads no DOM.
 
 // `GET` and `PUT` on `/__canvas/requests/<screen id>`, `PUT` on
-// `/__canvas/issues/<screen id>`, and the screen actions below.
+// `/__canvas/issues/<screen id>`, and the screen actions below. A `PUT` of a
+// request needs `If-Match` with the hash of its base: 428 with none, 409 with
+// the current file when the base is not the file on the disk.
 export const apiPrefix = '/__canvas/'
 
 export const fileKinds = ['requests', 'issues'] as const
@@ -50,8 +52,10 @@ export type AgentAnswer = { started: true } | { started: false; reason: string }
 // `POST` on this address does one screen action (`tools/screen-ops.ts`) with a
 // `ScreenAction` as JSON. The answer is 200 with an `ActionAnswer` when the
 // action ran, 409 with an `ActionAnswer` when the plan refused it (nothing
-// changed), 404 for a screen that is not in the list, and 400 for a body that
-// is not an action.
+// changed), 404 for a screen that is not in the list, 400 for a body that is
+// not an action, 403 for a call from a different origin, 415 for a content
+// type that is not JSON, 413 for a larger body, and 500 with a text when a
+// step failed (the text says whether the files are as before).
 export const screensAddress = `${apiPrefix}screens`
 
 // `GET` on this address gives the deleted screens in the trash, as a

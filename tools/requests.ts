@@ -23,10 +23,13 @@ import {
   formatVersion,
   parseIssues,
   parseRequest,
+  type Edit,
+  type Issue,
   type IssuesFile,
   type RequestFile,
 } from '../src/requests/format.ts'
 import { messageOf } from '../src/tokens/format.ts'
+import { isInnerPath } from './project.ts'
 import { folderPrefix, idInFolder, screenExtension } from './screens.ts'
 
 // The folder of the temporary files of the writes, in the work folder.
@@ -48,7 +51,7 @@ export function workPath(
   root: string,
   work: string = config.work,
 ): string | null {
-  if (!isKind(kind) || !ids.includes(id) || id.split('/').includes('..')) return null
+  if (!isKind(kind) || !ids.includes(id) || !isInnerPath(id)) return null
   return `${folderPrefix(root)}${folderPrefix(work)}${kind}/${id}.json`
 }
 
@@ -87,13 +90,24 @@ export function sameOrigin(headers: { origin?: string; host?: string }): boolean
   }
 }
 
+// The answer to a call that `sameOrigin` refuses (403).
+export const otherOriginText = 'only the editor of this server can use this address'
+
+// True for the file of a target: a file below the screens folder or the
+// components folder, with no `..` part.
+function isTargetFile(path: string): boolean {
+  const inFolder = [config.screens, config.components].some((folder) => path.startsWith(folderPrefix(folder)))
+  return inFolder && isInnerPath(path)
+}
+
 // A body that passed the checks: the checked file and its formatted text.
 export type Accepted = { file: RequestFile | IssuesFile; text: string }
 
 // Checks the body of a `PUT` and gives the checked file with the formatted
 // text to write, or the error text for the answer. `id` is the screen of the
-// address; the content must be of the same screen. The size is checked when
-// the body is read.
+// address; the content must be of the same screen, name its file, and have
+// each target in the screens folder or the components folder. The size is
+// checked when the body is read.
 export function acceptBody(kind: FileKind, text: string, id: string): Accepted | { error: string } {
   let json: unknown
   try {
@@ -104,6 +118,12 @@ export function acceptBody(kind: FileKind, text: string, id: string): Accepted |
   try {
     const file = kind === 'requests' ? parseRequest(json) : parseIssues(json)
     if (file.screen !== id) return { error: `the content is of the screen "${file.screen}", not of "${id}"` }
+    const screenFile = `${folderPrefix(config.screens)}${id}${screenExtension}`
+    if (file.file !== screenFile) return { error: `the file of the screen "${id}" is ${screenFile}, not ${file.file}` }
+    const items: readonly (Edit | Issue)[] = 'edits' in file ? file.edits : file.issues
+    const targets = items.flatMap((item) => ('target' in item && item.target ? [item.target.file] : []))
+    const outside = targets.find((path) => !isTargetFile(path))
+    if (outside !== undefined) return { error: `a target is in ${outside}: a target is a file of ${config.screens}/ or ${config.components}/` }
     return { file, text: fileText(file) }
   } catch (error) {
     return { error: messageOf(error) }

@@ -1,6 +1,8 @@
 import { DotsThreeIcon } from '@phosphor-icons/react'
+import { useEffect } from 'react'
 import { screens } from 'virtual:canvas-screens'
 import type { ScreenAction } from '../../requests/api.ts'
+import { messageOf } from '../../tokens/format.ts'
 import {
   Button,
   Dialog,
@@ -28,24 +30,41 @@ import { menuItems, moveAction, type MenuAction } from './screen-actions.ts'
 // renders once, outside the canvas (`ScreenDialogs`). The frame has no menu
 // with the Preview switch on.
 
-// The text of a result that is not applied, or an empty list when it ran.
+// The text of a result that is not applied, or an empty list when it ran. It
+// never rejects: an error that a step of the editor throws is a text too,
+// thus a dialog never stays busy.
 async function applyAction(action: ScreenAction, onApplied: OnApplied | null): Promise<string[]> {
-  const result = await runScreenAction(action, screens)
-  if (result.status === 'applied') {
-    onApplied?.(result.plan)
-    return []
+  try {
+    const result = await runScreenAction(action, screens)
+    if (result.status === 'applied') {
+      onApplied?.(result.plan)
+      return []
+    }
+    return result.status === 'refused' ? result.refusals : [result.error]
+  } catch (error) {
+    return [messageOf(error)]
   }
-  return result.status === 'refused' ? result.refusals : [result.error]
 }
+
+// True while a move in the row runs: a second move would be computed from the
+// list before the first one, thus it waits for the end of the first.
+let moving = false
 
 export function ScreenMenu({ screenId }: { screenId: string }) {
   const choose = (action: MenuAction) => {
     if (action === 'left' || action === 'right') {
+      if (moving) return
       const move = moveAction(screens, screenId, action === 'left' ? -1 : 1)
       if (move === null) return
-      void applyAction(move, null).then((reasons) => {
-        if (reasons.length > 0) screenDialog.open({ kind: 'refused', screen: screenId, reasons })
-      })
+      moving = true
+      void applyAction(move, null)
+        .then((reasons) => {
+          // The refusals take no dialog that the user opened meanwhile.
+          if (reasons.length > 0 && screenDialog.get() === null) screenDialog.open({ kind: 'refused', screen: screenId, reasons })
+        })
+        .finally(() => {
+          moving = false
+        })
       return
     }
     screenDialog.open({ kind: action, screen: screenId })
@@ -84,9 +103,19 @@ export function ScreenMenu({ screenId }: { screenId: string }) {
 // `onApplied` lets the editor follow the new ids after an action.
 export function ScreenDialogs({ onApplied }: { onApplied: OnApplied }) {
   const dialog = useScreenDialog()
+  const screen = dialog === null ? undefined : screens.find((item) => item.id === dialog.screen)
+  // The screen of a dialog left the list (an agent renamed it): the dialog
+  // closes, thus a later screen with that id does not open it again.
+  const gone = dialog !== null && dialog.kind !== 'refused' && !screen
+  useEffect(() => {
+    if (gone) screenDialog.close()
+  }, [gone])
   if (dialog === null) return null
-  const screen = screens.find((item) => item.id === dialog.screen)
-  const close = () => screenDialog.close()
+  // Closes this dialog only: a late answer of a dialog that is gone (a hot
+  // update unmounted it) does not close one that the user opened since.
+  const close = () => {
+    if (screenDialog.get() === dialog) screenDialog.close()
+  }
   if (dialog.kind === 'refused') {
     return (
       <Dialog open onOpenChange={(open) => !open && close()}>
@@ -104,7 +133,7 @@ export function ScreenDialogs({ onApplied }: { onApplied: OnApplied }) {
       </Dialog>
     )
   }
-  // The screen left the list (an agent renamed it): nothing to act on.
+  // The screen left the list: nothing to act on (the effect above closes it).
   if (!screen) return null
   const run = (action: ScreenAction) => applyAction(action, onApplied)
   // The key starts a new dialog for each screen and kind.

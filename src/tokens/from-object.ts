@@ -1,5 +1,5 @@
 import type { TextStyle, Token, TokenGroup } from './format.ts'
-import { isColorText } from './from-css.ts'
+import { isColorText, isWholeCall, px } from './from-css.ts'
 
 // The tokens of a theme object: a map names, for each group, the paths in the
 // object whose values are tokens. A token entry of a pack calls it with the
@@ -54,26 +54,23 @@ function isNode(value: unknown): value is Record<string, unknown> {
 export function valueAt(object: unknown, path: readonly string[]): unknown {
   let node = object
   for (const key of path) {
-    if (!isNode(node)) return undefined
+    if (!isNode(node) || !Object.hasOwn(node, key)) return undefined
     node = node[key]
   }
   return node
 }
 
-function px(value: number) {
-  const rounded = Number(value.toFixed(3))
-  return `${rounded === 0 ? 0 : rounded}px`
-}
-
 function lengthValue(value: unknown): string | null {
   if (typeof value === 'number' && Number.isFinite(value)) return px(value)
-  if (typeof value === 'string' && /^-?\d*\.?\d+px$|^0$/.test(value.trim())) return value.trim()
+  if (typeof value === 'string' && /^-?\d*\.?\d+px$|^0$/i.test(value.trim())) return value.trim()
   return null
 }
 
 function defaultValue(group: TokenGroup): (value: unknown) => string | null {
-  if (group === 'color') return (value) => (typeof value === 'string' && isColorText(value) ? value : null)
-  if (group === 'shadow') return (value) => (typeof value === 'string' && value.trim() !== '' && value !== 'none' ? value : null)
+  if (group === 'color') return (value) => (typeof value === 'string' && isColorText(value.trim()) ? value.trim() : null)
+  if (group === 'shadow') {
+    return (value) => (typeof value === 'string' && value.trim() !== '' && value.trim().toLowerCase() !== 'none' ? value.trim() : null)
+  }
   if (group === 'textStyle') {
     return () => {
       throw new Error('tokensFromObject: the group "textStyle" needs a function "value"')
@@ -87,8 +84,9 @@ function defaultValue(group: TokenGroup): (value: unknown) => string | null {
 export function cssPartsOf(text: unknown): { cssVar?: string; factor?: number } {
   if (typeof text !== 'string') return {}
   const value = text.trim()
+  // One `var()` that is the whole text, not the first of two.
   const single = /^var\(\s*(--[\w-]+)\s*(?:,.*)?\)$/s.exec(value)
-  if (single) return { cssVar: single[1] }
+  if (single && isWholeCall(value)) return { cssVar: single[1] }
   const before = /^calc\(\s*(-?[\d.]+)\s*\*\s*var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)\s*\)$/.exec(value)
   const after = /^calc\(\s*var\(\s*(--[\w-]+)\s*(?:,[^)]*)?\)\s*\*\s*(-?[\d.]+)\s*\)$/.exec(value)
   const cssVar = before?.[2] ?? after?.[1]
@@ -110,7 +108,7 @@ function nodesAt(object: unknown, pattern: Path): { path: Path; value: unknown }
       if (!isNode(entry.value)) continue
       const keys = key === '*' ? Object.keys(entry.value) : [key]
       for (const child of keys) {
-        if (child in entry.value) next.push({ path: [...entry.path, child], value: entry.value[child] })
+        if (Object.hasOwn(entry.value, child)) next.push({ path: [...entry.path, child], value: entry.value[child] })
       }
     }
     found = next
@@ -124,7 +122,9 @@ export function tokensFromObject(theme: unknown, map: ObjectMap): Token[] {
   const tokens: Token[] = []
   const seen = new Set<string>()
 
-  for (const [group, spec] of Object.entries(map) as [TokenGroup, ObjectGroup][]) {
+  for (const [group, spec] of Object.entries(map) as [TokenGroup, ObjectGroup | undefined][]) {
+    // A group of the map with no spec (`{ color: undefined }`) gives no tokens.
+    if (spec === undefined) continue
     const valueOf = spec.value ?? defaultValue(group)
 
     const take = (path: Path, node: unknown, depth: number, parents: Set<unknown>) => {
@@ -139,8 +139,9 @@ export function tokensFromObject(theme: unknown, map: ObjectMap): Token[] {
       if (seen.has(id)) throw new Error(`tokensFromObject: two paths give the token "${id}"`)
       seen.add(id)
       const code = spec.code ? spec.code(path, node) : path.join('.')
-      // The name that the inspector shows: the code when it is a text, else the id.
-      const name = typeof code === 'string' ? code : id
+      // The name that the inspector shows: the code when it is a text that is
+      // not empty, else the id.
+      const name = typeof code === 'string' && code !== '' ? code : id
       const { cssVar, factor } = spec.css ? cssPartsOf(spec.css(path, node)) : {}
       const selector = spec.selector?.(path)
       tokens.push({

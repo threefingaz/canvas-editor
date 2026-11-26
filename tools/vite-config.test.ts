@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PluginOption, UserConfig } from 'vite'
@@ -61,6 +61,18 @@ describe('canvasConfig', () => {
     expect(config.base).toBe('/__frame/')
     expect(config.cacheDir).toBe(`${project}/.canvas/vite-frame`)
     expect(config.optimizeDeps?.entries).toContain(`${project}/screens/**/*.tsx`)
+  })
+
+  test('each server serves the folder sources of the pack, also outside the host, and not the root of the file system', async () => {
+    mkdirSync(join(project, 'packs', 'kit', 'library'), { recursive: true })
+    writeFileSync(join(project, 'packs', 'kit', 'pack.json'), JSON.stringify({ name: 'kit', sources: ['@acme/kit', '../shared/ui', '/opt/ui', '/'] }))
+    writeFileSync(join(project, 'packs', 'kit', 'library', 'provider.tsx'), 'export function LibraryProvider() { return null }\n')
+    const shared = project.replace(/\/[^/]+$/, '/shared/ui')
+    for (const role of ['editor', 'frame'] as const) {
+      const allow = (await canvasConfig(role, 'serve')).server?.fs?.allow
+      expect(allow).toEqual(expect.arrayContaining([toolRoot, project, shared, '/opt/ui']))
+      expect(allow).not.toContain('/')
+    }
   })
 
   test('the build: the site into dist/ of the project, with relative addresses', async () => {

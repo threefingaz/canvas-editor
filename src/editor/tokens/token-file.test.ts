@@ -13,7 +13,7 @@ describe('readTokenFile', () => {
     const file = readTokenFile(undefined)
     expect(file.tokens).toBeNull()
     expect(file.error).toContain('There is no tokens.json')
-    expect(file.error).toContain('npm run tokens')
+    expect(file.error).toContain('canvas tokens')
     expect(file.error).toContain('library pack')
   })
 
@@ -21,14 +21,14 @@ describe('readTokenFile', () => {
     const file = readTokenFile('{ "tokens": [')
     expect(file.tokens).toBeNull()
     expect(file.error).toMatch(/^tokens\.json is not correct JSON/)
-    expect(file.error).toContain('npm run tokens')
+    expect(file.error).toContain('canvas tokens')
   })
 
   test('a token that is not correct gives the message of the check', () => {
     const file = readTokenFile(JSON.stringify({ tokens: [{ ...token, group: 'size' }] }))
     expect(file.tokens).toBeNull()
     expect(file.error).toContain('token 1 "spacing.2" has an unknown group "size"')
-    expect(file.error).toContain('npm run tokens')
+    expect(file.error).toContain('canvas tokens')
   })
 })
 

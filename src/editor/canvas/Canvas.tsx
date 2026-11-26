@@ -76,7 +76,10 @@ export function Canvas({ view, onViewChange, onResize, children, overlay }: Canv
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.code !== 'Space' || takesSpace(event.target)) return
+      // Space with a modifier is a shortcut of the system or of a control.
+      if (event.code !== 'Space' || event.defaultPrevented || event.ctrlKey || event.metaKey || event.altKey) return
+      // A dialog of the screen actions is modal: its Space is its own.
+      if (takesSpace(event.target) || document.querySelector('[data-screen-dialog]') !== null) return
       event.preventDefault()
       setSpaceDown(true)
     }
@@ -96,7 +99,8 @@ export function Canvas({ view, onViewChange, onResize, children, overlay }: Canv
 
   const onPointerDown = (event: PointerEvent<HTMLDivElement>) => {
     const middle = event.button === 1
-    if (!middle && !(spaceDown && event.button === 0)) return
+    // A second pointer during a pan changes nothing: the pan keeps its anchor.
+    if (drag.current !== null || (!middle && !(spaceDown && event.button === 0))) return
     event.preventDefault()
     event.currentTarget.setPointerCapture(event.pointerId)
     drag.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
@@ -133,6 +137,7 @@ export function Canvas({ view, onViewChange, onResize, children, overlay }: Canv
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
     >
       {/* The pattern is anchored to the middle of the canvas, thus the offset of the world origin from there. */}
       <CanvasDotPattern
@@ -165,7 +170,7 @@ function scrollsInside(target: EventTarget | null, root: Element, dx: number, dy
 
 // The controls that Space presses.
 const spaceControls =
-  'button, a[href], summary, [role="button"], [role="checkbox"], [role="switch"], [role="tab"], [role="radio"], [role="menuitem"]'
+  'button, a[href], summary, [role="button"], [role="checkbox"], [role="switch"], [role="tab"], [role="radio"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"], [role="combobox"], [role="slider"]'
 
 // True for a target that uses Space itself: a field that takes text, and a
 // control that Space presses when it has the focus from the keyboard (it

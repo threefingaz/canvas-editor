@@ -10,15 +10,16 @@
 import { existsSync } from 'node:fs'
 import { posix } from 'node:path'
 import { config } from '../canvas.config.ts'
+import { counted } from '../src/words.ts'
 import { connectSentence, librarySetupSkill, tokensSentence } from '../src/frame/library-setup.ts'
 import { messageOf, parseTokens, tokenGroups, type TokenGroup } from '../src/tokens/format.ts'
 import { agentOf, settingText, wayText, type AgentChoice, type AgentWay } from './agent.ts'
 import { checkProject, readProjectScreens, type FindingKind } from './check.ts'
 import { devRecordName, readDevServer } from './dev-record.ts'
 import { diskOf, guideVersion, syncPlan, toolVersionOf } from './init.ts'
-import { levelOf, librarySources, packOf, providerPath, readPackState, type Level } from './pack.ts'
+import { levelOf, librarySources, packErrorText, providerPath, readPackState, type Level } from './pack.ts'
 import { projectDefaults, readProjectSettings, type ProjectSettings } from './project-config.ts'
-import { guideName, hostRoot, projectConfigName } from './project.ts'
+import { guideName, hostRoot, projectConfigName, samePath } from './project.ts'
 
 export type TokenState =
   | { kind: 'missing' }
@@ -65,10 +66,6 @@ function count(values: readonly string[]): Record<string, number> {
   return counts
 }
 
-function plural(n: number, one: string, many = `${one}s`): string {
-  return `${n} ${n === 1 ? one : many}`
-}
-
 function readTokenState(file: string, read: (path: string) => string | null): TokenState {
   const text = read(file)
   if (text === null) return { kind: 'missing' }
@@ -89,16 +86,11 @@ function skillPath(pack: { name: string; folder: string }): string {
 // standalone when it is that folder.
 export async function readStatus(project: string, tool: string): Promise<Status> {
   const disk = diskOf()
-  const standalone = project === tool
+  const standalone = samePath(project, tool)
   const host = standalone ? null : hostRoot(project, existsSync)
   const state = readPackState(project)
-  let pack = null
-  let packError: string | null = null
-  try {
-    pack = packOf(state)
-  } catch (error) {
-    packError = messageOf(error)
-  }
+  const pack = state.kind === 'one' ? state.pack : null
+  const packError = state.kind === 'error' ? packErrorText(state.message) : null
   const tokens = readTokenState(posix.join(project, config.tokens), disk.read)
   const level = packError !== null ? 'none' : levelOf(pack, tokens.kind === 'ok' ? tokens.count : null)
   let settings: ProjectSettings = projectDefaults
@@ -186,11 +178,11 @@ export function statusText(status: Status): string {
   }
   if (status.library !== null) lines.push(`Library skill: ${status.skill ?? 'none yet'}`)
   if (status.packGuide !== null) lines.push(`Pack guide: ${status.packGuide.exists ? status.packGuide.path : `none yet (${status.packGuide.path})`}`)
-  lines.push(`Screens: ${plural(status.screens.count, 'screen')} in ${plural(status.screens.flows, 'flow')}`)
+  lines.push(`Screens: ${counted(status.screens.count, 'screen')} in ${counted(status.screens.flows, 'flow')}`)
   const kinds = Object.entries(status.check.kinds)
     .map(([kind, n]) => `${kind} ${n}`)
     .join(', ')
-  lines.push(`Check: ${status.check.findings === 0 ? 'no finding' : `${plural(status.check.findings, 'finding')} (${kinds}); canvas check lists them`}`)
+  lines.push(`Check: ${status.check.findings === 0 ? 'no finding' : `${counted(status.check.findings, 'finding')} (${kinds}); canvas check lists them`}`)
   // `'auto'` is decided in the terminal of the dev server, which can be a
   // different one.
   const auto = status.agent.setting === 'auto' ? ', in this terminal; the dev server decides it in its own' : ''
@@ -204,7 +196,7 @@ export function statusText(status: Status): string {
     if (error !== null) state = `canvas sync cannot run: ${error}`
     else if (changes === null) state = 'no copy: run canvas init'
     else if (changes === 0) state = 'up to date'
-    else state = `canvas sync writes ${plural(changes, 'file')} (the tool is canvas-editor ${status.tool})`
+    else state = `canvas sync writes ${counted(changes, 'file')} (the tool is canvas-editor ${status.tool})`
     lines.push(`Guide: ${written}; ${state}`)
   }
   const next = nextStep(status)

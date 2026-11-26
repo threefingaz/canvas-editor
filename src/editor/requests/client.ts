@@ -7,6 +7,7 @@ import {
   type RequestFile,
 } from '../../requests/format.ts'
 import { messageOf } from '../../tokens/format.ts'
+import { failure } from '../answer-text.ts'
 
 // The calls of the editor to the local file API of the dev server
 // (`tools/requests-plugin.ts`). A call never throws: an error of the network,
@@ -31,12 +32,6 @@ export type RequestsClient = {
 }
 
 const addressOf = (kind: 'requests' | 'issues', id: string) => `${apiPrefix}${kind}/${encodeURIComponent(id)}`
-
-// The text of an answer that is not a success.
-async function failure(response: Response): Promise<string> {
-  const text = (await response.text().catch(() => '')).trim()
-  return `${response.status}${text === '' ? '' : ` ${text}`}`
-}
 
 // The request file and its hash in an answer with content.
 async function content(response: Response): Promise<{ file: RequestFile; hash: string }> {

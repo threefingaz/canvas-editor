@@ -91,6 +91,13 @@ describe('projectRows', () => {
   test('the screens directly in the folder are a flow with the empty name', () => {
     expect(projectRows([screen('home')], {}, {})[0].flow).toBe('')
   })
+
+  test('a screen whose id is the name of a property of each object has no issues and no changes yet', () => {
+    const base = projectRows([screen('constructor')], {}, {})[0].groups[0].base
+    expect(base.deviations).toBeNull()
+    expect(base.changes).toBe(0)
+    expect(projectTotals([screen('toString')], {}, {})).toMatchObject({ screens: 1, changes: 0, unread: 1 })
+  })
 })
 
 describe('projectTotals', () => {

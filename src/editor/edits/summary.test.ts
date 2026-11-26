@@ -116,6 +116,9 @@ describe('summaryOf', () => {
 
   test('an options item gives the count, and the start of the note when it has one', () => {
     expect(summaryOf(edit({ kind: 'options', count: 3, note: '' }))).toBe('3 options')
+    expect(summaryOf(edit({ kind: 'options', count: 1, note: '' }))).toBe('1 option')
+    // A character of two UTF-16 units at the limit is not cut in two.
+    expect(summaryOf(edit({ kind: 'options', count: 1, note: `${'a'.repeat(23)}😀😀` }))).toBe(`1 option: ${'a'.repeat(23)}😀…`)
     expect(summaryOf(edit({ kind: 'options', count: 2, note: '  Fields in\ntwo columns ' }))).toBe(
       '2 options: Fields in two columns',
     )

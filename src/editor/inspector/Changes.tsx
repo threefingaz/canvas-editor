@@ -6,7 +6,7 @@ import { openPin } from '../comments/bubble-store.ts'
 import { lostPin, pinOfComment, screenPin } from '../comments/pins.ts'
 import { pinsSourceOf, useFramePins } from '../comments/use-pins.ts'
 import { staleKeep } from '../edits/keep.ts'
-import { isPlaced, locOf, type Item } from '../edits/model.ts'
+import { isLive, isPlaced, locOf, type Item } from '../edits/model.ts'
 import { edits, useScreenEdits } from '../edits/store.ts'
 import { replyText, summaryOf } from '../edits/summary.ts'
 import { useSelection } from '../selection/store.ts'
@@ -144,10 +144,12 @@ type EditItemProps = {
 
 // An edit with a preview, or a request for options: a click selects its
 // element when it is visible. A request for options shows its full note below
-// the summary.
+// the summary. An item takes no click with no frame document, and a removal
+// whose preview hides its element neither.
 function EditItem({ screenId, item, document, onReveal }: EditItemProps) {
   const { edit } = item
-  const clickable = isPlaced(edit) && !item.stale
+  const hidden = edit.change.kind === 'remove' && isLive(item)
+  const clickable = isPlaced(edit) && !item.stale && document !== null && !hidden
   const select = () => {
     if (document && clickable && selectPlace(screenId, document, locOf(edit.target))) onReveal()
   }

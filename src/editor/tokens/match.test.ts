@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import type { TextStyle, Token } from '../../tokens/format.ts'
-import { matchTextStyle, matchValue } from './match.ts'
+import { matchTextStyle, matchValue, previewedStyle } from './match.ts'
 
 const primary: Token = {
   id: 'palette.primary.main',
@@ -244,6 +244,17 @@ describe('matchValue: a negative spacing', () => {
       negative: true,
     })
   })
+
+  test('a negative token of the library matches the value as it is', () => {
+    const minus: Token = { id: 'space.n2', name: 'space.n2', group: 'spacing', value: '-16px', cssVar: '--space-n2', code: 'n2' }
+    expect(matchValue('spacing', '-16px', ['var(--space-n2)'], [...tokens, minus])).toEqual({ state: 'linked', token: minus })
+    expect(matchValue('spacing', '-16px', ['-16px'], [...tokens, minus])).toEqual({ state: 'equal', token: minus })
+    expect(matchValue('spacing', '-16px', ['calc(-2 * var(--mui-spacing))'], [...tokens, minus])).toEqual({
+      state: 'linked',
+      token: spacing(2),
+      negative: true,
+    })
+  })
 })
 
 describe('matchValue: none', () => {
@@ -335,6 +346,29 @@ describe('matchTextStyle', () => {
     }
     expect(matchTextStyle(computed, declared, [...tokens, button])).toEqual({ state: 'linked', token: button })
     expect(matchTextStyle(computed, noClass, [...tokens, button])).toEqual({ state: 'equal', token: button })
+  })
+
+  test('linked by the preview of an edit of a style with no variable: the element keeps its class', () => {
+    const plain: Token = { ...body1, id: 'typography.plain', cssVar: undefined, selector: '.plain' }
+    expect(matchTextStyle(body1Style, { ...noClass, previewed: 'typography.plain' }, [plain])).toEqual({ state: 'linked', token: plain })
+    expect(matchTextStyle(body1Style, { ...noClass, previewed: null }, [plain])).toEqual({ state: 'equal', token: plain })
+  })
+
+  test('the previewed style wins over an earlier style with equal parts that the class of the element links', () => {
+    const plain: Token = { ...body1, id: 'typography.plain', cssVar: undefined, selector: '.plain' }
+    const other: Token = { ...plain, id: 'typography.other', selector: '.other' }
+    const declared = { texts: [], matches: (selector: string) => selector === '.plain', previewed: 'typography.other' }
+    expect(matchTextStyle(body1Style, declared, [plain, other])).toEqual({ state: 'linked', token: other })
+  })
+
+  test('previewedStyle reads the id of the CSS text of the preview', () => {
+    expect(previewedStyle(' "typography.plain"')).toBe('typography.plain')
+    expect(previewedStyle('"a\\"b\\\\c"')).toBe('a"b\\c')
+    expect(previewedStyle('"a\\a b"')).toBe('a\nb')
+    expect(previewedStyle('')).toBeNull()
+    // A code point out of range gives U+FFFD, not an error.
+    expect(previewedStyle('"a\\ffffff b"')).toBe('a\ufffdb')
+    expect(previewedStyle('"\\0 x"')).toBe('\ufffdx')
   })
 
   test('linked by the variable of the style in the declared font', () => {

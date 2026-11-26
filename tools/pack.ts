@@ -10,7 +10,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { isRecord, messageOf } from '../src/tokens/format.ts'
 import type { LibrarySources } from './jsx.ts'
-import { isFolder } from './project.ts'
+import { isFolder, relativePath } from './project.ts'
 
 // The folder of the packs, relative to the project root.
 export const packsFolder = 'packs'
@@ -106,22 +106,43 @@ export function isAbsoluteSource(source: string): boolean {
 }
 
 // True for a source of the manifest that is a folder: it starts with `./`,
-// `../`, `/` or a drive of Windows. A name of an npm package cannot.
+// `../` (also `.\` and `..\` of Windows), `/` or a drive of Windows. A name
+// of an npm package cannot.
 export function isFolderSource(source: string): boolean {
-  return source.startsWith('./') || source.startsWith('../') || isAbsoluteSource(source)
+  return /^\.\.?[\\/]/.test(source) || isAbsoluteSource(source)
 }
 
 // Pure: the sources of a pack as the element-to-code step and the check read
 // them (`originOf` in `jsx.ts`): the packages, and each folder relative to the
 // project root. A folder of the manifest is relative to the host root (an
-// absolute path stays as it is). `project` and `host` are absolute, with `/`
-// between the parts.
+// absolute path stays as it is, and a folder on a different drive of Windows
+// than the project stays absolute). `project` and `host` are absolute, with
+// `/` between the parts.
 export function librarySources(pack: Pack, project: string, host: string): LibrarySources {
   const packages = pack.sources.filter((source) => !isFolderSource(source))
-  const folders = pack.sources
-    .filter(isFolderSource)
-    .map((source) => posix.relative(project, isAbsoluteSource(source) ? source.replaceAll('\\', '/') : posix.join(host, source)) || '.')
+  const folders = pack.sources.filter(isFolderSource).map((source) => relativePath(project, sourceFolder(source, host)) || '.')
   return { packages, folders }
+}
+
+// Pure: the absolute folder of one folder source, with `/` (also for a `\\`
+// of Windows in it): relative to the host root, or absolute as it is. A drive
+// of Windows stays at the start, also for a path that goes above its root.
+export function sourceFolder(source: string, host: string): string {
+  const path = source.replaceAll('\\', '/')
+  const full = isAbsoluteSource(path) ? path : `${host}/${path}`
+  const drive = /^[A-Za-z]:(?=\/)/.exec(full)?.[0] ?? ''
+  return drive + posix.normalize(full.slice(drive.length))
+}
+
+// Pure: each folder source of a pack as an absolute folder with `/`: a folder
+// of the manifest is relative to the host root, an absolute one stays as it
+// is (with `/`). The token plugin watches these folders, and the dev server
+// serves them (a folder above the host, `../shared/ui`, or `/opt/ui`).
+export function sourceFolders(pack: Pack, host: string): string[] {
+  return pack.sources
+    .filter(isFolderSource)
+    .map((source) => sourceFolder(source, host))
+    .map((folder) => (folder.length > 1 && folder.endsWith('/') && !/^[A-Za-z]:\/$/.test(folder) ? folder.slice(0, -1) : folder))
 }
 
 // The level of the library of a project:
@@ -181,11 +202,17 @@ export function readPackState(
   return choosePack(found)
 }
 
+// Pure: the text of an error of the packs, as the dev server, the build and
+// the status show it.
+export function packErrorText(message: string): string {
+  return `canvas library: ${message}`
+}
+
 // Pure: the pack of a state, or null for no pack. An error of the state
 // throws: the dev server or the build stops with its message. The Vite config
 // reads the state once and gives the pack to each plugin.
 export function packOf(state: PackState): Pack | null {
-  if (state.kind === 'error') throw new Error(`canvas library: ${state.message}`)
+  if (state.kind === 'error') throw new Error(packErrorText(state.message))
   return state.kind === 'one' ? state.pack : null
 }
 

@@ -144,10 +144,11 @@ export function fiberName(fiber: Fiber): string {
 }
 
 // The sites that a record carries, in the order of its props. A value that
-// cannot be read does not count.
+// cannot be read does not count. The props of a text record are its text,
+// not an object: it carries none.
 function sitesOf(fiber: Fiber): Site[] {
-  const props = fiber.memoizedProps
-  if (!props) return []
+  const props: unknown = fiber.memoizedProps
+  if (typeof props !== 'object' || props === null) return []
   const result: Site[] = []
   for (const [name, value] of Object.entries(props)) {
     const site = name.startsWith(locationPrefix) && typeof value === 'string' ? parseLoc(value) : null

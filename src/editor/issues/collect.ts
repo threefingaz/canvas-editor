@@ -17,7 +17,7 @@ import { screenRendered, sitesIn } from '../selection/pick.ts'
 import { useTokenFile } from '../tokens/token-store.ts'
 import { frameTokens } from '../tokens/frame-tokens.ts'
 import { readStyles } from '../tokens/read-styles.ts'
-import { overflowText, screenIssues, type IssueElement } from './model.ts'
+import { overflowText, screenIssues, type Crossing, type IssueElement } from './model.ts'
 import { issues } from './store.ts'
 
 // Reads the Issues list of a screen from its frame document: the screen
@@ -70,6 +70,25 @@ export function placesOf<N>(
     if (node !== null) result.push({ node, site, copies, inner: innerOf.get(node) === site.loc })
   }
   return result
+}
+
+// The screen elements that go over the right edge of a screen `width` wide,
+// scrolled by `scrolled` to the side: each visible copy, not only the first
+// copy of a place, because a later item of a list can be the wide one.
+export function crossingSites<N>(
+  sites: readonly { node: N; site: Site }[],
+  hidden: (node: N) => boolean,
+  rectOf: (node: N) => { right: number; width: number },
+  width: number,
+  scrolled: number,
+): Crossing[] {
+  const crossing: Crossing[] = []
+  for (const { node, site } of sites) {
+    if (hidden(node)) continue
+    const rect = rectOf(node)
+    if (rect.width > 0 && rect.right + scrolled - width >= 1) crossing.push({ tag: site.tag, file: site.file, line: site.line, width: rect.width })
+  }
+  return crossing
 }
 
 // The selector of the links to a screen address. It finds each link of the
@@ -132,7 +151,8 @@ export function collectIssues(
     ...(place.site.values ? { values: place.site.values } : {}),
   }))
   // The content against the width of the screen. A scroll to the side is
-  // what an agent cannot see in its code.
+  // what an agent cannot see in its code. A screen with a render error shows
+  // the message of the frame, not the screen: its width says nothing.
   // The width of the screen is the width of the frame window, not the width
   // less a scroll bar: a frame that is lower than its content for a moment
   // has a scroll bar at its side.
@@ -140,12 +160,9 @@ export function collectIssues(
   const frameWindow = frameWindowOf(document)
   const width = frameWindow?.innerWidth ?? root.clientWidth
   let layout: string | null = null
-  if (root.scrollWidth - width >= 1) {
+  if (error === null && root.scrollWidth - width >= 1) {
     const scrolled = frameWindow?.scrollX ?? 0
-    const crossing = places
-      .map((place) => ({ place, rect: place.node.getBoundingClientRect() }))
-      .filter(({ rect }) => rect.width > 0 && rect.right + scrolled - width >= 1)
-      .map(({ place, rect }) => ({ tag: place.site.tag, line: place.site.line, width: rect.width }))
+    const crossing = crossingSites(sites, hidden, (node) => node.getBoundingClientRect(), width, scrolled)
     layout = overflowText(width, root.scrollWidth, crossing)
   }
   return screenIssues(elements, error, relation, layout)
@@ -179,6 +196,8 @@ export function useIssues(screen: ScreenEntry, document: Document | null, ids: r
     const errorKey = `collect:${id}`
     const run = () => {
       timer = undefined
+      // A frame that started to load again: the new document reads its list.
+      if (!frameWindowOf(document)) return
       try {
         const list = collectIssues(document, edits.get(id), frameTokens(tokenFile.tokens ?? [], document), ids, relation)
         if (list) issues.set(id, list)
@@ -195,9 +214,15 @@ export function useIssues(screen: ScreenEntry, document: Document | null, ids: r
 
     const observer = new frameWindow.MutationObserver(schedule)
     observer.observe(document, { childList: true, subtree: true, attributes: true, characterData: true })
+    // An image or a font that loads later can make the content wider than
+    // the screen, and changes no node.
+    document.addEventListener('load', schedule, true)
+    document.fonts?.addEventListener('loadingdone', schedule)
     schedule()
     return () => {
       observer.disconnect()
+      document.removeEventListener('load', schedule, true)
+      document.fonts?.removeEventListener('loadingdone', schedule)
       clearTimeout(timer)
       fileErrors.report(errorKey, null)
     }

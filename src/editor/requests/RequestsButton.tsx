@@ -1,13 +1,13 @@
 import { CheckIcon, ClipboardTextIcon, PaperPlaneTiltIcon, WarningCircleIcon } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { project } from 'virtual:canvas-screens'
-import { failedDelay, sentenceCopyLabels, useCopy } from '../copy.ts'
+import { failedDelay, sentenceCopyLabels, useCopy, type CopyState } from '../copy.ts'
 import { useEditScreens } from '../edits/store.ts'
 import { Badge, Button, Tooltip, TooltipContent, TooltipTrigger } from '../ui'
 import { agentSentence } from './agent-sentence.ts'
 import type { AgentWayAnswer } from '../../requests/api.ts'
 import {
-  agentWay,
+  agentWayOnce,
   clipboardWay,
   copyLabel,
   copyStatus,
@@ -49,12 +49,21 @@ export function RequestsButton() {
   const count = Object.values(screens).reduce((sum, list) => sum + list.length, 0)
   const [copy, onCopy] = useCopy(sentence)
   const [send, setSend] = useState<SendState>(idle)
+  // The result of the copy that a failed send made: the send button says it
+  // for as long as it shows the failure.
+  const [failCopy, setFailCopy] = useState<CopyState>('idle')
+  // True when the last copy is the one of a failed send, not of the copy
+  // button.
+  const [sendCopied, setSendCopied] = useState(false)
   const [way, setWay] = useState<AgentWayAnswer>(clipboardWay)
+  // True from a click on "Send" until the answer: a second click starts no
+  // second command.
+  const sending = useRef(false)
 
   // The way is fixed while the dev server runs: one call.
   useEffect(() => {
     let live = true
-    void agentWay((address, init) => fetch(address, init)).then((answer) => {
+    void agentWayOnce((address, init) => fetch(address, init)).then((answer) => {
       if (live) setWay(answer)
     })
     return () => {
@@ -70,13 +79,27 @@ export function RequestsButton() {
   }, [send])
 
   const onSend = () => {
-    if (send.kind === 'sending') return
+    if (sending.current) return
+    sending.current = true
     setSend({ kind: 'sending' })
-    void sendToAgent((address, init) => fetch(address, init)).then((answer) => {
-      // The fallback: the user pastes the sentence.
-      if (!answer.started) onCopy()
-      setSend(stateAfter(answer))
-    })
+    void sendToAgent((address, init) => fetch(address, init))
+      .then(async (answer) => {
+        // The fallback: the user pastes the sentence. The button says the
+        // result when the copy is done.
+        if (!answer.started) {
+          setFailCopy(await onCopy())
+          setSendCopied(true)
+        }
+        setSend(stateAfter(answer))
+      })
+      .finally(() => {
+        sending.current = false
+      })
+  }
+
+  const onOwnCopy = () => {
+    setSendCopied(false)
+    void onCopy()
   }
 
   const changes = `${count} ${count === 1 ? 'change' : 'changes'}`
@@ -126,10 +149,10 @@ export function RequestsButton() {
     )
   }
 
-  const label = sendLabel(send, copy, sentence, way.preset)
+  const label = sendLabel(send, failCopy, sentence, way.preset)
   // The copy button shows the result of its own copy, not of the copy that a
-  // failed send made: the send button says that.
-  const ownCopy = send.kind === 'failed' ? 'idle' : copy
+  // failed send made (the send button says that), also while a next send runs.
+  const ownCopy = sendCopied ? 'idle' : copy
   return (
     <>
       <Tooltip>
@@ -154,7 +177,7 @@ export function RequestsButton() {
           ) : (
             <PaperPlaneTiltIcon />
           )}
-          {sendText(send, copy)}
+          {sendText(send, failCopy)}
           {badge}
         </TooltipTrigger>
         <TooltipContent className="max-w-80" side="top">
@@ -162,7 +185,8 @@ export function RequestsButton() {
         </TooltipContent>
       </Tooltip>
       <span className="sr-only" data-send-agent-status="" role="status">
-        {sendStatus(send, copy, sentence)}
+        {/* The result of a send, else of the copy button next to it. */}
+        {sendStatus(send, failCopy, sentence) || copyStatus(ownCopy, sentence)}
       </span>
       <Tooltip>
         <TooltipTrigger
@@ -171,7 +195,7 @@ export function RequestsButton() {
               aria-label={`Copy for the agent, ${changes}. ${copyLabels[ownCopy]}`}
               data-requests={count}
               disabled={count === 0}
-              onClick={onCopy}
+              onClick={onOwnCopy}
               size="icon"
               type="button"
               variant="ghost"

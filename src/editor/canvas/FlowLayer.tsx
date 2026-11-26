@@ -96,7 +96,7 @@ export function FlowLayer({ view, frames, pairs, arrows, listed, flowErrors }: F
           })}
         </svg>
       )}
-      {flowLabels(placed, titleRowHeight, labelGap).map((label) => (
+      {flowLabels(placed, titleRowHeight, labelGap, flowErrors).map((label) => (
         <span
           key={label.flow}
           className="absolute flex -translate-x-full items-end pb-1.5 text-xs whitespace-nowrap text-[color:var(--muted-foreground)]"

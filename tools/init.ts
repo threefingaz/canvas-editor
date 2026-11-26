@@ -29,8 +29,8 @@ import { config } from '../canvas.config.ts'
 import { agentSentence } from '../src/editor/requests/agent-sentence.ts'
 import { tokensSentence } from '../src/frame/library-setup.ts'
 import { formatTokens, isRecord } from '../src/tokens/format.ts'
-import { adapterFiles, hostBlock, instructionFiles, skillFolders, withBlock, type SkillSource } from './adapters.ts'
-import { choosePack, isAbsoluteSource, isFolderSource, manifestName, packsFolder, providerFile, tokensEntry, type FoundManifest } from './pack.ts'
+import { adapterFiles, hostBlock, isStub, instructionFiles, skillFolders, withBlock, type SkillSource } from './adapters.ts'
+import { choosePack, isFolderSource, manifestName, packsFolder, providerFile, sourceFolder, tokensEntry, type FoundManifest } from './pack.ts'
 import {
   guideName,
   guidePathOf,
@@ -39,8 +39,11 @@ import {
   isInside,
   isInstalled,
   namedProject,
+  parentOf,
   projectConfigName,
   readText,
+  relativePath,
+  samePath,
   slashes,
 } from './project.ts'
 import { tokensEntryFile } from './react-resolve.ts'
@@ -99,7 +102,7 @@ export const templatesFolder = 'tools/templates'
 // folder; lowercase letters, numbers and hyphens (the rule of `pack.ts`).
 export function packNameOf(source: string): string {
   const base = isFolderSource(source)
-    ? (source.replace(/\/+$/, '').split('/').pop() ?? '')
+    ? (source.replace(/[\\/]+$/, '').split(/[\\/]/).pop() ?? '')
     : source.startsWith('@')
       ? source.slice(1).split('/')[0]
       : source
@@ -161,10 +164,17 @@ export function libraryCandidates(hostPackage: unknown, read: (name: string) => 
 export function stylesheetOf(name: string, packageJson: unknown): string | null {
   if (!isRecord(packageJson)) return null
   const { exports, style } = packageJson
+  // `exports` as one path or a list names the package itself only: no
+  // import reaches a path below it (null is as no `exports`).
+  if (exports !== undefined && exports !== null && !isRecord(exports)) return null
   if (isRecord(exports)) {
-    const key = Object.keys(exports).find((path) => path.startsWith('./') && path.endsWith('.css') && !path.includes('*'))
+    // A path whose target is null is blocked: no import reaches it.
+    const key = Object.keys(exports).find(
+      (path) => path.startsWith('./') && path.endsWith('.css') && !path.includes('*') && exports[path] !== null,
+    )
     if (key !== undefined) return `${name}/${key.slice(2)}`
-    if (!('./*' in exports)) return null
+    // `"./*": null` blocks each path that `style` could name.
+    if (!('./*' in exports) || exports['./*'] === null) return null
   }
   if (typeof style === 'string' && style.endsWith('.css')) return `${name}/${style.replace(/^\.\//, '')}`
   return null
@@ -186,7 +196,7 @@ export function runOf(tool: string, project: string, host: string): { command: s
   if (isInstalled(tool)) {
     return { command: 'npx canvas', where: posix.relative(host, project) === hostProjectFolder ? '' : inFolder }
   }
-  return { command: `node ${posix.join(posix.relative(project, tool), 'bin/canvas.js')}`, where: inFolder }
+  return { command: `node ${posix.join(relativePath(project, tool), 'bin/canvas.js')}`, where: inFolder }
 }
 
 // The lines of the `AGENTS.md` of the tool that the copy in a project changes.
@@ -274,7 +284,7 @@ export type InitInput = {
 }
 
 function isStandalone(input: Pick<InitInput, 'tool' | 'project'>): boolean {
-  return slashes(input.tool) === slashes(input.project)
+  return samePath(input.tool, input.project)
 }
 
 // A file that the user owns once it is there: written only when it is not.
@@ -301,9 +311,6 @@ function guideSkills(disk: Disk, tool: string): SkillSource[] {
     .filter((skill): skill is SkillSource => skill.text !== null)
 }
 
-// The text that marks a stub that the tool wrote (`stubOf` in `adapters.ts`).
-const stubMark = 'This is a stub. The skill is'
-
 // The stubs of the skills at the host root: in `.agents/skills/`, and in
 // `.github/skills/` and `.claude/skills/` when their parent folder exists. A
 // stub of a skill that the guide no longer has is removed; a folder that is
@@ -318,11 +325,20 @@ function planStubs(plan: InitPlan, input: InitInput): void {
   for (const folder of folders) {
     for (const name of disk.entries(posix.join(host, folder)) ?? []) {
       if (!name.startsWith('canvas-') || names.includes(name)) continue
-      const text = disk.read(posix.join(host, folder, name, 'SKILL.md'))
-      if (text !== null && text.includes(stubMark)) plan.removes.push(posix.join(host, folder, name))
+      // Only a folder that has the stub alone (and the files that the system
+      // puts in a folder, `.DS_Store`): a folder with a file of the user, or a
+      // skill that only quotes the stub, stays.
+      const path = posix.join(host, folder, name)
+      const text = disk.read(posix.join(path, 'SKILL.md'))
+      const entries = (disk.entries(path) ?? []).filter((entry) => !systemFiles.has(entry))
+      if (text !== null && isStub(text) && entries.length === 1) plan.removes.push(path)
     }
   }
 }
+
+// The files that the system writes into a folder by itself; they do not make
+// a folder of a stub a folder of the user.
+const systemFiles = new Set(['.DS_Store', 'Thumbs.db', 'desktop.ini'])
 
 // The copy of the guide in the project: `AGENTS.md` with the version line and
 // the command line, and each file of `guide/`. A file of the copy that the
@@ -358,7 +374,7 @@ function planBlocks(plan: InitPlan, input: InitInput): void {
 
 // The refusal of a host mode that has no project folder of its own.
 function projectIsHostProblem(input: Pick<InitInput, 'host' | 'project'>): string | null {
-  return slashes(input.host) === slashes(input.project)
+  return samePath(input.host, input.project)
     ? `The project folder ${input.project} is the root of the host: choose a sub folder, such as ${hostProjectFolder}/.`
     : null
 }
@@ -369,24 +385,43 @@ function projectIsHostProblem(input: Pick<InitInput, 'host' | 'project'>): strin
 export function syncPlan(input: InitInput): InitPlan {
   const plan = emptyPlan()
   if (isStandalone(input)) {
-    planStubs(plan, { ...input, host: input.tool })
+    planStubs(plan, standaloneInput(input))
     return plan
   }
-  const problem = projectIsHostProblem(input)
+  const problem = hostProjectProblem(input)
   if (problem !== null) return { ...plan, refusals: [problem] }
-  if (input.disk.read(posix.join(input.project, projectConfigName)) === null) {
-    return { ...plan, refusals: [`${input.project} has no ${projectConfigName}: it is no project. Run canvas init first.`] }
-  }
   planGuide(plan, input)
   planStubs(plan, input)
   planBlocks(plan, input)
   return plan
 }
 
+// Standalone, the tool is the host and the project: one spelling of the
+// folder, thus a stub links to the guide of the tool.
+function standaloneInput(input: InitInput): InitInput {
+  return { ...input, host: input.tool, project: input.tool }
+}
+
+// The refusal of a project in a host that is the host root or has no config.
+function hostProjectProblem(input: InitInput): string | null {
+  const problem = projectIsHostProblem(input)
+  if (problem !== null) return problem
+  if (input.disk.read(posix.join(input.project, projectConfigName)) === null) {
+    return `${input.project} has no ${projectConfigName}: it is no project. Run canvas init first.`
+  }
+  return null
+}
+
 // `canvas agents` in a host: the stubs only.
 export function agentsPlan(input: InitInput): InitPlan {
   const plan = emptyPlan()
-  planStubs(plan, isStandalone(input) ? { ...input, host: input.tool } : input)
+  if (isStandalone(input)) {
+    planStubs(plan, standaloneInput(input))
+    return plan
+  }
+  const problem = hostProjectProblem(input)
+  if (problem !== null) return { ...plan, refusals: [problem] }
+  planStubs(plan, input)
   return plan
 }
 
@@ -407,11 +442,11 @@ function packStateOn(disk: Disk, project: string) {
 // in `node_modules` of that folder or of a folder above it, as when the
 // packages of a repository with workspaces are in its root. Null for none.
 export function installedPackage(disk: Disk, folder: string, name: string): unknown {
-  for (let at = folder; ; at = posix.dirname(at)) {
+  for (let at: string | null = folder; at !== null; at = parentOf(at)) {
     const data = parseJson(disk.read(posix.join(at, 'node_modules', name, 'package.json')))
     if (data !== null) return data
-    if (posix.dirname(at) === at) return null
   }
+  return null
 }
 
 const installHint = (source: string) => `npm install ${source}`
@@ -447,7 +482,7 @@ function chooseLibrary(plan: InitPlan, input: InitInput, standalone: boolean): L
   if (input.library !== null) {
     const library = parseLibrary(input.library)
     if (isFolderSource(library.source)) {
-      const folder = isAbsoluteSource(library.source) ? library.source.replaceAll('\\', '/') : posix.join(host, library.source)
+      const folder = sourceFolder(library.source, host)
       if (disk.entries(folder) === null) {
         plan.refusals.push(`The folder ${library.source} does not exist in ${host}: a folder of the library is relative to the host root.`)
         return null
@@ -560,7 +595,7 @@ export function initPlan(input: InitInput): InitPlan {
       plan,
       disk,
       posix.join(project, 'tsconfig.json'),
-      fill(template(disk, tool, 'tsconfig.json'), { tokens: posix.relative(project, posix.join(tool, tokensEntryFile)) }),
+      fill(template(disk, tool, 'tsconfig.json'), { tokens: relativePath(project, posix.join(tool, tokensEntryFile)) }),
     )
     create(plan, disk, posix.join(project, '.gitignore'), template(disk, tool, 'gitignore'))
     const sync = syncPlan({ ...input, disk: withWrites(disk, plan.writes) })
@@ -641,7 +676,10 @@ export function initProject(
   const named = namedProject(option, env, cwd)
   if (named !== null) return named
   const folder = slashes(cwd)
-  if (hostRoot(folder, exists) === slashes(tool)) return slashes(tool)
+  // In the folder of a clone of the tool, also in a package of it
+  // (`packs/mui/`), the project is the tool (as `noProjectProblem`).
+  if (!isInstalled(tool) && isInside(folder, slashes(tool))) return slashes(tool)
+  if (samePath(hostRoot(folder, exists), tool)) return slashes(tool)
   // With no host above it, `hostRoot` gives the project itself.
   const nested = posix.join(folder, hostProjectFolder)
   const host = hostRoot(nested, exists)
@@ -653,7 +691,7 @@ export function initProject(
 export function workspaceOf(cwd: string, host: string, exists: (path: string) => boolean): string {
   const start = slashes(cwd)
   if (!isInside(start, host)) return host
-  for (let folder = start; folder !== host; folder = posix.dirname(folder)) {
+  for (let folder: string | null = start; folder !== null && !samePath(folder, host); folder = parentOf(folder)) {
     if (exists(posix.join(folder, 'package.json'))) return folder
   }
   return host

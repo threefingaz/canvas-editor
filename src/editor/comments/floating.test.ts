@@ -56,6 +56,12 @@ const removeFirst: Item = {
 describe('nodeOf', () => {
   const target = { screenId, loc: chipLoc }
 
+  test('a document of a frame that loads again (no window) gives no node', () => {
+    const { document } = frame()
+    Object.assign(document, { defaultView: null })
+    expect(nodeOf(target, document, null, [])).toBeNull()
+  })
+
   test('the place of the whole screen and no document give no node', () => {
     const { document } = frame()
     expect(nodeOf({ screenId, loc: null }, document, null, [])).toBeNull()

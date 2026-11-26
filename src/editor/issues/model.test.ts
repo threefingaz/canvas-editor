@@ -338,10 +338,12 @@ describe('overflowText', () => {
 
   test('says how much wider the content is, and names the narrowest element that goes over the edge', () => {
     const text = overflowText(390, 512, [
-      { tag: 'Stack', line: 12, width: 512 },
-      { tag: 'Table', line: 20, width: 480 },
+      { tag: 'Stack', file: 'screens/a/b.tsx', line: 12, width: 512 },
+      { tag: 'Table', file: 'components/Report.tsx', line: 20, width: 480 },
     ])
-    expect(text).toBe('The content is 122 px wider than the screen (390 px): a person must scroll to the side. It goes over the edge at Table, line 20.')
+    expect(text).toBe(
+      'The content is 122 px wider than the screen (390 px): a person must scroll to the side. It goes over the edge at Table, line 20 of components/Report.tsx.',
+    )
     expect(overflowText(390, 400, [])).toBe('The content is 10 px wider than the screen (390 px): a person must scroll to the side.')
   })
 
@@ -361,6 +363,11 @@ describe('rowIsSet', () => {
     expect(rowIsSet('-8px', ['8'])).toBe(true)
     expect(rowIsSet('22px', ['16', '2'])).toBe(false)
     expect(rowIsSet('15px / 21.75px · 600', ['600'])).toBe(false)
+  })
+
+  test('a count of pixels is the same within the rounding of the browser', () => {
+    expect(rowIsSet('26.099999px', ['26.1'])).toBe(true)
+    expect(rowIsSet('26.2px', ['26.1'])).toBe(false)
   })
 
   test('a marked element with values gives `screen` to each row, and `written` to a row with one of the values', () => {

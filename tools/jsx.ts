@@ -1,10 +1,11 @@
 // The parts of a JSX file that the element-to-code step
-// (`source-location.ts`) and the static facts of a screen (`screen-facts.ts`)
-// share: the place of an offset, the names of `Fragment`, the module of each
-// import, and the origin of a tag.
+// (`source-location.ts`), the static facts of a screen (`screen-facts.ts`)
+// and the screen actions (`screen-ops.ts`) share: the place of an offset, the
+// names of `Fragment`, the module of each import, the literal of each module
+// that the file names, and the origin of a tag.
 
 import { posix } from 'node:path'
-import type { parseSync } from 'vite'
+import { Visitor, type parseSync } from 'vite'
 import type { Origin } from '../src/requests/format.ts'
 
 export type Program = ReturnType<typeof parseSync>['program']
@@ -45,16 +46,49 @@ export function isFragment(name: string, names: ReadonlySet<string>): boolean {
 
 // The module of each imported local name: `B` from
 // `import { Button as B } from '<package>'`, also a default and a
-// namespace import.
+// namespace import. A type-only import (`import type`, `{ type Card }`)
+// names no value, thus no tag.
 export function importSources(program: Program): Map<string, string> {
   const sources = new Map<string, string>()
   for (const statement of program.body) {
-    if (statement.type !== 'ImportDeclaration') continue
+    if (statement.type !== 'ImportDeclaration' || statement.importKind === 'type') continue
     for (const specifier of statement.specifiers ?? []) {
+      if (specifier.type === 'ImportSpecifier' && specifier.importKind === 'type') continue
       sources.set(specifier.local.name, statement.source.value)
     }
   }
   return sources
+}
+
+// The literal of a module that a file names: the source of an import, of a
+// re-export (`export … from`) or of an `import()` with a text. `at` is the
+// start of the statement or of the call, `start` and `end` the range of the
+// literal with its quotes.
+export type ModuleSource = { at: number; start: number; end: number; source: string }
+
+// Each module that the file names with a literal, in the order of the code.
+// An `import()` of a computed text is not read.
+export function moduleSources(program: Program): ModuleSource[] {
+  const found: ModuleSource[] = []
+  const add = (at: number, literal: { type: string; start: number; end: number; value?: unknown } | null | undefined) => {
+    if (literal?.type !== 'Literal' || typeof literal.value !== 'string') return
+    found.push({ at, start: literal.start, end: literal.end, source: literal.value })
+  }
+  new Visitor({
+    ImportDeclaration(node) {
+      add(node.start, node.source)
+    },
+    ExportNamedDeclaration(node) {
+      add(node.start, node.source)
+    },
+    ExportAllDeclaration(node) {
+      add(node.start, node.source)
+    },
+    ImportExpression(node) {
+      add(node.start, node.source)
+    },
+  }).visit(program)
+  return found.sort((a, b) => a.start - b.start)
 }
 
 // A tag with no dot that starts with a lowercase letter, or has a `-` or a
@@ -74,13 +108,24 @@ export type LibrarySources = { packages: readonly string[]; folders: readonly st
 // path is a folder of the list or a path in it. `file` is the screen file,
 // relative to the project root. An alias of the bundler of the host
 // (`@/components`) is not read.
+// The parts of a relative path with `/`, with no `.` part and no empty one
+// (a `/` at the end).
+const pathParts = (path: string) => posix.normalize(path).split('/').filter((part) => part !== '' && part !== '.')
+
 export function isLibrarySource(source: string, file: string, library: LibrarySources): boolean {
   if (library.packages.some((name) => source === name || source.startsWith(`${name}/`))) return true
   if (!source.startsWith('./') && !source.startsWith('../')) return false
   const path = posix.normalize(posix.join(posix.dirname(file.replaceAll('\\', '/')), source))
+  // Both paths are relative to the project root. The path is in a folder
+  // when the parts of the folder start it and the next part does not go up:
+  // `..` as a folder (the host root above the project) takes `../src/x`, not
+  // `../../other/x`; `.` takes each path in the project. A folder that stays
+  // absolute (on a different drive of Windows) has no relative import.
+  const own = pathParts(path)
   return library.folders.some((folder) => {
-    const base = posix.normalize(folder)
-    return path === base || path.startsWith(`${base}/`)
+    if (/^([A-Za-z]:)?\//.test(folder)) return false
+    const base = pathParts(folder)
+    return base.every((part, at) => own[at] === part) && own[base.length] !== '..'
   })
 }
 

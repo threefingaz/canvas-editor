@@ -1,6 +1,7 @@
 import { isDeviation, tokenRef, type Issue, type Target } from '../../requests/format.ts'
 import { locOf } from '../edits/model.ts'
 import type { InspectorRow } from '../inspector/model.ts'
+import { sameLength } from '../tokens/normalize.ts'
 
 // The Issues list of a screen: a pure function of its screen elements, each
 // with its target and the rows of the inspector, read with the open previews
@@ -49,11 +50,13 @@ export type IssueElement = {
 
 // True when a value of a row (`16px`, `#1F4FD8 70%`, `14px / 21px · 400`) has
 // one of the values that the element sets in the screen file: a count of
-// pixels with no unit, or a color as `#RRGGBB`.
+// pixels with no unit, or a color as `#RRGGBB`. A count of pixels is the
+// same within the rounding of the browser (`26.1` and `26.099999px`).
 export function rowIsSet(value: string, values: readonly string[]): boolean {
+  const sizes = values.filter((item) => /^\d*\.?\d+$/.test(item)).map(Number)
   for (const part of value.split(/[\s/·,]+/)) {
     const size = /^(-?\d*\.?\d+)px$/.exec(part)
-    if (size ? values.includes(String(Math.abs(Number(size[1])))) : part.startsWith('#') && values.includes(part.toUpperCase())) return true
+    if (size ? sizes.some((item) => sameLength(item, Math.abs(Number(size[1])))) : part.startsWith('#') && values.includes(part.toUpperCase())) return true
   }
   return false
 }
@@ -119,7 +122,7 @@ function compareTargets(a: Target, b: Target): number {
 
 // An element that goes over the right edge of the screen: its tag, its line
 // in the screen file and its width on the page.
-export type Crossing = { tag: string; line: number; width: number }
+export type Crossing = { tag: string; file: string; line: number; width: number }
 
 // The text of the `layout` issue of a screen whose content is wider than the
 // screen, or null. `width` is the width of the screen and `content` the width
@@ -130,7 +133,8 @@ export function overflowText(width: number, content: number, crossing: readonly 
   const over = Math.round(content - width)
   if (over < 1) return null
   const cause = [...crossing].sort((a, b) => a.width - b.width || b.line - a.line)[0]
-  const where = cause ? ` It goes over the edge at ${cause.tag}, line ${cause.line}.` : ''
+  // The file too: the element can be in an own component.
+  const where = cause ? ` It goes over the edge at ${cause.tag}, line ${cause.line} of ${cause.file}.` : ''
   return `The content is ${over} px wider than the screen (${Math.round(width)} px): a person must scroll to the side.${where}`
 }
 

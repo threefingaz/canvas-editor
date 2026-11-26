@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { ScreenAction } from '../../requests/api.ts'
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '../ui'
 import { Refusals } from './RenameDialog.tsx'
@@ -19,14 +19,23 @@ type DeleteDialogProps = {
 
 export function DeleteDialog({ screen, list, run, onClose }: DeleteDialogProps) {
   const [busy, setBusy] = useState(false)
+  // True from a click until the answer: a second click before the next
+  // render starts no second delete.
+  const running = useRef(false)
   const [refusals, setRefusals] = useState<string[]>([])
   const { members, linkedBy } = deleteSummary(list, screen.id)
 
   const remove = async () => {
-    if (busy) return
+    if (running.current) return
+    running.current = true
     setBusy(true)
-    const reasons = await run({ action: 'delete', screen: screen.id })
-    setBusy(false)
+    let reasons: string[]
+    try {
+      reasons = await run({ action: 'delete', screen: screen.id })
+    } finally {
+      running.current = false
+      setBusy(false)
+    }
     if (reasons.length === 0) onClose()
     else setRefusals(reasons)
   }

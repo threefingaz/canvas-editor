@@ -34,7 +34,7 @@
 import { parseSync, Visitor } from 'vite'
 import { screenIdFromHash } from '../src/frame/screen-link.ts'
 import type { Origin } from '../src/requests/format.ts'
-import { fragmentNames, importSources, isFragment, originOf, position, type LibrarySources } from './jsx.ts'
+import { fragmentNames, importSources, isFragment, moduleSources, originOf, position, type LibrarySources } from './jsx.ts'
 
 export type Place = { line: number; column: number }
 
@@ -67,8 +67,8 @@ export type ScreenFacts = {
   behavior: (Place & { text: string })[]
   // The elements with a `className` attribute.
   classNames: (Place & { tag: string })[]
-  // The imports of a file of the project (a relative path) and of a virtual
-  // module of the tool. The check decides which of them a screen must not
+  // The imports, re-exports and `import()` calls of a file of the project (a
+  // relative path) and of a virtual module of the tool. The check decides which of them a screen must not
   // have (`forbiddenImport` in `check.ts`).
   imports: (Place & { source: string })[]
   // The places of a placeholder text ("Lorem ipsum").
@@ -78,6 +78,7 @@ export type ScreenFacts = {
 const length = /^-?(\d+\.?\d*|\.\d+)(px|rem|em)$/
 const hexColor = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i
 const colorFunction = /\b(rgba?|hsla?|hwb|lab|lch|oklab|oklch|color)\(/i
+const mathFunction = /\b(calc|min|max|clamp)\(/i
 // A part of a CSS value that is not raw: a keyword, a number, a percentage, a
 // sign of `calc`, a length of the viewport or of a grid.
 const plain = /^([a-z-]*|-?(\d+\.?\d*|\.\d+)(%|vh|vw|dvh|svh|lvh|fr|ch|deg|s|ms)?|[-+*/])$/
@@ -104,8 +105,9 @@ function partsOf(value: string): string[] {
 export function isRawValue(text: string, wide = false): boolean {
   const value = text.trim()
   if (value === '') return false
-  if (colorFunction.test(value)) return true
-  let raw = false
+  // A color function is raw, but a text for a person with a word and a
+  // bracket ("Choose a color(s)") is not a value.
+  let raw = colorFunction.test(value)
   for (const part of partsOf(value)) {
     if (length.test(part) || hexColor.test(part)) raw = true
     else if (!wide && !plain.test(part)) return false
@@ -116,9 +118,11 @@ export function isRawValue(text: string, wide = false): boolean {
 // The values of a raw text as the page shows them: each length in `px` as its
 // number (`'24px 64px'` gives `24` and `64`) and each hex color as `#RRGGBB`
 // in capital letters. Null when the text has a value that the page shows in a
-// different form: a length in `rem` or `em`, a color function.
+// different form: a length in `rem` or `em`, a color function, a math function.
 export function pageValues(text: string): string[] | null {
-  if (colorFunction.test(text)) return null
+  // The page shows the result of a math function (`calc(8px + 4px)` is 12),
+  // not its parts.
+  if (colorFunction.test(text) || mathFunction.test(text)) return null
   const values: string[] = []
   for (const part of partsOf(text.trim())) {
     const size = length.exec(part)
@@ -140,7 +144,7 @@ export function pageValues(text: string): string[] | null {
 const noValue: ReadonlySet<string> = new Set([
   'href', 'to', 'id', 'htmlFor', 'key', 'name', 'src', 'label', 'title', 'alt', 'placeholder', 'helperText',
   'aria-label', 'aria-description', 'value', 'defaultValue', 'primary', 'secondary', 'subheader', 'children',
-  'text', 'content', 'description', 'message', 'caption', 'name',
+  'text', 'content', 'description', 'message', 'caption',
 ])
 
 type Node = { type: string; start: number; end: number; [key: string]: unknown }
@@ -276,8 +280,13 @@ function findNumbers(node: Node | null | undefined, key: string, scale: ScaleKey
       for (const property of node.properties as Node[]) {
         if (property.type !== 'Property') continue
         const name = property.key as Node
-        const text = name.type === 'Identifier' ? (name.name as string) : typeof name.value === 'string' ? name.value : null
-        const next = sizeKeys.has(key) || text === null ? key : text
+        // A computed key (`[fontSize]`) is the name of a variable, not of a
+        // property; only a literal there names one.
+        const identifier = name.type === 'Identifier' && property.computed !== true
+        const text = identifier ? (name.name as string) : typeof name.value === 'string' ? name.value : null
+        // The object of a size or of the text style is a value for each
+        // width (`{ xs: 1.2, md: 1.5 }`): its numbers keep that key.
+        const next = sizeKeys.has(key) || textKeys.has(key) || text === null ? key : text
         findNumbers(property.value as Node, next, scale, true, found)
       }
       return
@@ -378,10 +387,8 @@ export function screenFacts(code: string, file: string, library: LibrarySources 
   const imports = importSources(program)
   const facts: ScreenFacts = { elements: [], styles: [], raw: [], links: [], sets: [], behavior: [], classNames: [], imports: [], placeholders: [] }
 
-  for (const statement of program.body) {
-    if (statement.type !== 'ImportDeclaration') continue
-    const source = statement.source.value
-    if (source.startsWith('.') || source.startsWith('/') || source.startsWith('virtual:')) facts.imports.push({ ...position(code, statement.start), source })
+  for (const { at, source } of moduleSources(program)) {
+    if (source.startsWith('.') || source.startsWith('/') || source.startsWith('virtual:')) facts.imports.push({ ...position(code, at), source })
   }
 
   new Visitor({
@@ -412,8 +419,8 @@ export function screenFacts(code: string, file: string, library: LibrarySources 
       // A hook: a screen is a picture of one state.
       const callee = node.callee as unknown as Node
       // `useState(…)` and `React.useState(…)`; a method of a different object
-      // with such a name is no hook.
-      const object = callee.type === 'MemberExpression' ? (callee.object as Node) : null
+      // with such a name, and a computed member (`React[useKey]`), is no hook.
+      const object = callee.type === 'MemberExpression' && callee.computed !== true ? (callee.object as Node) : null
       const name =
         callee.type === 'Identifier'
           ? (callee.name as string)

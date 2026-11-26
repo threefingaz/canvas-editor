@@ -21,28 +21,31 @@ export function sentenceCopyLabels(sentence: string): Record<CopyState, string> 
 export const copiedDelay = 1500
 export const failedDelay = 6000
 
-// The result of the last copy, and the function that copies `text`. The
-// clipboard API is missing in a page that is not a secure context: that is a
-// failure too.
-export function useCopy(text: string): [CopyState, () => void] {
-  const [state, setState] = useState<CopyState>('idle')
+// The result of the last copy, and the function that copies `text`; it gives
+// the result when the copy is done. The clipboard API is missing in a page
+// that is not a secure context: that is a failure too. Each result shows for
+// its own time: a second copy with the same result starts the time again.
+export function useCopy(text: string): [CopyState, () => Promise<CopyState>] {
+  const [result, setResult] = useState<{ state: CopyState }>({ state: 'idle' })
+  const state = result.state
 
   useEffect(() => {
-    if (state === 'idle') return
-    const timer = setTimeout(() => setState('idle'), state === 'failed' ? failedDelay : copiedDelay)
+    if (result.state === 'idle') return
+    const timer = setTimeout(() => setResult({ state: 'idle' }), result.state === 'failed' ? failedDelay : copiedDelay)
     return () => clearTimeout(timer)
-  }, [state])
+  }, [result])
 
-  const copy = () => {
+  const copy = async (): Promise<CopyState> => {
     const clipboard = navigator.clipboard as Clipboard | undefined
-    if (!clipboard) {
-      setState('failed')
-      return
+    let next: CopyState = 'failed'
+    if (clipboard) {
+      next = await clipboard.writeText(text).then(
+        () => 'copied' as const,
+        () => 'failed' as const,
+      )
     }
-    clipboard.writeText(text).then(
-      () => setState('copied'),
-      () => setState('failed'),
-    )
+    setResult({ state: next })
+    return next
   }
 
   return [state, copy]

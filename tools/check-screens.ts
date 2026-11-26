@@ -13,7 +13,7 @@ import { checkProject, checkReport, readProjectScreens, screenArgument } from '.
 import type { LibrarySources } from './jsx.ts'
 import { librarySources, packOf, readPackState } from './pack.ts'
 import { readProjectSettings } from './project-config.ts'
-import { currentProject, hostRoot, slashes } from './project.ts'
+import { currentProject, diskCase, hostRoot, slashes } from './project.ts'
 
 const root = currentProject()
 
@@ -34,7 +34,7 @@ const screens = readProjectScreens(root, config.screens, widths)
 const entries = screens.entries
 const only: string[] = []
 for (const argument of process.argv.slice(2)) {
-  const id = screenArgument(argument, entries, { cwd: slashes(process.cwd()), project: slashes(root) })
+  const id = screenArgument(argument, entries, { cwd: diskCase(slashes(process.cwd())), project: slashes(root), real: diskCase })
   if (id === null) {
     console.error(`No screen has the id or the file '${argument}'.`)
     process.exit(1)

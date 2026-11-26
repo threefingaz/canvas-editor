@@ -56,7 +56,7 @@ function parseHex(hex: string): Rgba | null {
 
 // A number, or a percentage of `whole`.
 function parseNumber(text: string, whole: number): number | null {
-  const match = /^(-?\d*\.?\d+(?:e-?\d+)?)(%?)$/i.exec(text)
+  const match = /^(-?\d*\.?\d+(?:e[+-]?\d+)?)(%?)$/i.exec(text)
   if (!match) return null
   const value = Number(match[1])
   return match[2] ? (value / 100) * whole : value
@@ -89,16 +89,54 @@ function parseFunction(text: string, name: string, whole: number): Rgba | null {
   return rgba(r, g, b, alpha)
 }
 
-// A color in hex, `rgb()`, `rgba()`, `color(srgb …)` (the computed form of a
-// color mix in sRGB) or one of a few names. Other forms give null. Limit: a
+// An angle of a hue in degrees, from 0 to 360: a number (degrees) or a number
+// with `deg`, `grad`, `rad` or `turn`.
+function parseHue(text: string): number | null {
+  const match = /^(-?\d*\.?\d+(?:e[+-]?\d+)?)(deg|grad|rad|turn)?$/i.exec(text)
+  if (!match) return null
+  const value = Number(match[1])
+  const unit = match[2]?.toLowerCase()
+  const degrees = unit === 'turn' ? value * 360 : unit === 'rad' ? (value * 180) / Math.PI : unit === 'grad' ? value * 0.9 : value
+  return ((degrees % 360) + 360) % 360
+}
+
+// The saturation or the lightness of `hsl()`, from 0 to 1: a percentage, or a
+// number of percent (the syntax with spaces takes one).
+function parseShare(text: string): number | null {
+  const match = /^(-?\d*\.?\d+(?:e[+-]?\d+)?)%?$/i.exec(text)
+  return match ? clamp(Number(match[1]) / 100, 0, 1) : null
+}
+
+// `hsl()` and `hsla()`, as in CSS: a token can be written so, and the page
+// computes it as `rgb()`.
+function parseHsl(text: string): Rgba | null {
+  const parts = functionParts(text, 'hsla?')
+  if (!parts || parts.channels.length !== 3) return null
+  const hue = parseHue(parts.channels[0])
+  const saturation = parseShare(parts.channels[1])
+  const lightness = parseShare(parts.channels[2])
+  const alpha = parts.alpha === null ? 1 : parseNumber(parts.alpha, 1)
+  if (hue === null || saturation === null || lightness === null || alpha === null) return null
+  const amount = saturation * Math.min(lightness, 1 - lightness)
+  const channel = (n: number) => {
+    const k = (n + hue / 30) % 12
+    return (lightness - amount * Math.max(-1, Math.min(k - 3, 9 - k, 1))) * 255
+  }
+  return rgba(channel(0), channel(8), channel(4), alpha)
+}
+
+// A color in hex, `rgb()`, `rgba()`, `hsl()`, `hsla()`, `color(srgb …)` (the
+// computed form of a color mix in sRGB) or one of a few names. Other forms
+// give null. Limit: a
 // computed color stays in its own space when it is written in one
 // (`oklch()`, `lab()`, `color(display-p3 …)`, a mix in such a space); such a
 // value cannot be compared and the inspector leaves its row out.
 export function parseColor(text: string): Rgba | null {
   const value = text.trim().toLowerCase()
-  if (value in namedColors) return namedColors[value]
+  if (Object.hasOwn(namedColors, value)) return namedColors[value]
   if (value.startsWith('#')) return parseHex(value.slice(1))
   if (value.startsWith('rgb')) return parseFunction(value, 'rgba?', 255)
+  if (value.startsWith('hsl')) return parseHsl(value)
   if (value.startsWith('color(')) {
     const srgb = /^color\(srgb\s+(.*)\)$/.exec(value)
     return srgb ? parseFunction(`c(${srgb[1]})`, 'c', 1) : null
@@ -120,7 +158,7 @@ export function colorDistance(a: Rgba, b: Rgba): number {
 export function parseLength(text: string): number | null {
   const value = text.trim()
   if (value === '0') return 0
-  const match = /^(-?\d*\.?\d+(?:e-?\d+)?)px$/i.exec(value)
+  const match = /^(-?\d*\.?\d+(?:e[+-]?\d+)?)px$/i.exec(value)
   if (!match) return null
   const result = Number(match[1])
   return result === 0 ? 0 : result
@@ -229,7 +267,7 @@ function fontFamilyKey(text: string) {
 
 function weightOf(text: string): number | null {
   const value = text.trim().toLowerCase()
-  if (value in fontWeights) return fontWeights[value]
+  if (Object.hasOwn(fontWeights, value)) return fontWeights[value]
   const number = Number(value)
   return value !== '' && Number.isFinite(number) ? number : null
 }

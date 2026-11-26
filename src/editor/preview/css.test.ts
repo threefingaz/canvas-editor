@@ -121,8 +121,18 @@ describe('previewRules', () => {
     const items = [textStyle('e1', linked('typography.body1', 'body1'))]
     expect(previewRules(items, tokens).rules).toEqual([
       '[data-canvas-edit~="e1"] { font: var(--mui-font-body1) !important; ' +
-        'letter-spacing: 0.15px !important }',
+        'letter-spacing: 0.15px !important; --canvas-preview-text-style: initial !important }',
     ])
+  })
+
+  test('a style edit of the mark of a text style is refused: a request cannot write CSS', () => {
+    const items = [
+      style('e1', ['--canvas-preview-text-style'], { value: '"x" } body { display: none } a { b: "' }),
+      style('e2', ['--canvas-preview-text-style'], { value: '"typography.plain"' }),
+    ]
+    const result = previewRules(items, tokens)
+    expect(result.rules).toEqual([])
+    expect(result.problems).toHaveLength(2)
   })
 
   test('a text style edit with no variable gives the five font properties', () => {
@@ -130,7 +140,7 @@ describe('previewRules', () => {
     expect(previewRules(items, tokens).rules).toEqual([
       '[data-canvas-edit~="e1"] { font-family: system-ui, "Segoe UI", sans-serif !important; ' +
         'font-size: 16px !important; font-weight: 400 !important; line-height: 24px !important; ' +
-        'letter-spacing: 0.15px !important }',
+        'letter-spacing: 0.15px !important; --canvas-preview-text-style: "typography.plain" !important }',
     ])
   })
 
@@ -207,8 +217,8 @@ describe('previewRules', () => {
     expect(result.problems).toHaveLength(2)
   })
 
-  test('a value that opens a comment, has a backslash, a line break or a quote with no end gives a problem', () => {
-    const values = ['red /*', 'red */', 'red\\9', 'red\nblue', '"Roboto', "'Roboto"]
+  test('a value that opens a comment, has a backslash, a line break, a quote or a bracket with no end gives a problem', () => {
+    const values = ['red /*', 'red */', 'red\\9', 'red\nblue', '"Roboto', "'Roboto", `"'"'`, 'calc(16px', 'calc(16px))', 'a[1', 'a(]', '8px !important']
     const items = values.map((value, index) => style(`e${index}`, ['color'], { value }))
     const result = previewRules(items, tokens)
     expect(result.rules).toEqual([])
@@ -216,7 +226,13 @@ describe('previewRules', () => {
   })
 
   test('a value with quotes in pairs is valid', () => {
-    const items = [style('e1', ['font-family'], { value: '"Segoe UI", \'Roboto\', sans-serif' })]
+    const items = [
+      style('e1', ['font-family'], { value: '"Segoe UI", \'Roboto\', sans-serif' }),
+      style('e2', ['font-family'], { value: '"O\'Brien", sans-serif' }),
+      style('e3', ['padding-top'], { value: 'calc(var(--gap, 8px) * 2)' }),
+      style('e4', ['content'], { value: '"(" attr(title) "]"' }),
+      style('e5', ['content'], { value: '"Hi!"' }),
+    ]
     expect(previewRules(items, tokens).problems).toEqual([])
   })
 })

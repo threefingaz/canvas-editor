@@ -5,7 +5,7 @@ import type { Rect, View } from '../canvas/viewport.ts'
 import { bubble } from '../comments/bubble-store.ts'
 import { followPlace } from '../edits/anchor.ts'
 import { edits } from '../edits/store.ts'
-import { frameWindowOf } from '../frame-window.ts'
+import { frameWindowOf, inLiveFrame } from '../frame-window.ts'
 import { hiddenIn } from '../preview/css.ts'
 import { onPreviewApplied, screenElementsOf, usePreviewRemeasure } from '../preview/use-preview.ts'
 import { moveDrag } from './drag-store.ts'
@@ -59,12 +59,17 @@ export function SelectionOverlay({ view, frames, documents, hover, shown }: Sele
   const [, remeasure] = useReducer((count: number) => count + 1, 0)
 
   // The screen of the selection is removed, or its file cannot be read: its
-  // frame has no document, thus the selection clears.
+  // frame has no document, thus the selection clears. A panel of the element
+  // stays open, detached from it, as for an element that is gone; a panel of
+  // a removed screen closes with its frame (`CommentBubble`).
   const boxes = new Map(frames.map((box) => [box.screen.id, box]))
   const selectedScreen = selected ? boxes.get(selected.screenId)?.screen : undefined
   const screenGone = selected !== null && (selectedScreen === undefined || selectedScreen.error !== undefined)
   useEffect(() => {
-    if (screenGone) selection.clear()
+    if (!screenGone) return
+    const current = selection.get()
+    if (current) bubble.send({ type: 'gone', screenId: current.screenId, loc: current.loc })
+    bubble.keepOpen(() => selection.clear())
   }, [screenGone])
 
   // After a reload of the frame, find the element again in the new document.
@@ -72,7 +77,9 @@ export function SelectionOverlay({ view, frames, documents, hover, shown }: Sele
   // update of the library) that takes the selected node out.
   const frameDocument = selected ? documents.get(selected.screenId) : undefined
   useEffect(() => {
-    if (!selected || !frameDocument) return
+    // A document of a frame that loads again (no window): the new document
+    // comes with the load.
+    if (!selected || !frameDocument || !frameWindowOf(frameDocument)) return
     const { screenId, loc } = selected
     // The place of the element in the frame document: the same place in the
     // same document (a new render), else its place after a change of the
@@ -125,8 +132,8 @@ export function SelectionOverlay({ view, frames, documents, hover, shown }: Sele
     return () => observer.disconnect()
   }, [selected])
 
-  // A preview can move a node: measure again.
-  usePreviewRemeasure(remeasure, true)
+  // A preview can move a node: measure again, while the layer shows.
+  usePreviewRemeasure(remeasure, shown)
 
   // The rectangle of a node of a frame in canvas coordinates; null when the
   // node is not in the current document of its frame. In a frame with a crop
@@ -135,7 +142,7 @@ export function SelectionOverlay({ view, frames, documents, hover, shown }: Sele
   // element that the crop does not show has no outline.
   const rectOf = (screenId: string, node: Element): Rect | null => {
     const box = boxes.get(screenId)
-    if (!box || node.ownerDocument !== documents.get(screenId) || !node.isConnected) return null
+    if (!box || node.ownerDocument !== documents.get(screenId) || !inLiveFrame(node)) return null
     return inCrop(canvasRectOf(view, box, node.getBoundingClientRect()), canvasCropOf(view, box))
   }
 

@@ -175,6 +175,18 @@ describe('acceptBody', () => {
       error: expect.stringMatching(/screen "onboarding\/welcome".*"settings"/),
     })
   })
+
+  test('gives an error for a file that is not the file of the screen, and for a target outside the screens and the components', () => {
+    expect(acceptBody('requests', JSON.stringify({ ...request, file: '../../x.tsx' }), 'onboarding/welcome')).toEqual({
+      error: 'the file of the screen "onboarding/welcome" is screens/onboarding/welcome.tsx, not ../../x.tsx',
+    })
+    expect(acceptBody('issues', JSON.stringify({ ...issues, file: 'screens/other.tsx' }), 'onboarding/welcome')).toHaveProperty('error')
+    const moved = (file: string) => ({ ...request, edits: request.edits.map((edit) => ({ ...edit, target: edit.target && { ...edit.target, file } })) })
+    for (const file of ['../../x.tsx', 'src/editor/App.tsx', 'screens/../tools/cli.ts', 'components/../../x.tsx']) {
+      expect(acceptBody('requests', JSON.stringify(moved(file)), 'onboarding/welcome'), file).toHaveProperty('error')
+    }
+    expect(acceptBody('requests', JSON.stringify(moved('components/Ring.tsx')), 'onboarding/welcome')).toHaveProperty('file')
+  })
 })
 
 describe('hashOf and baseMatches', () => {
@@ -267,5 +279,11 @@ describe('parseScreenAction', () => {
     expect(parse({ action: 'reorder', screen: 'a', to: '1' })).toEqual({ error: '`to` must be a whole number from 0' })
     expect(parse({ action: 'rename', screen: 'a', name: 'b' })).toEqual({ error: '`flow` must be a text' })
     expect(parse({ action: 'restore' })).toEqual({ error: '`folder` must be a text' })
+    expect(parse(null)).toEqual({ error: 'the content must be an object' })
+    expect(parse('delete')).toEqual({ error: 'the content must be an object' })
+    expect(parse({ action: 'reorder', screen: 'a', to: -1 })).toEqual({ error: '`to` must be a whole number from 0' })
+    expect(parse({ action: 'title', screen: 'a', title: 3 })).toEqual({ error: '`title` must be a text' })
+    expect(parse({ action: 'rename', screen: 'a', flow: '', name: null })).toEqual({ error: '`name` must be a text' })
+    expect(parse({ action: 'delete', screen: 7 })).toEqual({ error: '`screen` must be a text' })
   })
 })

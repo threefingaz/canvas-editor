@@ -90,6 +90,16 @@ export function usePreview(screenId: string, document: Document | null) {
   // New tokens can give a token edit a new value: the preview is applied again.
   const tokenFile = useTokenFile()
 
+  // A frame that goes out of the canvas takes its reading with it: it keeps
+  // no old document, and a later screen with the same id (a new option after
+  // a `keep`, a restored screen) starts with no reading of an old file.
+  useEffect(
+    () => () => {
+      readings.delete(screenId)
+    },
+    [screenId],
+  )
+
   useEffect(() => {
     const frameWindow = frameWindowOf(document)
     if (!document || !frameWindow) return

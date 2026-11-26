@@ -66,7 +66,7 @@ Each row names a file and, after the colon, the sections to read. Read the secti
 | two or more things shown side by side; areas on a map | [Comparisons](./references/comparisons.md): Compare the things themselves · A comparison can lie better than a chart |
 | two plans, products or versions that are nearly the same; before and after | [Comparisons](./references/comparisons.md): Finding the difference in things that are nearly the same |
 | data with more than two dimensions (a place, a time and an amount) | [Many dimensions](./references/dimensions.md): Give each dimension its own means |
-| a chart drawn in the shape of its subject, or with figures and scenery | [Many dimensions](./references/dimensions.md): The eye completes a flat picture · Do not dress data as a scene |
+| a chart drawn in the shape of its subject, or with figures and scenery | [Many dimensions](./references/dimensions.md): The eye completes a flat picture, in its own way · Do not dress data as a scene |
 | a plan of a building, of floors or of a station; a route | [Many dimensions](./references/dimensions.md): Drop a dimension |
 | the same block for each day, project, country or item; a grid of tiles with data | [Repeated elements](./references/small-multiples.md): Fix the design, change the data · When it fits, and when it does not |
 | more than four series on one chart | [Repeated elements](./references/small-multiples.md): A small chart for each thing |

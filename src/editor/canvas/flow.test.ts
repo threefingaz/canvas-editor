@@ -1,15 +1,18 @@
-import { describe, expect, test } from 'vitest'
+import { afterEach, describe, expect, test, vi } from 'vitest'
 import {
   flowArrows,
   flowFocus,
   flowFrames,
   flowLabels,
   flowLinks,
+  focusLift,
   headLength,
   leastLift,
   leastStep,
   parseLinksShown,
+  readLinksShown,
   rowLifts,
+  writeLinksShown,
   type FlowFrame,
 } from './flow.ts'
 
@@ -164,6 +167,8 @@ describe('flowLabels', () => {
 
   test('the screens directly in the folder have no label', () => {
     expect(flowLabels([frame('home', 0)], 24, 12)).toEqual([])
+    // A flow.json of the screens folder that is not valid: a label for the mark.
+    expect(flowLabels([frame('home', 0)], 24, 12, new Set(['']))).toEqual([{ flow: '', x: -12, y: 76 }])
   })
 })
 
@@ -342,5 +347,37 @@ describe('the heights of the arcs of one row', () => {
     expect(strong).toBeGreaterThan(plain)
     expect(strong).toBeGreaterThanOrEqual(26)
     expect(other).toBeLessThanOrEqual(leastLift + leastStep * 2)
+  })
+})
+
+describe('focusLift', () => {
+  test('grows with the span between its least and its most height, and a left arrow is higher', () => {
+    const short = focusLift(10, true)
+    const long = focusLift(10_000, true)
+    expect(short).toBeGreaterThan(0)
+    expect(focusLift(300, true)).toBeGreaterThanOrEqual(short)
+    expect(long).toBe(focusLift(20_000, true))
+    expect(long).toBeGreaterThan(short)
+    expect(focusLift(300, false)).toBeGreaterThan(focusLift(300, true))
+  })
+})
+
+describe('readLinksShown and writeLinksShown', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  test('a choice reads back; with no storage the arrows show', () => {
+    expect(readLinksShown()).toBe(true)
+    expect(() => writeLinksShown(false)).not.toThrow()
+    const data = new Map<string, string>()
+    vi.stubGlobal('window', {
+      localStorage: { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key) },
+    })
+    writeLinksShown(false)
+    expect(readLinksShown()).toBe(false)
+    writeLinksShown(true)
+    expect(data.size).toBe(0)
+    expect(readLinksShown()).toBe(true)
   })
 })

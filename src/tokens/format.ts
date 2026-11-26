@@ -88,7 +88,7 @@ function parseToken(raw: unknown, index: number, seen: Set<string>): Token {
   if (seen.has(id)) fail('is a duplicate id')
   if (!tokenGroups.includes(group as TokenGroup)) fail(`has an unknown group "${String(group)}"`)
   if (typeof name !== 'string' || name === '') fail('has no name')
-  if (typeof code !== 'string' && typeof code !== 'number') fail('has no code (text or number)')
+  if (typeof code !== 'string' && (typeof code !== 'number' || !Number.isFinite(code))) fail('has no code (text or number)')
   if (cssVar !== undefined && (typeof cssVar !== 'string' || !cssVar.startsWith('--'))) {
     fail('has a cssVar that does not start with "--"')
   }

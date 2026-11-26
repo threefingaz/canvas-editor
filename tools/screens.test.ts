@@ -93,6 +93,11 @@ export const meta = { title: 'Welcome', ...base }`)
     expect(() => readScreenMeta(code, file, widths)).toThrow(`${file}: \`meta.title\` must be a text`)
   })
 
+  test('gives an error for a title that a later property of the same name computes', () => {
+    const code = screen(`export const meta = { title: 'Welcome', width: 1440, title: name }`)
+    expect(() => readScreenMeta(code, file, widths)).toThrow(`${file}: \`meta.title\` must be a text`)
+  })
+
   test('gives an error for an empty title', () => {
     const code = screen(`export const meta = { title: '', width: 1440 }`)
     expect(() => readScreenMeta(code, file, widths)).toThrow(`${file}: \`meta.title\` must be a text`)

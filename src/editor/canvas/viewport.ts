@@ -10,6 +10,13 @@ export type Point = { x: number; y: number }
 export type Size = { width: number; height: number }
 export type Rect = { x: number; y: number; width: number; height: number }
 
+// True for two equal rectangles, and for two missing ones (null or
+// undefined).
+export function sameRect(a: Rect | null | undefined, b: Rect | null | undefined): boolean {
+  if (!a || !b) return (a ?? null) === (b ?? null)
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
 export const minScale = 0.05
 export const maxScale = 4
 
@@ -28,7 +35,7 @@ const zoomSpeed = 0.01
 const wheelLinePx = 16
 
 export function clampScale(scale: number): number {
-  return Math.min(maxScale, Math.max(minScale, scale))
+  return clamp(scale, minScale, maxScale)
 }
 
 export function toWorld(view: View, point: Point): Point {

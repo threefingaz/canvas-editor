@@ -11,9 +11,11 @@ import { colorText, textStyleText, type InspectorRow } from './model.ts'
 // frame and the row, and gives the values here.
 
 // A new edit id: 12 hex characters. The id names the edit in the request file
-// and in the preview rules.
+// and in the preview rules. `getRandomValues` works in each page; the UUID of
+// `crypto` only in a secure context (not at a network address of the dev
+// server over http).
 export function newEditId(): string {
-  return crypto.randomUUID().replaceAll('-', '').slice(0, 12)
+  return Array.from(crypto.getRandomValues(new Uint8Array(6)), (byte) => byte.toString(16).padStart(2, '0')).join('')
 }
 
 // The target of an edit: the place in the code and the tag name from the
@@ -154,7 +156,8 @@ function beforeOf(row: InspectorRow, value: string): EditValue {
 }
 
 // A style edit that sets the properties of the row to `token`. `before` is the
-// value of the row: with its token when it is linked, else `observed`. Null
+// value of the row: the value of its token when it is linked, else the value
+// of the page, `observed`. Null
 // when no edit is possible: a row with no state or no token group, a token of
 // a different group, a text style (it has its own edit), or a negative value
 // (a negative margin: a token gives a positive value).
@@ -168,7 +171,12 @@ export function styleEdit(
   const state = row.state
   if (state === null || row.group === null || row.group === 'textStyle') return null
   if (token.group !== row.group || typeof token.value !== 'string' || state.negative) return null
-  const before = beforeOf(row, state.state === 'linked' ? row.value : observedValue(row))
+  // A linked value is the value of its token, in the form of `after`, thus a
+  // change back to the token of `before` gives the same value and no edit
+  // (the row shows a color with an opacity as `#000000 60%`, and a shadow as
+  // the page computes it).
+  const linkedValue = state.state === 'linked' && typeof state.token.value === 'string' ? tokenValue(row, state.token.value) : row.value
+  const before = beforeOf(row, state.state === 'linked' ? linkedValue : observedValue(row))
   const after: EditValue = { value: tokenValue(row, token.value), token: tokenRef(token) }
   return {
     id,
@@ -200,13 +208,18 @@ export function textStyleEdit(
   id: string = newEditId(),
 ): Edit | null {
   if (row.group !== 'textStyle' || row.state === null || !isTextStyle(token)) return null
+  // A linked value is the text of its token, in the form of `after`, as in
+  // `styleEdit`: the page can round a length (`26.099999px`), and a pick of
+  // the same token then gives no edit.
+  const state = row.state
+  const value = state.state === 'linked' && isTextStyle(state.token) ? textStyleText(state.token.value) : row.value
   return {
     id,
     target,
     width,
     change: {
       kind: 'textStyle',
-      before: beforeOf(row, row.value),
+      before: beforeOf(row, value),
       after: { value: textStyleText(token.value), token: tokenRef(token) },
     },
   }

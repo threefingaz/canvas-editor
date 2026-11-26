@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { commentLimit } from '../../requests/format.ts'
 import { commentText } from '../inspector/edit.ts'
-import { donePresets, elementPresets, linkPresets, screenPresets, type Preset } from './presets.ts'
+import { donePresets, elementPresets, linkPresets, opensList, screenPresets, type Preset } from './presets.ts'
 
 const keys = (presets: readonly Preset[]) => presets.map((preset) => preset.key)
 
@@ -144,7 +144,7 @@ describe('screenPresets', () => {
 
   test('the check names the screen', () => {
     const fix = screenPresets(base, widths, false).find((preset) => preset.key === 'fix-deviations')
-    expect(fix?.text).toContain('`npm run check -- onboarding/workspace`')
+    expect(fix?.text).toContain('`canvas check -- onboarding/workspace`')
   })
 })
 
@@ -174,5 +174,15 @@ describe('donePresets', () => {
 
   test('none with no comments', () => {
     expect(donePresets(elementPresets('host', false), []).size).toBe(0)
+  })
+})
+
+describe('opensList', () => {
+  test('Space, F4 and Alt with an arrow open the popup; an arrow alone and Enter do not', () => {
+    expect(opensList(' ', false)).toBe(true)
+    expect(opensList('F4', false)).toBe(true)
+    expect(opensList('ArrowDown', true)).toBe(true)
+    expect(opensList('ArrowDown', false)).toBe(false)
+    expect(opensList('Enter', false)).toBe(false)
   })
 })

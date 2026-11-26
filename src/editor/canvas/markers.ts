@@ -1,6 +1,7 @@
 import type { Issue } from '../../requests/format.ts'
 import { locOf } from '../edits/model.ts'
 import type { Rect } from './viewport.ts'
+import { readStored, writeStored } from '../stored.ts'
 
 // The markers of the elements that are not from the library: an outline and a
 // small badge with the tag name on each copy of each `not-library` place of
@@ -70,21 +71,11 @@ export function parseMarkersShown(value: string | null): boolean {
   return value !== 'off'
 }
 
-// `localStorage` can be missing (Node in the tests) or blocked by the browser:
-// then the markers show, and a choice is kept for this session only.
+// With no storage the markers show (`readStored`).
 export function readMarkersShown(): boolean {
-  try {
-    return parseMarkersShown(window.localStorage.getItem(storageKey))
-  } catch {
-    return true
-  }
+  return parseMarkersShown(readStored(storageKey))
 }
 
 export function writeMarkersShown(shown: boolean) {
-  try {
-    if (shown) window.localStorage.removeItem(storageKey)
-    else window.localStorage.setItem(storageKey, 'off')
-  } catch {
-    // The choice is kept for this session only.
-  }
+  writeStored(storageKey, shown ? null : 'off')
 }

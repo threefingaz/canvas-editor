@@ -117,6 +117,7 @@ describe('addSourceLocations', () => {
     expect(out).toContain(`${file}:1:11 Box local set=16"`)
     expect(changed(`const a = <Box sx={{ p: '24px 64px', color: '#abc', m: '1rem' }} />`)).toContain('Box local set"')
     expect(changed(`const a = <Box sx={{ p: '24px 64px', color: '#abc' }} />`)).toContain('Box local set=24,64,#AABBCC"')
+    expect(changed(`const a = <Box sx={{ p: 'calc(8px + 4px)' }} />`)).toContain('Box local set"')
     expect(out).toContain(`Box local"} />`)
     expect(out).toContain(`i host set"`)
   })

@@ -5,9 +5,11 @@
 // An option is a choice that is still open: it has no row. Its base says how
 // many options it has, and its open changes count in the total of changes.
 
+import { counted } from '../../words.ts'
 import { deviationCount, type Issue } from '../../requests/format.ts'
 import { screenGroups, type Related } from '../../related/groups.ts'
 import { unknownLinks, unreached } from '../../related/links.ts'
+import { own } from '../../own.ts'
 
 // The fields of a screen that the tab reads. An entry of
 // `virtual:canvas-screens` has them.
@@ -35,7 +37,7 @@ export type ProjectRow = {
   // The count of the options of the screen.
   options: number
   // The count of the deviations; null while the issues are not read yet (a
-  // file with an error has no frame document, thus it stays null).
+  // file with an error has its issues at once, with no frame document).
   deviations: number | null
   // The count of the open edits.
   changes: number
@@ -60,7 +62,7 @@ export function projectRows(screens: readonly ProjectScreen[], issues: ProjectIs
   const ids = new Set(screens.map((screen) => screen.id))
   const alone = new Set(unreached(screens))
   const row = ({ screen, options }: Related<ProjectScreen>, relation: ProjectRow['relation']): ProjectRow => {
-    const list = issues[screen.id]
+    const list = own(issues, screen.id)
     return {
       id: screen.id,
       title: screen.title,
@@ -68,7 +70,7 @@ export function projectRows(screens: readonly ProjectScreen[], issues: ProjectIs
       relation,
       options: options.length,
       deviations: list === undefined ? null : deviationCount(list),
-      changes: edits[screen.id]?.length ?? 0,
+      changes: own(edits, screen.id)?.length ?? 0,
       linksOut: new Set(screen.links.filter((id) => id !== screen.id && ids.has(id))).size,
       unreached: alone.has(screen.id),
       brokenLinks: unknownLinks(screen, ids).length,
@@ -109,11 +111,11 @@ export function projectTotals(screens: readonly ProjectScreen[], issues: Project
   const totals: ProjectTotals = { screens: 0, flows: 0, deviations: 0, deviating: 0, changes: 0, unread: 0 }
   const flows = new Set<string>()
   for (const screen of screens) {
-    totals.changes += edits[screen.id]?.length ?? 0
+    totals.changes += own(edits, screen.id)?.length ?? 0
     if (screen.optionOf !== undefined) continue
     totals.screens += 1
     flows.add(screen.flow)
-    const list = issues[screen.id]
+    const list = own(issues, screen.id)
     if (list === undefined) {
       if (screen.error === undefined) totals.unread += 1
       continue
@@ -124,10 +126,6 @@ export function projectTotals(screens: readonly ProjectScreen[], issues: Project
   }
   totals.flows = flows.size
   return totals
-}
-
-function counted(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`
 }
 
 // The totals in words, in parts for one line: "4 screens in 1 flow",

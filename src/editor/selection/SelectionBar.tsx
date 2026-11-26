@@ -63,10 +63,10 @@ type SelectionBarProps = {
   // then shows nothing, and its keys still work.
   rect: Rect | null
   // The view of the canvas and the top left corner of the frame of the
-  // selection in world coordinates, for the line of a drag (`MoveDrag`);
-  // null while the frame is not in the layout.
+  // selection in world coordinates, with its crop, for the line of a drag
+  // (`MoveDrag`); null while the frame is not in the layout.
   view: View
-  box: Point | null
+  box: (Point & { crop?: Rect }) | null
 }
 
 const labels: Record<BarAction, string> = {
@@ -132,37 +132,38 @@ export function SelectionBar({ selected, rect, view, box }: SelectionBarProps) {
     <MoveDrag selected={selected} move={move} canDrag={(move.place?.drag ?? false) && off === null} view={view} box={box} />
   )
 
-  if (!rect) return drag
-
+  // One tree in each case: a bar that comes or goes keeps the drag mounted.
   return (
     <>
       {drag}
-      <PanelSurface
-        ref={bar}
-        className="pointer-events-auto invisible absolute top-0 left-0 flex items-center gap-0.5 rounded-lg p-0.5 pl-2 shadow-md"
-        data-selection-bar=""
-      >
-        <span className="max-w-48 min-w-0 truncate pr-1 text-xs font-medium" title={selected.name} data-selection-label="">
-          {selected.name}
-        </span>
-        {move?.place && (
-          <MoveArrows
-            flow={move.place.flow}
-            position={move.plan.position}
-            count={move.plan.count}
-            previewed={move.plan.previewed}
-            off={off}
-            onMove={moveIfOn}
-          />
-        )}
-        {actions.map((action) => (
-          <span key={action} title={off ?? labels[action]} data-bar-action={action} data-bar-off={off === null ? undefined : ''}>
-            <Button size="icon" variant="ghost" aria-label={labels[action]} disabled={off !== null} onClick={run[action]}>
-              {icons[action]}
-            </Button>
+      {rect && (
+        <PanelSurface
+          ref={bar}
+          className="pointer-events-auto invisible absolute top-0 left-0 flex items-center gap-0.5 rounded-lg p-0.5 pl-2 shadow-md"
+          data-selection-bar=""
+        >
+          <span className="max-w-48 min-w-0 truncate pr-1 text-xs font-medium" title={selected.name} data-selection-label="">
+            {selected.name}
           </span>
-        ))}
-      </PanelSurface>
+          {move?.place && (
+            <MoveArrows
+              flow={move.place.flow}
+              position={move.plan.position}
+              count={move.plan.count}
+              previewed={move.plan.previewed}
+              off={off}
+              onMove={moveIfOn}
+            />
+          )}
+          {actions.map((action) => (
+            <span key={action} title={off ?? labels[action]} data-bar-action={action} data-bar-off={off === null ? undefined : ''}>
+              <Button size="icon" variant="ghost" aria-label={labels[action]} disabled={off !== null} onClick={run[action]}>
+                {icons[action]}
+              </Button>
+            </span>
+          ))}
+        </PanelSurface>
+      )}
     </>
   )
 }
@@ -229,14 +230,24 @@ function MoveArrows({ flow, position, count, previewed, off, onMove }: MoveArrow
 }
 
 // True when the focus is in a floating part of the canvas: the comment
-// bubble, the options panel (also the list of its counts) or a pin, or in
-// the menu or a dialog of the screen actions. A key there is about the panel or the pin (Delete on a
-// discard button, after a click on a pin that selected its element), not
-// about the element.
+// bubble, the options panel (also the list of its counts) or a pin, in the
+// menu or a dialog of the screen actions, or in an open list of a select or a
+// menu (the token selects of the panel render theirs in a portal). A key
+// there is about the panel, the pin or the list (Delete on a discard button,
+// after a click on a pin that selected its element; a letter that finds an
+// item of a list), not about the element. An open dialog of the screen
+// actions counts also with the focus on the body (its button turned off
+// while the action runs), and so does an open bubble or options panel (a
+// closed box of a comment, or a discarded comment, leaves the focus there).
 function inFloatingPart(): boolean {
+  if (document.querySelector('[data-screen-dialog]') !== null) return true
+  const active = document.activeElement
+  if ((active === null || active === document.body) && document.querySelector('[data-comment-bubble], [data-options-panel]') !== null) {
+    return true
+  }
   return (
     document.activeElement?.closest(
-      '[data-comment-bubble], [data-options-panel], [data-options-menu], [data-pin], [data-screen-menu], [data-screen-dialog]',
+      '[data-comment-bubble], [data-options-panel], [data-options-menu], [data-pin], [data-screen-menu], [data-screen-dialog], [role="listbox"], [role="menu"]',
     ) != null
   )
 }

@@ -19,13 +19,14 @@
 
 import { spawn as spawnProcess } from 'node:child_process'
 import { existsSync } from 'node:fs'
-import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { ServerResponse } from 'node:http'
 import { normalizePath, type Plugin } from 'vite'
 import { agentSentence } from '../src/editor/requests/agent-sentence.ts'
 import { agentAddress, type AgentAnswer, type AgentWayAnswer } from '../src/requests/api.ts'
 import { messageOf } from '../src/tokens/format.ts'
-import { agentCommand, agentCommands, agentOf, failedReason, noCommand, startResult, type AgentLine, type AgentChoice, type AgentWay, type Env, type StartEvent } from './agent.ts'
-import { sameOrigin } from './requests.ts'
+import { agentCommand, agentCommands, agentOf, failedReason, noCommand, startFailure, startResult, type AgentLine, type AgentChoice, type AgentWay, type Env, type StartEvent } from './agent.ts'
+import { guarded, sendText, type Handler } from './http.ts'
+import { otherOriginText, sameOrigin } from './requests.ts'
 
 // How long the handler waits for an error code of the command, in ms. The
 // command of a code editor hands the prompt to the open window and ends, or
@@ -70,13 +71,6 @@ export type AgentDeps = {
   exists?: (path: string) => boolean
 }
 
-export type AgentHandler = (req: IncomingMessage, res: ServerResponse, next: () => void) => Promise<void>
-
-function sendText(res: ServerResponse, status: number, text: string, headers: Record<string, string> = {}) {
-  res.writeHead(status, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', ...headers })
-  res.end(`${text}\n`)
-}
-
 function sendAnswer(res: ServerResponse, answer: AgentAnswer | AgentWayAnswer) {
   res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'no-store' })
   res.end(`${JSON.stringify(answer)}\n`)
@@ -91,7 +85,7 @@ function startOne(deps: AgentDeps, agent: AgentLine): Promise<AgentAnswer> {
     let timer: ReturnType<typeof setTimeout> | undefined
     const done = (event: StartEvent) => {
       clearTimeout(timer)
-      resolve(startResult(event, command))
+      resolve(startResult(event, agent.command))
     }
     const child = deps.spawn(command, args, {
       cwd: deps.root,
@@ -110,12 +104,13 @@ function startOne(deps: AgentDeps, agent: AgentLine): Promise<AgentAnswer> {
 }
 
 // Tries each place of the command (`agentCommands`) until one starts. With
-// none, the answer is the reason of the command of the setting, which is the
-// name that the user knows, with the next step (`failedReason`).
+// none, the answer is the reason of a place that was there and failed, else
+// of the command of the setting, which is the name that the user knows
+// (`startFailure`), with the next step (`failedReason`).
 async function start(deps: AgentDeps, way: Extract<AgentWay, { kind: 'command' }>): Promise<AgentAnswer> {
   const agent = way.line
   const commands = agentCommands(agent, deps.env ?? {}, deps.platform, deps.exists ?? (() => false))
-  let first: AgentAnswer | null = null
+  const failures: { command: string; reason: string }[] = []
   for (const command of commands) {
     let answer: AgentAnswer
     try {
@@ -124,10 +119,10 @@ async function start(deps: AgentDeps, way: Extract<AgentWay, { kind: 'command' }
       answer = { started: false, reason: messageOf(error) }
     }
     if (answer.started) return answer
-    if (command === agent.command || first === null) first = answer
+    failures.push({ command, reason: answer.reason })
   }
-  const answer = first ?? { started: false as const, reason: `the command "${agent.command}" was not found` }
-  return answer.started ? answer : { started: false, reason: failedReason(way, answer.reason) }
+  const reason = startFailure(failures, agent.command) ?? `the command "${agent.command}" was not found`
+  return { started: false, reason: failedReason(way, reason) }
 }
 
 // The answer of `GET`: the way, with no command line.
@@ -138,7 +133,7 @@ export function wayAnswer(way: AgentWay): AgentWayAnswer {
 // The middleware. The checks of a call come in this sequence: the address
 // (the next middleware), the method (405), the origin (403; for `POST` only:
 // the way is no secret, and a `GET` starts nothing).
-export function createAgentHandler(deps: AgentDeps): AgentHandler {
+export function createAgentHandler(deps: AgentDeps): Handler {
   return async function handle(req, res, next) {
     if (req.url?.split('?', 1)[0] !== agentAddress) {
       next()
@@ -153,7 +148,7 @@ export function createAgentHandler(deps: AgentDeps): AgentHandler {
       return
     }
     if (!sameOrigin({ origin: req.headers.origin, host: req.headers.host })) {
-      sendText(res, 403, 'only the editor of this server can use this address')
+      sendText(res, 403, otherOriginText)
       return
     }
     // The body is not read: it is thrown away.
@@ -164,12 +159,9 @@ export function createAgentHandler(deps: AgentDeps): AgentHandler {
       sendAnswer(res, { started: false, reason: noCommand })
       return
     }
-    try {
-      sendAnswer(res, await start(deps, way))
-    } catch (error) {
-      // The command line was refused, or the start threw.
-      sendAnswer(res, { started: false, reason: messageOf(error) })
-    }
+    // `start` gives a refused command line and a start that threw as an
+    // answer with its reason.
+    sendAnswer(res, await start(deps, way))
   }
 }
 
@@ -197,12 +189,7 @@ export function agentPlugin({ host, agent, guide }: AgentOptions): Plugin {
     name: 'canvas-agent',
     apply: 'serve',
     configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        handle(req, res, next).catch((error: unknown) => {
-          if (res.headersSent) return
-          sendText(res, 500, messageOf(error))
-        })
-      })
+      server.middlewares.use(guarded(handle))
     },
   }
 }

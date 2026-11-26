@@ -34,9 +34,12 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { join, posix } from 'node:path'
 import { config } from '../canvas.config.ts'
+import { counted } from '../src/words.ts'
 import { unreached } from '../src/related/links.ts'
-import { flowErrors, type FlowFile } from './flow.ts'
+import { flowErrors, flowFileName, type FlowFile } from './flow.ts'
 import { isLibrarySource, type LibrarySources } from './jsx.ts'
+import { sourceFolder } from './pack.ts'
+import { isInnerPath, relativePath } from './project.ts'
 import { screenFacts } from './screen-facts.ts'
 import { readFlowFiles, readScreenFiles } from './screens-plugin.ts'
 import { screenList, type ScreenEntry, type ScreenFile } from './screens.ts'
@@ -106,9 +109,12 @@ export type CheckOptions = {
 export const componentsFolder: string = config.components
 
 // The path of a relative import of `file`, relative to the project root. A
-// path that leaves the project starts with `../` (a file of the host).
+// path that leaves the project starts with `../` (a file of the host). A
+// source that starts with `/` is relative to the root (the bundler reads it
+// from its root folder), not to the folder of `file`.
 export function importPath(file: string, source: string): string {
-  const parts = file.replaceAll('\\', '/').split('/').slice(0, -1)
+  const rooted = source.startsWith('/')
+  const parts = rooted ? [] : file.replaceAll('\\', '/').split('/').slice(0, -1)
   let above = 0
   for (const part of source.replaceAll('\\', '/').split('/')) {
     if (part === '..') {
@@ -142,8 +148,12 @@ const codeEndings = ['.tsx', '/index.tsx', '.ts', '/index.ts', '.jsx', '/index.j
 // The endings of a module with JSX among them.
 const jsxEndings = codeEndings.filter((end) => end.endsWith('sx'))
 
-// True for a path that names its file with an extension.
-const hasExtension = (path: string) => /\.[a-z]+$/.test(path)
+// True for a path that names its file with an extension: one of code, of a
+// stylesheet, of data or of a picture, a font or a medium. A part after a dot
+// that is not one of them is a part of the name (`user.card`, `step.view`),
+// thus the path has no extension and a bundler tries the endings of code.
+const hasExtension = (path: string) =>
+  /\.(tsx|ts|jsx|js|mts|cts|mjs|cjs|css|scss|sass|less|styl|json|svg|png|jpe?g|gif|webp|avif|ico|bmp|woff2?|ttf|otf|eot|mp4|webm|mp3|wav|ogg|md|txt|html)$/i.test(path)
 
 // True for a path that can be a file of code: no extension, or the extension
 // of one. A stylesheet or a data file is not one.
@@ -236,16 +246,21 @@ function compare(a: Finding, b: Finding): number {
 // its file relative to the project (`screens/onboarding/welcome.tsx`,
 // `./screens/…`, with `\`). With `place` (absolute folders with `/`), also a
 // path relative to the current folder or an absolute one, as a host gives it
-// (`canvas/screens/onboarding/welcome.tsx` from the host root).
+// (`canvas/screens/onboarding/welcome.tsx` from the host root). `real` gives
+// a path in the case of the disk (`diskCase`), as the project and the current
+// folder are.
 export function screenArgument(
   argument: string,
   entries: readonly { id: string; file: string }[],
-  place?: { cwd: string; project: string },
+  place?: { cwd: string; project: string; real?: (path: string) => string },
 ): string | null {
   const text = argument.replaceAll('\\', '/').replace(/^\.\//, '')
   const found = entries.find((entry) => entry.id === text || entry.file === text)
   if (found !== undefined || place === undefined) return found?.id ?? null
-  const path = posix.relative(place.project, posix.resolve(place.cwd, text))
+  // An absolute path as it is, else relative to the current folder; a drive
+  // of Windows stays at the start, also for `..` above its root.
+  const absolute = (place.real ?? ((path: string) => path))(sourceFolder(text, place.cwd))
+  const path = relativePath(place.project, absolute)
   return entries.find((entry) => entry.file === path)?.id ?? null
 }
 
@@ -339,15 +354,15 @@ export function checkScreens(files: readonly ScreenFile[], options: CheckOptions
   return { screens: named ? named.length : entries.length, findings, notes, ...(named ? { named } : {}) }
 }
 
-function plural(count: number, word: string): string {
-  return `${count} ${word}${count === 1 ? '' : 's'}`
-}
-
 // The text that the command prints: the findings by file, each with its
 // place, then the total, then the notes.
 export function checkReport(result: CheckResult): string {
   const lines: string[] = []
   const files = [...new Set(result.findings.map((finding) => finding.file))]
+  // A finding of a `flow.json` is not in a screen: the total counts it apart.
+  const isFlowFile = (file: string) => posix.basename(file) === flowFileName
+  const screenFiles = files.filter((file) => !isFlowFile(file)).length
+  const flowFiles = files.length - screenFiles
   for (const file of files) {
     lines.push(file)
     for (const finding of result.findings.filter((item) => item.file === file)) {
@@ -358,8 +373,11 @@ export function checkReport(result: CheckResult): string {
   }
   lines.push(
     result.findings.length === 0
-      ? `No finding in ${plural(result.screens, 'screen')}.`
-      : `${plural(result.findings.length, 'finding')} in ${files.length} of ${plural(result.screens, 'screen')}.`,
+      ? `No finding in ${counted(result.screens, 'screen')}.`
+      : `${counted(result.findings.length, 'finding')} in ${[
+          ...(screenFiles > 0 || flowFiles === 0 ? [`${screenFiles} of ${counted(result.screens, 'screen')}`] : []),
+          ...(flowFiles > 0 ? [counted(flowFiles, `${flowFileName} file`)] : []),
+        ].join(' and ')}.`,
   )
   if (result.named && result.named.length > 0) lines.push(`Checked: ${result.named.join(', ')}.`)
   if (result.notes.length > 0) {
@@ -378,7 +396,7 @@ export function readProjectScreens(project: string, screensFolder: string, width
   const folder = join(project, screensFolder)
   const files = readScreenFiles(project, folder)
   const flows = readFlowFiles(project, folder)
-  return { files, flows, entries: screenList(files, widths, undefined, null, flows) }
+  return { files, flows, entries: screenList(files, widths, screensFolder, null, flows) }
 }
 
 // The text of a file of a project, by its path relative to the project
@@ -387,7 +405,7 @@ export function readProjectScreens(project: string, screensFolder: string, width
 // and for a folder.
 export function projectReader(project: string): (path: string) => string | null {
   return (path) => {
-    if (path.startsWith('../') || path.startsWith('/')) return null
+    if (!isInnerPath(path)) return null
     const file = join(project, path)
     return existsSync(file) && statSync(file).isFile() ? readFileSync(file, 'utf8') : null
   }

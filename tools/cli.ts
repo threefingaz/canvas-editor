@@ -22,7 +22,7 @@ import { runnerImport } from 'vite'
 import { buildSite, previewSite } from './build.ts'
 import { dev } from './dev.ts'
 import { agentsCommand, initCommand, initProject, syncCommand } from './init.ts'
-import { folderProblem, hostProblem, hostRoot, isFolder, noProjectProblem, projectRoot, projectVariable, toolRoot, type Exists } from './project.ts'
+import { diskCase, folderProblem, hostProblem, hostRoot, isFolder, noProjectProblem, projectRoot, projectVariable, slashes, toolRoot, type Exists } from './project.ts'
 import { toolAliases } from './react-resolve.ts'
 import { statusCommand } from './status.ts'
 
@@ -199,13 +199,16 @@ export async function main(args: readonly string[]): Promise<number> {
     return 1
   }
   const { command } = parsed
-  const dispatch = dispatchOf(command, { env: process.env, cwd: process.cwd(), tool: toolRoot, home: homedir(), exists: existsSync, isFolder })
+  // The current folder in the case of the disk, as the project and the tool
+  // (`diskCase`): each relative path between them is then right.
+  const cwd = diskCase(slashes(process.cwd()))
+  const dispatch = dispatchOf(command, { env: process.env, cwd, tool: toolRoot, home: homedir(), exists: existsSync, isFolder })
   if (dispatch.kind === 'fail') {
     console.error(dispatch.message)
     return 1
   }
-  const { project } = dispatch
-  if (command.name === 'init') return initCommand(toolRoot, project, command.library, process.cwd())
+  const project = diskCase(dispatch.project)
+  if (command.name === 'init') return initCommand(toolRoot, project, command.library, cwd)
   process.env[projectVariable] = project
   switch (command.name) {
     case 'dev':

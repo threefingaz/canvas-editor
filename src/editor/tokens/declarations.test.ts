@@ -112,6 +112,15 @@ describe('factorsOf', () => {
     expect(factorsOf('calc(var(--x, 8px) * 0.5)', '--x')).toEqual([0.5])
   })
 
+  test('a number on each side of the variable gives the product', () => {
+    expect(factorsOf('calc(-1 * var(--x) * 2)', '--x')).toEqual([-2])
+    expect(factorsOf('calc(2 * var(--x) / 4)', '--x')).toEqual([0.5])
+  })
+
+  test('a use divided by 0 has no factor', () => {
+    expect(factorsOf('calc(var(--x) / 0) var(--x)', '--x')).toEqual([1])
+  })
+
   test('a division after the variable', () => {
     expect(factorsOf('calc(var(--x) / 2)', '--x')).toEqual([0.5])
   })
@@ -127,6 +136,21 @@ describe('factorsOf', () => {
   test('a different variable with the same start gives no factor', () => {
     expect(factorsOf('calc(2 * var(--x-y))', '--x')).toEqual([])
     expect(factorsOf('16px', '--x')).toEqual([])
+  })
+
+  test('a number is a word of its own, with an exponent', () => {
+    expect(factorsOf('calc(10e-1 * var(--x))', '--x')).toEqual([1])
+    expect(factorsOf('calc(var(--x) * 2e1)', '--x')).toEqual([20])
+    // A length times the variable, or the variable times a length: no factor.
+    expect(factorsOf('calc(var(--x) * 2px)', '--x')).toEqual([])
+    expect(factorsOf('calc(2px * var(--x))', '--x')).toEqual([])
+  })
+
+  test('a number divided by the variable has no factor; a use after a minus is negative', () => {
+    expect(factorsOf('calc(2 / var(--x))', '--x')).toEqual([])
+    expect(factorsOf('calc(0px - var(--x))', '--x')).toEqual([-1])
+    expect(factorsOf('calc(0px - 2 * var(--x))', '--x')).toEqual([-2])
+    expect(factorsOf('calc(0px + var(--x))', '--x')).toEqual([1])
   })
 
   test('gives each use of the variable in a shorthand', () => {
@@ -194,6 +218,27 @@ describe('walkRules', () => {
     ])
   })
 
+  test('the conditions around the list (the media of the sheet) come first', () => {
+    const rules = [styleRule('.a'), mediaRule('(min-width: 900px)', [styleRule('.b')])]
+    expect(walkRules(rules, always, ['print']).map((entry) => [entry.rule.selectorText, entry.media])).toEqual([
+      ['.a', 'print'],
+      ['.b', 'print and (min-width: 900px)'],
+    ])
+  })
+
+  test('a media list in a media rule gives each query with each query of the other, and all is no condition', () => {
+    const rules = [
+      mediaRule('screen, print', [mediaRule('(width < 768px)', [styleRule('.a')])]),
+      mediaRule('all', [styleRule('.b')]),
+      cssRule('CSSImportRule', { media: { mediaText: 'ALL' }, styleSheet: { cssRules: [styleRule('.c')] } }),
+    ]
+    expect(walkRules(rules, always).map((entry) => [entry.rule.selectorText, entry.media])).toEqual([
+      ['.a', 'screen and (width < 768px), print and (width < 768px)'],
+      ['.b', undefined],
+      ['.c', undefined],
+    ])
+  })
+
   test('gives the style rules in sequence', () => {
     const rules = [styleRule('.a'), styleRule('.b')]
     expect(selectors(walkRules(rules, always))).toEqual(['.a', '.b'])
@@ -230,6 +275,16 @@ describe('walkRules', () => {
     const imported = cssRule('CSSImportRule', { media: { mediaText: '' }, styleSheet: { cssRules: [styleRule('.d')] } })
     expect(selectors(walkRules([imported], always))).toEqual(['.d'])
     expect(walkRules([cssRule('CSSImportRule', { styleSheet: null })], always)).toEqual([])
+  })
+
+  test('skips the sheet of an import rule whose rules cannot be read (a different origin)', () => {
+    const remote = {
+      get cssRules(): ArrayLike<RuleLike> {
+        throw new Error('SecurityError')
+      },
+    }
+    const imported = cssRule('CSSImportRule', { media: { mediaText: '' }, styleSheet: remote })
+    expect(selectors(walkRules([imported, styleRule('.after')], always))).toEqual(['.after'])
   })
 
   test('skips rules that are not style rules or group rules', () => {
@@ -386,6 +441,29 @@ describe('declaredValue', () => {
     })
   })
 
+  test('of a physical side and its logical side in one source, the later declaration wins', () => {
+    // As a `CSSStyleDeclaration` has them: each longhand in the sequence of
+    // the declarations, empty for a shorthand with `var()`.
+    const ordered = (values: Record<string, string>, order: string[], important: string[] = []): StyleSource => ({
+      style: { ...declarations(values, important), length: order.length, item: (index) => order[index] ?? '' },
+      kind: 'rule',
+      specificity: [0, 1, 0],
+      position: 0,
+    })
+    const physical = ['padding-top', 'padding-right', 'padding-bottom', 'padding-left']
+    const logical = ['padding-inline-start', 'padding-inline-end']
+    // `padding: 0; padding-inline: var(--space-4)`.
+    const later = ordered({ padding: '0px', 'padding-left': '0px', 'padding-inline': 'var(--space-4)' }, [...physical, ...logical])
+    expect(declaredValue('padding-left', [later])?.texts).toEqual(['var(--space-4)'])
+    expect(declaredValue('padding-top', [later])?.texts).toEqual(['0px'])
+    // `padding-inline: var(--space-4); padding: var(--space-2)`.
+    const earlier = ordered({ 'padding-inline': 'var(--space-4)', padding: 'var(--space-2)' }, [...logical, ...physical])
+    expect(declaredValue('padding-left', [earlier])?.texts).toEqual(['var(--space-2)'])
+    // `!important` wins over the later declaration.
+    const marked = ordered({ 'padding-left': '8px', 'padding-inline': 'var(--space-4)' }, ['padding-left', ...logical], ['padding-left'])
+    expect(declaredValue('padding-left', [marked])?.texts).toEqual(['8px'])
+  })
+
   test('reads the text of a shorthand when the longhand is empty', () => {
     // A shorthand with `var()` gives an empty text for its longhands.
     const list = sources(['.a', { padding: 'calc(4 * var(--mui-spacing, 8px))' }])
@@ -446,6 +524,10 @@ describe('selectorParts', () => {
     expect(selectorParts('[title="a, b"], .e')).toEqual(['[title="a, b"]', '.e'])
     expect(selectorParts("[title='x,y']")).toEqual(["[title='x,y']"])
     expect(selectorParts('.a\\,b, .c')).toEqual(['.a\\,b', '.c'])
+
+    // A quote after a backslash does not end the quoted text.
+    expect(selectorParts('[title="a\\", b"], .e')).toEqual(['[title="a\\", b"]', '.e'])
+    expect(selectorParts(":is([title='a\\', b'], .f), .g")).toEqual([":is([title='a\\', b'], .f)", '.g'])
   })
 
   test('leaves out empty parts', () => {

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vitest'
 import {
+  sameRect,
   canScroll,
   centerOn,
   centerRect,
@@ -23,6 +24,18 @@ import {
 } from './viewport.ts'
 
 const start: View = { x: 100, y: 50, scale: 1 }
+
+describe('sameRect', () => {
+  test('equal rectangles, and two missing ones', () => {
+    const rect = { x: 1, y: 2, width: 3, height: 4 }
+    expect(sameRect(rect, { ...rect })).toBe(true)
+    expect(sameRect(rect, { ...rect, height: 5 })).toBe(false)
+    expect(sameRect(null, null)).toBe(true)
+    expect(sameRect(undefined, null)).toBe(true)
+    expect(sameRect(undefined, rect)).toBe(false)
+    expect(sameRect(rect, null)).toBe(false)
+  })
+})
 
 describe('pan', () => {
   test('moves the world by the delta', () => {

@@ -11,12 +11,14 @@ import {
   closedBubble,
   commentsOf,
   draftKey,
+  draftScreen,
   joinDrafts,
   liveTarget,
   newBoxOf,
   pinEvent,
   type Bubble,
   type BubbleTarget,
+  type OpenBubble,
 } from './bubble.ts'
 import { lostPin, screenPin } from './pins.ts'
 
@@ -65,6 +67,16 @@ describe('bubbleAfter', () => {
   test('the last comment of a pin goes (an undo, a discard, the request file): the bubble closes', () => {
     expect(bubbleAfter(pin, { type: 'comments', left: 0 })).toEqual(closedBubble)
     expect(bubbleAfter(lost, { type: 'comments', left: 0 })).toEqual(closedBubble)
+  })
+
+  test('the last comment of a pin goes while its box has a draft: the bubble of a new comment of its place, with the same key', () => {
+    const next = bubbleAfter(pin, { type: 'comments', left: 0, draft: true })
+    expect(next).toEqual({ kind: 'new', target: element, key: bubblePlace(pin as OpenBubble) })
+    const detached = bubbleAfter({ ...(pin as OpenBubble), detached: true } as Bubble, { type: 'comments', left: 0, draft: true })
+    expect(detached).toMatchObject({ kind: 'new', detached: true })
+    expect(liveTarget(detached as OpenBubble)).toBeNull()
+    // The pin of the lost comments has no box.
+    expect(bubbleAfter(lost, { type: 'comments', left: 0, draft: true })).toEqual(closedBubble)
   })
 
   test('a pin with comments left stays open', () => {
@@ -341,5 +353,12 @@ describe('bubblePlace', () => {
   test('each kind and each place have their own key', () => {
     const keys = new Set(open.map((state) => bubblePlace(state as Exclude<Bubble, { kind: 'closed' }>)))
     expect(keys.size).toBe(open.length)
+  })
+})
+
+describe('draftScreen', () => {
+  test('gives the screen of a key of draftKey', () => {
+    expect(draftScreen(draftKey({ screenId: 'onboarding/welcome', loc: null }))).toBe('onboarding/welcome')
+    expect(draftScreen(draftKey({ screenId: 'a', loc: 'screens/a.tsx:3:5' }))).toBe('a')
   })
 })

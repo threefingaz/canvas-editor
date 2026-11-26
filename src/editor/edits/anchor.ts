@@ -242,7 +242,8 @@ function shiftOf(target: Look, previous: readonly ScreenElement[], elements: rea
   return samePlace(sure.get(placeKey(target)), moved) ? lines : null
 }
 
-// The place in `elements` of the element at `loc` in `previous`, after a
+// The place in `elements` of the element at `loc` in `previous` (its copy
+// `index`, for a place that a list renders more than one time), after a
 // change of the screen file: where an edit of that element moves
 // (`shiftOf`). Null when the element is not in `previous` or its new place is
 // not certain. The selection follows its element with it, thus an open
@@ -251,8 +252,9 @@ export function placeAfter(
   loc: string,
   previous: readonly ScreenElement[],
   elements: readonly ScreenElement[],
+  index = 0,
 ): string | null {
-  const element = previous.find((entry) => locOf(entry) === loc)
+  const element = previous.filter((entry) => locOf(entry) === loc)[index]
   const lines = element ? shiftOf(element, previous, elements) : null
   return element && lines !== null ? locOf({ ...element, line: element.line + lines }) : null
 }
@@ -273,7 +275,7 @@ export function followPlace(
   previous: readonly ScreenElement[],
   elements: readonly ScreenElement[],
 ): string | null {
-  const moved = placeAfter(loc, previous, elements)
+  const moved = placeAfter(loc, previous, elements, index)
   if (moved !== null) return moved
   const before = previous.filter((entry) => locOf(entry) === loc)[index]
   const now = elements.filter((entry) => locOf(entry) === loc)[index]
@@ -340,6 +342,10 @@ export function anchor(
 // the document before (`carried`), and each target that a check saw (`seen`).
 // `first` is true for the first document that the editor read for the screen:
 // a target that is not current there came from the request file (`unknown`).
+// `waiting`: the unknown targets that a check of this document did not find
+// (a lazy part of the screen can render them later); a later read of the same
+// document checks them again as unknown, and a new document counts them as
+// seen.
 export type Reading<D> = {
   document: D
   elements: readonly ScreenElement[]
@@ -348,6 +354,7 @@ export type Reading<D> = {
   current: ReadonlySet<string>
   carried: ReadonlySet<string>
   seen: ReadonlySet<string>
+  waiting?: ReadonlySet<string>
 }
 
 const targetKey = (id: string, target: Place) => `${id}\n${locOf(target)}`
@@ -381,7 +388,7 @@ export function nextReading<D>(
     first: false,
     current: new Set(),
     carried: last.current,
-    seen: last.seen,
+    seen: last.waiting && last.waiting.size > 0 ? new Set([...last.seen, ...last.waiting]) : last.seen,
   }
 }
 
@@ -401,12 +408,21 @@ export function anchorWrites<D>(
   const writes: AnchorWrite[] = []
   const current = new Set(reading.current)
   const seen = new Set(reading.seen)
+  const waiting = new Set(reading.waiting)
   for (const { edit, stale: wasStale } of items) {
     if (!isPlaced(edit)) continue
     const { id, target } = edit
-    const found = anchor(edit, baseOf(reading, edit), reading.elements, reading.previous)
+    const base = baseOf(reading, edit)
+    const found = anchor(edit, base, reading.elements, reading.previous)
     const stale = found.status === 'stale'
-    seen.add(targetKey(id, target))
+    const key = targetKey(id, target)
+    // An unknown target that this document does not have yet stays unknown
+    // for the next read of the document.
+    if (base === 'unknown' && stale) waiting.add(key)
+    else {
+      waiting.delete(key)
+      seen.add(key)
+    }
     if (found.status === 'moved') {
       const key = targetKey(id, { file: target.file, line: found.line, column: found.column })
       current.add(key)
@@ -417,7 +433,7 @@ export function anchorWrites<D>(
       if ((wasStale === true) !== stale) writes.push({ id, stale })
     }
   }
-  return { writes, reading: { ...reading, current, seen } }
+  return { writes, reading: { ...reading, current, seen, waiting } }
 }
 
 // The part of the edits store that `anchorScreen` writes to.

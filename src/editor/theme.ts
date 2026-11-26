@@ -1,5 +1,6 @@
 import { useCallback, useLayoutEffect, useState } from 'react'
 import { useMediaQuery } from './media-query.ts'
+import { readStored, writeStored } from './stored.ts'
 
 // The editor theme follows the light or dark setting of the system. The user
 // can choose a theme with the switch; the choice is kept in `localStorage`.
@@ -24,23 +25,13 @@ export function parseChoice(value: string | null): ThemeChoice {
   return value === 'light' || value === 'dark' ? value : null
 }
 
-// `localStorage` can be missing (Node in the tests) or blocked by the browser:
-// then there is no choice, and a choice is kept for this session only.
+// With no storage there is no choice (`readStored`).
 export function readChoice(): ThemeChoice {
-  try {
-    return parseChoice(window.localStorage.getItem(storageKey))
-  } catch {
-    return null
-  }
+  return parseChoice(readStored(storageKey))
 }
 
 export function writeChoice(choice: ThemeChoice) {
-  try {
-    if (choice === null) window.localStorage.removeItem(storageKey)
-    else window.localStorage.setItem(storageKey, choice)
-  } catch {
-    // The choice is kept for this session only.
-  }
+  writeStored(storageKey, choice)
 }
 
 // The theme scope is the root element, thus popups in a portal get it too.

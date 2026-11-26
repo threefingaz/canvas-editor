@@ -8,7 +8,7 @@ import { createRequire } from 'node:module'
 import { dirname, join, posix } from 'node:path'
 import { build, preview } from 'vite'
 import { configFile, serverOptions, type ServeOptions } from './dev.ts'
-import { currentProject, distFolder, slashes, toolRoot, type Exists } from './project.ts'
+import { currentProject, distFolder, samePath, slashes, toolRoot, type Exists } from './project.ts'
 
 // The path of the `tsc` script of the TypeScript package of the tool: `bin.tsc`
 // of its `package.json` (the package exports no path of its bin).
@@ -28,11 +28,15 @@ export function distProblem(dist: string, standalone: boolean, entries: readonly
   return `The folder ${dist} has files that are not a site of canvas build, and the build would delete them. Move them, or name a different project folder with --project.`
 }
 
+// The names in the folder, or null with no folder. A path that is a file, or
+// a folder that cannot be read, is not an empty folder: the error stops the
+// build before Vite empties the folder.
 function readEntries(folder: string): string[] | null {
   try {
     return readdirSync(folder)
-  } catch {
-    return null
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
   }
 }
 
@@ -56,7 +60,7 @@ function readIndex(folder: string): string | null {
 export type TypeCheck = { args: string[]; cwd: string }
 
 export function typeCheckOf(project: string, tool: string, exists: Exists): TypeCheck | null {
-  if (slashes(project) === slashes(tool)) return { args: ['-b'], cwd: tool }
+  if (samePath(project, tool)) return { args: ['-b'], cwd: tool }
   const tsconfig = posix.join(slashes(project), 'tsconfig.json')
   if (!exists(tsconfig)) return null
   return { args: ['-p', tsconfig, '--noEmit'], cwd: slashes(project) }
@@ -97,7 +101,7 @@ function typeCheck(): Promise<number> {
 export async function buildSite(): Promise<number> {
   const project = currentProject()
   const dist = posix.join(project, distFolder)
-  const problem = distProblem(dist, slashes(project) === toolRoot, readEntries(dist), readIndex(dist))
+  const problem = distProblem(dist, samePath(project, toolRoot), readEntries(dist), readIndex(dist))
   if (problem !== null) {
     console.error(problem)
     return 1

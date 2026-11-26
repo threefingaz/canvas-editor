@@ -1,11 +1,13 @@
 import { ArrowCounterClockwiseIcon, CheckIcon, PencilSimpleIcon } from '@phosphor-icons/react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { screens } from 'virtual:canvas-screens'
+import { counted } from '../../words.ts'
 import type { TrashItem } from '../../requests/api.ts'
 import { useEditScreens } from '../edits/store.ts'
 import { useIssueScreens } from '../issues/store.ts'
 import { screensClient } from '../screens/client.ts'
 import { runScreenAction } from '../screens/run.ts'
+import { messageOf } from '../../tokens/format.ts'
 import { Button, PanelContentSurface } from '../ui'
 import { cn } from '../ui/lib/utils.ts'
 import { projectRows, projectTotals, rowNote, totalsText, type ProjectRow } from './model.ts'
@@ -31,10 +33,6 @@ type ProjectProps = {
   // The listed screen: its row has a mark.
   listed: string | null
   onOpenScreen: (id: string) => void
-}
-
-function counted(count: number, one: string, many: string): string {
-  return `${count} ${count === 1 ? one : many}`
 }
 
 export function Project({ listed, onOpenScreen }: ProjectProps) {
@@ -88,6 +86,13 @@ function DeletedScreens({ list }: { list: typeof screens }) {
   const [asked, setAsked] = useState(0)
   const [busy, setBusy] = useState<string | null>(null)
   const [refusals, setRefusals] = useState<{ folder: string; reasons: string[] } | null>(null)
+  // A new list of screens (a delete, a restore, an agent) makes the refusals
+  // of an earlier restore old.
+  const [refusalsFor, setRefusalsFor] = useState(list)
+  if (refusalsFor !== list) {
+    setRefusalsFor(list)
+    setRefusals(null)
+  }
   useEffect(() => {
     let live = true
     void screensClient.trash().then((result) => {
@@ -98,13 +103,24 @@ function DeletedScreens({ list }: { list: typeof screens }) {
     }
   }, [asked, list])
 
+  // True from a click until the answer: a second click before the next render
+  // starts no second restore.
+  const restoring = useRef(false)
   const restore = async (folder: string) => {
+    if (restoring.current) return
+    restoring.current = true
     setBusy(folder)
-    const result = await runScreenAction({ action: 'restore', folder }, list)
-    setBusy(null)
-    setRefusals(
-      result.status === 'applied' ? null : { folder, reasons: result.status === 'refused' ? result.refusals : [result.error] },
-    )
+    let reasons: string[] | null
+    try {
+      const result = await runScreenAction({ action: 'restore', folder }, list)
+      reasons = result.status === 'applied' ? null : result.status === 'refused' ? result.refusals : [result.error]
+    } catch (error) {
+      reasons = [messageOf(error)]
+    } finally {
+      restoring.current = false
+      setBusy(null)
+    }
+    setRefusals(reasons === null ? null : { folder, reasons })
     setAsked((count) => count + 1)
   }
 

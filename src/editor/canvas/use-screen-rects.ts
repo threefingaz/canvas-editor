@@ -51,8 +51,8 @@ export function useMeasureRects(
   screenId: string,
   document: Document | null,
   enabled: boolean,
-  links: readonly string[] = noLinks,
-  part: string | null = null,
+  links: readonly string[],
+  part: string | null,
 ) {
   const items = useScreenEdits(screenId)
   const targets = enabled && items.some(measured)
@@ -110,6 +110,9 @@ export function useMeasureRects(
       if (pending !== 0) return
       pending = requestAnimationFrame(() => {
         pending = 0
+        // A frame that started to load again has a document with no window:
+        // its nodes have no size until the new document comes (`onLoad`).
+        if (!frameWindowOf(document)) return
         if (walk) {
           walk = false
           nodes = targets ? targetNodes(document, items, measured) : null
@@ -156,10 +159,6 @@ export function useMeasureRects(
     [screenId],
   )
 }
-
-// The list of a screen with no link: one array, thus the effect of the
-// measure does not run again at each render.
-const noLinks: readonly string[] = []
 
 // The marks that a layer of the canvas derives from the edits of one screen
 // and the shared rectangles of its targets (`rectsResult`): the pins of the

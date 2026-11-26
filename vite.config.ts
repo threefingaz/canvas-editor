@@ -8,7 +8,7 @@ import { config } from './canvas.config.ts'
 import { frameBase } from './src/frame/screen-id.ts'
 import { agentPlugin } from './tools/agent-plugin.ts'
 import { libraryPlugin } from './tools/library-plugin.ts'
-import { packOf, providerPath, readPackState } from './tools/pack.ts'
+import { packOf, providerPath, readPackState, sourceFolders } from './tools/pack.ts'
 import { packPlugin } from './tools/pack-plugin.ts'
 import { readProjectSettings } from './tools/project-config.ts'
 import { projectPlugin } from './tools/project-plugin.ts'
@@ -72,14 +72,21 @@ export async function canvasConfig(role: Role, command: 'build' | 'serve'): Prom
   const pack = packOf(readPackState(project))
   const work = posix.join(project, config.work)
   const input = { site: posix.join(root, siteEntry) }
+  // A folder that would serve each file there (the home folder, the root of
+  // the file system; `hostProblem`) is not served.
+  const home = homedir()
+  const servable = (folder: string) => hostProblem(folder, home) === null
+  const sources = pack === null ? [] : sourceFolders(pack, host).filter(servable)
   const shared: UserConfig = {
     root,
     server: {
-      // The dev server serves the files of the tool, of the project and of
-      // the host (a library that is a folder of the host, its packages). A
-      // host that is the home folder or the root of the file system
-      // (`hostProblem`) is left out: it would serve each file there.
-      fs: { allow: hostProblem(host, homedir()) === null ? [root, project, host] : [root, project] },
+      // The dev server serves the files of the tool, of the project, of the
+      // host (a library that is a folder of the host, its packages) and of
+      // each folder source of the pack, also one outside the host
+      // (`../shared/ui`, `/opt/ui`). A host or a folder that is the home
+      // folder or the root of the file system (`hostProblem`) is left out: it
+      // would serve each file there.
+      fs: { allow: [root, project, ...(servable(host) ? [host] : []), ...sources] },
       // The caches of the dependency step in the work folder of the project
       // are no events.
       watch: { ignored: [cacheMatcher(project, config.work)] },

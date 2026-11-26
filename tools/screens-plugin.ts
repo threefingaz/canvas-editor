@@ -32,7 +32,7 @@
 // `virtual:canvas-screen-modules` (`screen-modules.ts`), the loader of each
 // screen file, and tells the frames and the site pages which screens changed.
 
-import { existsSync, readdirSync, readFileSync } from 'node:fs'
+import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs'
 import { join, relative, sep } from 'node:path'
 import { normalizePath, type Plugin } from 'vite'
 import { config } from '../canvas.config.ts'
@@ -58,36 +58,57 @@ const publicId = 'virtual:canvas-screens'
 const resolvedId = `\0${publicId}`
 const resolvedModulesId = `\0${screenModulesId}`
 
-// The screen files in the folder, as paths in it with `/` between the parts:
-// 'onboarding/welcome.tsx'.
-export function screenNames(folder: string): string[] {
+// The files in the folder and its sub folders, as paths in it with `/`
+// between the parts. A folder (also one whose name ends with `.tsx`) and a
+// path that cannot be read (a link to nothing) are left out.
+function filesIn(folder: string): string[] {
   if (!existsSync(folder)) return []
   return readdirSync(folder, { recursive: true, encoding: 'utf8' })
-    .filter((name) => name.endsWith(screenExtension))
+    .filter((name) => {
+      try {
+        return statSync(join(folder, name)).isFile()
+      } catch {
+        return false
+      }
+    })
     .map((name) => name.split(sep).join('/'))
 }
 
+// The screen files in the folder, as paths in it with `/` between the parts:
+// 'onboarding/welcome.tsx'.
+export function screenNames(folder: string): string[] {
+  return filesIn(folder).filter((name) => name.endsWith(screenExtension))
+}
+
+// The text of a file that the list of the folder named, or null when it is
+// gone since (a fast change of the screens folder); each other error throws.
+function readListed(path: string): string | null {
+  try {
+    return readFileSync(path, 'utf8')
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null
+    throw error
+  }
+}
+
 export function readScreenFiles(root: string, folder: string): ScreenFile[] {
-  return screenNames(folder).map((name) => {
+  return screenNames(folder).flatMap((name) => {
     const path = join(folder, name)
-    return { file: relative(root, path).split(sep).join('/'), code: readFileSync(path, 'utf8') }
+    const code = readListed(path)
+    return code === null ? [] : [{ file: relative(root, path).split(sep).join('/'), code }]
   })
 }
 
 // The `flow.json` files in the folder, also in a sub folder, with the flow of
 // each. `root` is the project root.
 export function readFlowFiles(root: string, folder: string): FlowFile[] {
-  if (!existsSync(folder)) return []
-  return readdirSync(folder, { recursive: true, encoding: 'utf8' })
-    .map((name) => name.split(sep).join('/'))
+  return filesIn(folder)
     .filter((name) => isFlowName(name))
-    .map((name) => {
+    .flatMap((name) => {
       const path = join(folder, name)
-      return {
-        flow: name.slice(0, -flowFileName.length).replace(/\/$/, ''),
-        file: relative(root, path).split(sep).join('/'),
-        text: readFileSync(path, 'utf8'),
-      }
+      const text = readListed(path)
+      if (text === null) return []
+      return [{ flow: name.slice(0, -flowFileName.length).replace(/\/$/, ''), file: relative(root, path).split(sep).join('/'), text }]
     })
 }
 
@@ -213,8 +234,9 @@ export function screensPlugin(pack: Pack | null, { project, widths, guide, frame
         if (this.environment.name !== 'client') return
         const graph = this.environment.moduleGraph
         const listModule = graph.getModuleById(resolvedId)
+        const path = normalizePath(file)
         const update = screensUpdate({
-          file: normalizePath(file),
+          file: path,
           type,
           folder,
           tokenFile,
@@ -227,7 +249,7 @@ export function screensPlugin(pack: Pack | null, { project, widths, guide, frame
             lastCode = code
             return true
           },
-          affected: () => affectedScreenIds(file, modules, folder),
+          affected: () => affectedScreenIds(path, modules, folder),
         })
         const modulesModule = graph.getModuleById(resolvedModulesId)
         // The time of the update gives the address of the map a new query in a

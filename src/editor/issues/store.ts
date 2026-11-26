@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react'
 import type { Issue } from '../../requests/format.ts'
+import { own } from '../../own.ts'
 
 // The Issues list of each screen, by screen id, as `useIssues` reads it from
 // the frame documents. A screen has no key before its first reading. A new
@@ -33,15 +34,15 @@ export function createIssuesStore(): IssuesStore {
   const listeners = new Set<() => void>()
   return {
     screens: () => screens,
-    get: (screenId) => screens[screenId],
+    get: (screenId) => own(screens, screenId),
     set: (screenId, issues) => {
-      const current = screens[screenId]
+      const current = own(screens, screenId)
       if (current !== undefined && sameIssues(current, issues)) return
       screens = { ...screens, [screenId]: issues }
       for (const listener of listeners) listener()
     },
     drop: (screenId) => {
-      if (!(screenId in screens)) return
+      if (!Object.hasOwn(screens, screenId)) return
       const next = { ...screens }
       delete next[screenId]
       screens = next

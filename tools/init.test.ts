@@ -15,6 +15,7 @@ import {
   initPlan,
   initProject,
   inputOf,
+  installedPackage,
   libraryCandidates,
   packNameOf,
   parseLibrary,
@@ -25,9 +26,11 @@ import {
   syncPlan,
   agentsPlan,
   toolFolderRow,
+  toolVersionOf,
+  workspaceOf,
   type InitInput,
 } from './init.ts'
-import { slashes, toolRoot } from './project.ts'
+import { foldsCase, slashes, toolRoot } from './project.ts'
 
 const folders: string[] = []
 
@@ -87,12 +90,61 @@ function makeTool(): string {
 }
 
 describe('the pure parts', () => {
+  test('toolVersionOf: the version of the package, or unknown', () => {
+    expect(toolVersionOf('{ "version": "0.2.5" }')).toBe('0.2.5')
+    expect(toolVersionOf(null)).toBe('unknown')
+    expect(toolVersionOf('{ "name": "x" }')).toBe('unknown')
+    expect(toolVersionOf('{ "version": 3 }')).toBe('unknown')
+    expect(toolVersionOf('not json')).toBe('unknown')
+  })
+
+  test('workspaceOf: the nearest package from the folder up to the host, or the host', () => {
+    const files = new Set(['/repo/package.json', '/repo/apps/web/package.json'])
+    const exists = (path: string) => files.has(path)
+    expect(workspaceOf('/repo/apps/web/src', '/repo', exists)).toBe('/repo/apps/web')
+    expect(workspaceOf('/repo/docs', '/repo', exists)).toBe('/repo')
+    // A folder outside the host gives the host.
+    expect(workspaceOf('/elsewhere/app', '/repo', exists)).toBe('/repo')
+  })
+
+  test.runIf(foldsCase)('workspaceOf and initProject fold the case of the letters where the file system has none', () => {
+    const exists = (path: string) => path === '/Repo/apps/web/package.json' || path === '/T/package.json'
+    expect(workspaceOf('/Repo/apps/web/src', '/repo', exists)).toBe('/Repo/apps/web')
+    expect(workspaceOf('/Repo/docs', '/repo', exists)).toBe('/repo')
+    expect(initProject(null, {}, '/T/src', '/t', exists)).toBe('/t')
+  })
+
+  test('initProject in a package of a clone of the tool is the tool; an installed tool is not', () => {
+    const exists = (path: string) => path === '/t/package.json' || path === '/t/packs/mui/package.json'
+    expect(initProject(null, {}, '/t/packs/mui', '/t', exists)).toBe('/t')
+    expect(initProject(null, {}, '/h/node_modules/canvas-editor/x', '/h/node_modules/canvas-editor', () => false)).toBe(
+      '/h/node_modules/canvas-editor/x/canvas',
+    )
+  })
+
+  test('workspaceOf and installedPackage stop at the root of a drive of Windows', () => {
+    expect(workspaceOf('C:/app/src', 'C:/', () => false)).toBe('C:/')
+    expect(workspaceOf('C:/app/src', 'C:/', (path) => path === 'C:/app/package.json')).toBe('C:/app')
+    const read: string[] = []
+    const disk = {
+      read: (path: string) => {
+        read.push(path)
+        return path === 'D:/node_modules/kit/package.json' ? '{ "name": "kit" }' : null
+      },
+      entries: () => null,
+    }
+    expect(installedPackage(disk, 'D:/work/canvas', 'kit')).toEqual({ name: 'kit' })
+    expect(installedPackage(disk, 'D:/work/canvas', 'other')).toBeNull()
+    expect(read.every((path) => path.startsWith('D:/'))).toBe(true)
+  })
+
   test('packNameOf: the scope, the name, or the folder, as a pack name', () => {
     expect(packNameOf('@mui/material')).toBe('mui')
     expect(packNameOf('@chakra-ui/react')).toBe('chakra-ui')
     expect(packNameOf('antd')).toBe('antd')
     expect(packNameOf('My_Lib.js')).toBe('my-lib-js')
     expect(packNameOf('./src/design-system/')).toBe('design-system')
+    expect(packNameOf('C:\\work\\ui')).toBe('ui')
     expect(packNameOf('@/x')).toBe('library')
   })
 
@@ -102,6 +154,8 @@ describe('the pure parts', () => {
     expect(parseLibrary('antd@5.1.0')).toEqual({ source: 'antd', range: '5.1.0' })
     expect(parseLibrary('antd@')).toEqual({ source: 'antd', range: null })
     expect(parseLibrary('./src/ui')).toEqual({ source: './src/ui', range: null })
+    expect(parseLibrary('.\\src\\ui@x')).toEqual({ source: '.\\src\\ui@x', range: null })
+    expect(packNameOf('..\\shared\\ui')).toBe('ui')
   })
 
   test('libraryCandidates: the dependencies with React as a peer, not React itself and not the development ones', () => {
@@ -125,9 +179,15 @@ describe('the pure parts', () => {
   test('stylesheetOf: a path of exports that ends with .css, else the field style', () => {
     expect(stylesheetOf('@acme/ui', { exports: { '.': './i.js', './styles.css': './dist/s.css', './theme.css': './t.css' } })).toBe('@acme/ui/styles.css')
     expect(stylesheetOf('lib', { exports: { '.': './i.js' }, style: 'dist/lib.css' })).toBeNull()
+    expect(stylesheetOf('lib', { exports: './i.js', style: 'dist/lib.css' })).toBeNull()
+    expect(stylesheetOf('lib', { exports: ['./i.js'], style: 'dist/lib.css' })).toBeNull()
+    expect(stylesheetOf('lib', { exports: null, style: 'dist/lib.css' })).toBe('lib/dist/lib.css')
     expect(stylesheetOf('lib', { exports: { '.': './i.js', './*': './*' }, style: './dist/lib.css' })).toBe('lib/dist/lib.css')
+    expect(stylesheetOf('lib', { exports: { '.': './i.js', './*': null }, style: './dist/lib.css' })).toBeNull()
     expect(stylesheetOf('lib', { style: 'dist/lib.css' })).toBe('lib/dist/lib.css')
     expect(stylesheetOf('lib', { exports: { './*.css': './css/*.css' } })).toBeNull()
+    // A blocked path is no stylesheet.
+    expect(stylesheetOf('lib', { exports: { './internal.css': null, './styles.css': './s.css' } })).toBe('lib/styles.css')
     expect(stylesheetOf('lib', { main: 'i.js' })).toBeNull()
     expect(stylesheetOf('lib', null)).toBeNull()
   })
@@ -135,6 +195,8 @@ describe('the pure parts', () => {
   test('runOf: npx below node_modules, else the script of the clone from the project', () => {
     expect(runOf('/h/node_modules/canvas-editor', '/h/canvas', '/h')).toEqual({ command: 'npx canvas', where: '' })
     expect(runOf('/w/canvas-editor', '/w/app/canvas', '/w/app')).toEqual({ command: 'node ../../canvas-editor/bin/canvas.js', where: ', in the folder of this file' })
+    // A clone on a different drive of Windows: its full path.
+    expect(runOf('D:/canvas-editor', 'C:/app/canvas', 'C:/app').command).toBe('node D:/canvas-editor/bin/canvas.js')
     // A project in a different folder than canvas/: the lookup finds it only
     // from its own folder.
     expect(runOf('/h/node_modules/canvas-editor', '/h/canvas-proto', '/h')).toEqual({ command: 'npx canvas', where: ', in the folder of this file' })
@@ -299,7 +361,15 @@ describe('syncPlan and agentsPlan', () => {
     write(join(host, 'canvas/guide/requests.md'), 'changed by hand\n')
     write(join(host, 'canvas/guide/old.md'), 'an older file\n')
     write(join(host, '.agents/skills/canvas-old/SKILL.md'), '---\nname: canvas-old\ndescription: x\n---\n\nThis is a stub. The skill is `canvas/guide/skills/canvas-old/SKILL.md`.\n')
+    // A file of the system does not keep an outdated stub.
+    write(join(host, '.agents/skills/canvas-old/.DS_Store'), 'x')
     write(join(host, '.agents/skills/canvas-team/SKILL.md'), '---\nname: canvas-team\ndescription: a skill of the team\n---\n')
+    // A skill of the user that quotes the stub line, and a stub folder with a
+    // file of the user, stay.
+    const quoted = '---\nname: canvas-notes\ndescription: x\n---\n\nOur notes. This is a stub. The skill is `x`.\n\nMore notes.\n'
+    write(join(host, '.agents/skills/canvas-notes/SKILL.md'), quoted)
+    write(join(host, '.agents/skills/canvas-extra/SKILL.md'), '---\nname: canvas-extra\ndescription: x\n---\n\nThis is a stub. The skill is `x`.\n')
+    write(join(host, '.agents/skills/canvas-extra/notes.md'), 'mine\n')
     write(join(host, 'AGENTS.md'), '# Host\n')
     const plan = syncPlan(hostInput(host))
     expect(plan.refusals).toEqual([])
@@ -308,15 +378,31 @@ describe('syncPlan and agentsPlan', () => {
     applyInit(plan)
     expect(read(join(host, 'canvas/guide/requests.md'))).toBe(read(join(toolRoot, 'guide/requests.md')))
     expect(existsSync(join(host, '.agents/skills/canvas-team/SKILL.md'))).toBe(true)
+    expect(read(join(host, '.agents/skills/canvas-notes/SKILL.md'))).toBe(quoted)
+    expect(existsSync(join(host, '.agents/skills/canvas-extra/notes.md'))).toBe(true)
     expect(syncPlan(hostInput(host))).toMatchObject({ writes: [], removes: [] })
   })
 
-  test('sync of a folder with no project is a refusal; agents writes only the stubs', () => {
+  test('sync and agents of a folder with no project are a refusal; agents writes only the stubs', () => {
     const host = makeHost()
     expect(syncPlan(hostInput(host)).refusals[0]).toContain('Run canvas init first')
+    expect(agentsPlan(hostInput(host)).refusals[0]).toContain('Run canvas init first')
+    expect(agentsPlan({ ...hostInput(host), project: host }).refusals[0]).toContain('is the root of the host')
+    write(join(host, 'canvas/canvas.config.ts'), 'export default {}\n')
     const plan = agentsPlan(hostInput(host))
+    expect(plan.refusals).toEqual([])
     expect(plan.writes.length).toBeGreaterThan(0)
     expect(plan.writes.every((item) => item.path.startsWith(`${host}/.agents/skills/`))).toBe(true)
+  })
+
+  // On a file system that keeps the case apart, a different case is a
+  // different folder.
+  test.skipIf(process.platform === 'linux')('standalone, a project spelled in a different case gives the stubs of the tool', () => {
+    const tool = makeTool()
+    const project = tool.toUpperCase()
+    const plan = agentsPlan({ disk: diskOf(), tool, host: project, project, library: null })
+    expect(plan.writes.length).toBeGreaterThan(0)
+    expect(plan).toEqual(agentsPlan({ disk: diskOf(), tool, host: tool, project: tool, library: null }))
   })
 })
 

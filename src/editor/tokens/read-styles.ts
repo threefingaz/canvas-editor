@@ -11,7 +11,7 @@ import {
   type StyleSource,
   type ValueSource,
 } from './declarations.ts'
-import type { TextDeclared, ValueGroup } from './match.ts'
+import { previewedStyle, previewTextStyle, type TextDeclared, type ValueGroup } from './match.ts'
 
 // Reads the style values of an element of a frame document: for each property
 // that the inspector shows, the computed value and the declaration that wins.
@@ -139,7 +139,11 @@ function sourcesOf(node: Element, window: FrameWindow): StyleSource[] {
     } catch {
       continue
     }
-    for (const { rule, media } of walkRules(rules, (group) => ruleApplies(window, group))) {
+    // The media of the sheet is a condition of each of its rules, as a media
+    // rule around them; `all` holds everywhere.
+    const sheetMedia = sheet.media?.mediaText.trim() ?? ''
+    const outer = sheetMedia === '' || sheetMedia.toLowerCase() === 'all' ? [] : [sheetMedia]
+    for (const { rule, media } of walkRules(rules, (group) => ruleApplies(window, group), outer)) {
       const strength = matchingSelector(rule.selectorText, (part) => matchesSelector(node, part))
       if (!strength) continue
       const source: StyleSource = { style: rule.style, kind: 'rule', specificity: strength, position: sources.length }
@@ -186,15 +190,17 @@ export function readStyles(node: Element): ElementStyles {
   // The sources of the root element, read only when a variable needs them.
   const root = (node.ownerDocument as { documentElement?: Element | null }).documentElement ?? null
   const rootSources = () => (root ? sourcesFor(root) : [])
-  // The winning declaration, and true when it is on a parent node.
-  const declaredFor = (property: string): { declared: DeclaredValue; inherited: boolean } | null => {
+  // The winning declaration, the element that declares it, and true when it
+  // is on a parent node.
+  type Found = { declared: DeclaredValue; element: Element; inherited: boolean }
+  const declaredFor = (property: string): Found | null => {
     if (!inheritedProperties.has(property)) {
       const declared = declaredValue(property, sourcesFor(node), rootSources)
-      return declared && { declared, inherited: false }
+      return declared && { declared, element: node, inherited: false }
     }
     for (let element: Element | null = node; element; element = parentOf(element)) {
       const declared = declaredValue(property, sourcesFor(element), rootSources)
-      if (ownValue(declared)) return { declared, inherited: element !== node }
+      if (ownValue(declared)) return { declared, element, inherited: element !== node }
     }
     return null
   }
@@ -213,13 +219,26 @@ export function readStyles(node: Element): ElementStyles {
 
   const textComputed = {} as TextStyle
   const texts = new Set<string>()
+  const textElements = new Set<Element>()
   let textInline = false
   for (const part of textStyleParts) {
     const property = cssProperty(part)
     textComputed[part] = computed.getPropertyValue(property)
     const found = declaredFor(property)
     for (const text of found?.declared.texts ?? []) texts.add(text)
+    if (found) textElements.add(found.element)
     if (found && !found.inherited && found.declared.source.inline) textInline = true
+  }
+  // The mark of a previewed text style counts only on the nearest element
+  // that declares a part of the text style: the mark is a custom property and
+  // inherits, thus a node inside a previewed element that declares its own
+  // parts does not take the style of that element.
+  let previewed: string | null = null
+  for (let element: Element | null = node; element; element = parentOf(element)) {
+    if (!textElements.has(element)) continue
+    const mark = declaredValue(previewTextStyle, sourcesFor(element))
+    previewed = mark ? previewedStyle(mark.texts[0]) : null
+    break
   }
 
   return {
@@ -228,9 +247,15 @@ export function readStyles(node: Element): ElementStyles {
       computed: textComputed,
       texts: [...texts],
       inline: textInline,
-      // The element or a parent: a text style is inherited too.
+      previewed,
+      // The element or a parent: a text style is inherited too. Only an
+      // element that declares a part of the text style counts, as for the
+      // mark: a node inside a matched element that declares all its own parts
+      // does not have the style of that element. With no declared part found
+      // (a rule that cannot be read), each parent counts, as before.
       matches: (selector) => {
         for (let element: Element | null = node; element; element = parentOf(element)) {
+          if (textElements.size > 0 && !textElements.has(element)) continue
           if (matchesSelector(element, selector)) return true
         }
         return false

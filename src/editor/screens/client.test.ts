@@ -81,3 +81,24 @@ describe('screensClient.trash', () => {
     })
   })
 })
+
+describe('the content of an answer', () => {
+  test('an answer of another form is an error, not a plan', async () => {
+    answer(() => new Response(JSON.stringify({ applied: true }), { status: 200 }))
+    expect(await screensClient.run({ action: 'delete', screen: 'onboarding/workspace' })).toEqual({
+      status: 'error',
+      error: 'The dev server gave an answer that the editor cannot read',
+    })
+    answer(() => new Response(JSON.stringify({ applied: false, refusals: [1] }), { status: 409 }))
+    expect((await screensClient.run({ action: 'delete', screen: 'onboarding/workspace' })).status).toBe('error')
+    answer(() => new Response('null', { status: 200 }))
+    expect((await screensClient.run({ action: 'delete', screen: 'onboarding/workspace' })).status).toBe('error')
+  })
+
+  test('a trash of another form is an error', async () => {
+    answer(() => new Response(JSON.stringify({ items: [{ folder: 'x' }] }), { status: 200 }))
+    expect((await screensClient.trash()).status).toBe('error')
+    answer(() => new Response(JSON.stringify({}), { status: 200 }))
+    expect((await screensClient.trash()).status).toBe('error')
+  })
+})

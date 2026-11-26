@@ -125,6 +125,13 @@ describe('inCrop', () => {
     expect(inCrop({ x: 600, y: 150, width: 50, height: 20 }, crop)).toBeNull()
     expect(inCrop({ x: 150, y: 400, width: 50, height: 20 }, crop)).toBeNull()
   })
+
+  test('a rectangle that only touches an edge gives null; a line on the edge stays', () => {
+    expect(inCrop({ x: 150, y: 300, width: 50, height: 20 }, crop)).toBeNull()
+    expect(inCrop({ x: 50, y: 150, width: 50, height: 20 }, crop)).toBeNull()
+    expect(inCrop({ x: 150, y: 300, width: 50, height: 0 }, crop)).toEqual({ x: 150, y: 300, width: 50, height: 0 })
+    expect(inCrop({ x: 500, y: 150, width: 0, height: 20 }, crop)).toEqual({ x: 500, y: 150, width: 0, height: 20 })
+  })
 })
 
 describe('croppedParts', () => {

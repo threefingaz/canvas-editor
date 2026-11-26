@@ -43,6 +43,11 @@ describe('watchedFolders', () => {
     expect(watchedFolders(folders, '/h/canvas', '/h')).toEqual(['/h/canvas/packs/sample/library', '/h/src/ui', '/abs/theme'])
   })
 
+  test('a folder source on a different drive of Windows stays absolute', () => {
+    const windows = { ...one.pack, sources: ['./src/ui', 'D:/theme'] }
+    expect(watchedFolders(windows, 'C:/h/canvas', 'C:/h')).toEqual(['C:/h/canvas/packs/sample/library', 'C:/h/src/ui', 'D:/theme'])
+  })
+
   test('no pack gives no folder', () => {
     expect(watchedFolders(null, '/h/canvas', '/h')).toEqual([])
   })
@@ -79,5 +84,10 @@ describe('unknownField', () => {
   test('names the first field that the format does not have', () => {
     expect(unknownField([token, { ...token, id: 'b', note: 'x' }])).toBe('token 2 "b" has the field "note", which the token format does not have')
     expect(unknownField([{ ...token, media: [{ query: 'q', value: 'v', when: 1 }] }])).toContain('a media value with the field "when"')
+    const style = { fontFamily: 'a', fontSize: '1px', fontWeight: '400', lineHeight: '1', letterSpacing: '0' }
+    const text = { ...token, group: 'textStyle', value: style, media: [{ query: 'q', value: style }] }
+    expect(unknownField([text])).toBeNull()
+    expect(unknownField([{ ...text, value: { ...style, color: 'red' } }])).toContain('a text style with the part "color"')
+    expect(unknownField([{ ...text, media: [{ query: 'q', value: { ...style, color: 'red' } }] }])).toContain('a media value whose text style has the part "color"')
   })
 })

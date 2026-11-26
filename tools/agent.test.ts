@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest'
 import { config } from '../canvas.config.ts'
 import { agentSentence, guidePath } from '../src/editor/requests/agent-sentence.ts'
-import { agentCommand, agentCommands, agentOf, vscodeLine, codeOfTerminal, codePlaces, failedReason, inCodeTerminal, isPreset, settingText, startResult, wayText } from './agent.ts'
+import { agentCommand, agentCommands, agentOf, choiceOf, vscodeLine, codeOfTerminal, codePlaces, failedReason, inCodeTerminal, isPreset, settingText, startFailure, startResult, wayText } from './agent.ts'
 
 const agent = { command: 'code', args: ['chat', '--mode', 'agent'] }
 
@@ -40,8 +40,11 @@ describe('agentOf', () => {
 
   // The user can write each value in `canvas.config.ts` (a full path at work),
   // thus no test asserts the value itself: only that the tool takes it.
-  test('the value of the config gives a way', () => {
-    expect(['command', 'clipboard']).toContain(agentOf(config.agent, {}).kind)
+  test('the value of the config gives the way of its form', () => {
+    const choice = choiceOf(config.agent)
+    const way = agentOf(choice, {})
+    if (typeof choice === 'object') expect(way).toEqual({ kind: 'command', line: choice, preset: null })
+    else expect(way).toEqual(choice === 'vscode' ? vscode : { kind: 'clipboard' })
   })
 
   test('the names of the presets', () => {
@@ -122,6 +125,21 @@ describe('agentCommand', () => {
   })
 })
 
+describe('startFailure', () => {
+  const notFound = (command: string) => ({ command, reason: `the command "${command}" was not found` })
+
+  test('a place that was there and failed wins over the places that were not found', () => {
+    const terminal = { command: '/Apps/code', reason: 'the command "/Apps/code" ended with the code 1' }
+    expect(startFailure([terminal, notFound('code'), notFound('/usual/code')], 'code')).toBe(terminal.reason)
+  })
+
+  test('with no such place, the command of the setting, else the first place', () => {
+    expect(startFailure([notFound('/Apps/code'), notFound('code')], 'code')).toBe(notFound('code').reason)
+    expect(startFailure([notFound('/a'), notFound('/b')], 'code')).toBe(notFound('/a').reason)
+    expect(startFailure([], 'code')).toBeNull()
+  })
+})
+
 describe('startResult', () => {
   test('a process that runs, or that ended with the code 0, started', () => {
     expect(startResult({ kind: 'running' }, 'code')).toEqual({ started: true })
@@ -184,7 +202,7 @@ describe('the command line of VS Code off the path', () => {
   })
 
   test('tries a different command, and a command with a path, as it is', () => {
-    expect(agentCommands({ command: 'cursor', args: [] }, {}, 'darwin', () => true)).toEqual(['cursor'])
+    expect(agentCommands({ command: 'my-agent', args: [] }, {}, 'darwin', () => true)).toEqual(['my-agent'])
     expect(agentCommands({ command: '/opt/code/bin/code', args: [] }, {}, 'linux', () => true)).toEqual(['/opt/code/bin/code'])
   })
 
@@ -192,5 +210,28 @@ describe('the command line of VS Code off the path', () => {
     const command = agentCommand({ command: 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd', args: ['chat'] }, 'Do it.', 'win32')
     expect(command.command).toBe('"C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd"')
     expect(() => agentCommand({ command: 'C:\\a&b\\code.cmd', args: [] }, 'Do it.', 'win32')).toThrow(/not safe/)
+  })
+
+  test('checks and quotes each argument of the config for the shell of Windows', () => {
+    const command = agentCommand({ command: 'agent', args: ['--profile', 'My Work'] }, 'Do it.', 'win32')
+    expect(command.args).toEqual(['--profile', '"My Work"', '"Do it."'])
+    for (const arg of ['a&b', 'a|b', '%PATH%', 'a"b']) {
+      expect(() => agentCommand({ command: 'agent', args: [arg] }, 'Do it.', 'win32'), arg).toThrow(/not safe/)
+    }
+    // A gap of a script (`,` `;` `=`), a tab, a group and an empty argument
+    // are one quoted word; a backslash at the end is doubled in the quotes.
+    expect(agentCommand({ command: 'agent', args: ['a,b', 'k=v', 'a;b', 'a\tb', '(x)', '', 'C:\\dir\\', 'C:\\my dir\\'] }, 'Do it.', 'win32').args).toEqual([
+      '"a,b"',
+      '"k=v"',
+      '"a;b"',
+      '"a\tb"',
+      '"(x)"',
+      '""',
+      'C:\\dir\\',
+      '"C:\\my dir\\\\"',
+      '"Do it."',
+    ])
+    // With no shell the arguments are as they are.
+    expect(agentCommand({ command: 'agent', args: ['a&b'] }, 'Do it.', 'darwin').args).toEqual(['a&b', 'Do it.'])
   })
 })

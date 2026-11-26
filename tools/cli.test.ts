@@ -175,6 +175,12 @@ describe('the npm scripts and the bin', () => {
     expect(result.status).toBe(0)
     expect(result.stdout).toContain(usage.trim())
   })
+
+  test('bin/canvas.js exits with 1 for an unknown command, with the message', () => {
+    const result = spawnSync(process.execPath, [join(root, 'bin', 'canvas.js'), 'nope'], { encoding: 'utf8', timeout: 60_000 })
+    expect(result.status).toBe(1)
+    expect(`${result.stdout}${result.stderr}`).toContain("Unknown command 'nope'")
+  })
 })
 
 describe('serverOptions', () => {

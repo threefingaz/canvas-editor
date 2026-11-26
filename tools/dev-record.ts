@@ -7,10 +7,10 @@
 // The decisions are pure; `writeDevRecord`, `removeDevRecord`,
 // `readDevServer` and `pidAlive` do the work on the disk and the process.
 
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { posix } from 'node:path'
 import { config } from '../canvas.config.ts'
-import { slashes } from './project.ts'
+import { readText, slashes } from './project.ts'
 
 export type DevRecord = { port: number; pid: number; url: string }
 
@@ -69,14 +69,6 @@ export function pidAlive(pid: number): boolean {
     return true
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === 'EPERM'
-  }
-}
-
-function readText(path: string): string | null {
-  try {
-    return readFileSync(path, 'utf8')
-  } catch {
-    return null
   }
 }
 

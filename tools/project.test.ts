@@ -1,15 +1,23 @@
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, test } from 'vitest'
 import {
   cacheMatcher,
+  diskCase,
   guidePathOf,
   hostProblem,
   hostRoot,
+  isInnerPath,
   isInside,
   isInstalled,
   noProjectProblem,
   folderProblem,
+  parentOf,
   projectRoot,
   projectVariable,
+  relativePath,
+  samePath,
   slashes,
   toolRoot,
 } from './project.ts'
@@ -120,6 +128,45 @@ describe('isInside', () => {
     expect(isInside('/a/b/c', '/a/b/')).toBe(true)
     expect(isInside('/a/bc', '/a/b')).toBe(false)
   })
+
+  test('with no regard to the case of the letters where the file system has none', () => {
+    expect(isInside('/A/B/c', '/a/b', true)).toBe(true)
+    expect(isInside('/A/Bc', '/a/b', true)).toBe(false)
+    expect(isInside('/A/B/c', '/a/b', false)).toBe(false)
+  })
+
+  test('with the backslash of Windows and a / at the end', () => {
+    expect(isInside('/work/app', '/work/app/')).toBe(true)
+    expect(isInside('C:\\work\\app\\sub', 'C:/work/app')).toBe(true)
+  })
+})
+
+describe('diskCase', () => {
+  // On a file system that keeps the case apart, a different case is no folder.
+  test.skipIf(process.platform === 'linux')('a folder in a different case gets the case of the disk; a missing folder stays', () => {
+    const folder = slashes(join(realpathSync.native(mkdtempSync(join(tmpdir(), 'canvas-case-'))), 'Work'))
+    mkdirSync(folder)
+    expect(diskCase(folder.toLowerCase())).toBe(folder)
+    expect(diskCase(folder)).toBe(folder)
+    expect(diskCase(`${folder}/missing`)).toBe(`${folder}/missing`)
+    // A folder that is not there yet gets the case of its parent.
+    expect(diskCase(`${folder.toLowerCase()}/missing/Canvas`)).toBe(`${folder}/missing/Canvas`)
+  })
+})
+
+describe('isInnerPath', () => {
+  test('a relative path in its folder, not one that leaves it', () => {
+    expect(isInnerPath('screens/a.tsx')).toBe(true)
+    expect(isInnerPath('a..b/c')).toBe(true)
+    expect(isInnerPath('')).toBe(false)
+    expect(isInnerPath('/a')).toBe(false)
+    expect(isInnerPath('\\a')).toBe(false)
+    expect(isInnerPath('\\\\server\\share')).toBe(false)
+    expect(isInnerPath('C:a')).toBe(false)
+    expect(isInnerPath('a/../b')).toBe(false)
+    expect(isInnerPath('a\\..\\b')).toBe(false)
+    expect(isInnerPath('a\0b')).toBe(false)
+  })
 })
 
 describe('slashes and folderProblem', () => {
@@ -161,5 +208,80 @@ describe('an installed tool and a host that is too wide', () => {
     expect(hostProblem('/Users/me', '/Users/me')).toContain('The host would be /Users/me')
     expect(hostProblem('/', '/Users/me')).toContain('The host would be /')
     expect(hostProblem('/Users/me/app', '/Users/me')).toBeNull()
+    // A folder above the home folder holds it.
+    expect(hostProblem('/Users', '/Users/me')).toContain('The host would be /Users')
+    expect(hostProblem('C:/Users', 'C:\\Users\\me')).toContain('The host would be C:/Users')
+    expect(hostProblem('/Users/meet', '/Users/me')).toBeNull()
+  })
+
+  test('the home folder in a different case is no host where the file system has no case', () => {
+    expect(hostProblem('/users/ME', '/Users/me', true)).toContain('The host would be /users/ME')
+    expect(hostProblem('/users/ME', '/Users/me', false)).toBeNull()
+  })
+
+  test('the tool in a different case is the tool where the file system has no case', () => {
+    const tool = '/w/canvas-editor'
+    expect(noProjectProblem('/W/Canvas-Editor', tool, '/w/app', true)).toContain('Run canvas init in the host first')
+    expect(noProjectProblem('/W/Canvas-Editor', tool, '/W/canvas-editor/tools', true)).toBeNull()
+    expect(noProjectProblem('/W/Canvas-Editor', tool, '/w/app', false)).toBeNull()
+  })
+
+  test('the root of a drive of Windows is no host', () => {
+    expect(hostProblem('C:/', 'C:/Users/me')).toContain('The host would be C:/')
+    expect(hostProblem('C:\\', 'C:/Users/me')).toContain('The host would be C:/')
+    expect(hostProblem('C:/work', 'C:/Users/me')).toBeNull()
+  })
+})
+
+describe('samePath', () => {
+  test('one folder with either slash, and with no case where the file system has none', () => {
+    expect(samePath('/work/Tool', '/work/Tool/', false)).toBe(true)
+    expect(samePath('C:\\work\\tool', 'C:/work/tool', false)).toBe(true)
+    expect(samePath('/work/tool', '/Work/Tool', false)).toBe(false)
+    expect(samePath('/work/tool', '/Work/Tool', true)).toBe(true)
+    expect(samePath('/work/tool', '/work/tool-2', true)).toBe(false)
+  })
+})
+
+describe('relativePath', () => {
+  test('a relative path on one drive, the path itself across two drives', () => {
+    expect(relativePath('/work/app/canvas', '/work/editor')).toBe('../../editor')
+    expect(relativePath('C:/work/app', 'C:/tools/editor')).toBe('../../tools/editor')
+    expect(relativePath('C:/work/app', 'D:/tools/editor')).toBe('D:/tools/editor')
+  })
+
+  test('a drive letter has no case', () => {
+    expect(relativePath('c:/work/app/canvas', 'C:/work/editor')).toBe('../../editor')
+    expect(relativePath('C:/work/app', 'c:/work/app/canvas')).toBe('canvas')
+    expect(relativePath('c:/work/app', 'D:/tools')).toBe('D:/tools')
+  })
+})
+
+describe('parentOf', () => {
+  test('the parent of a folder, and null at a root', () => {
+    expect(parentOf('/a/b')).toBe('/a')
+    expect(parentOf('/a')).toBe('/')
+    expect(parentOf('/')).toBeNull()
+  })
+
+  test('a drive of Windows ends at its root, not at a relative folder', () => {
+    expect(parentOf('C:/work/app')).toBe('C:/work')
+    expect(parentOf('C:/work')).toBe('C:/')
+    expect(parentOf('C:/')).toBeNull()
+    expect(parentOf('C:')).toBeNull()
+  })
+
+  test('the lookups upward stop at the root of a drive', () => {
+    const seen: string[] = []
+    const exists = (path: string) => {
+      seen.push(path)
+      return false
+    }
+    // `hostRoot` takes the folder as it is; `projectRoot` resolves the current
+    // folder first, which reads `C:/` as relative on a different platform.
+    expect(hostRoot('C:/work/app/canvas', exists)).toBe('C:/work/app/canvas')
+    expect(seen.at(-1)).toBe('C:/package.json')
+    expect(seen.every((path) => path.startsWith('C:/'))).toBe(true)
+    expect(hostRoot('D:/work/canvas', files('D:/package.json'))).toBe('D:/')
   })
 })

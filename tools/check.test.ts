@@ -219,6 +219,20 @@ describe('screenArgument', () => {
     expect(screenArgument('/h/canvas/screens/a/one.tsx', entries, place)).toBe('a/one')
     expect(screenArgument('canvas/screens/a/two.tsx', entries, place)).toBeNull()
   })
+
+  test('takes an absolute path with a drive of Windows', () => {
+    const place = { cwd: 'C:/h', project: 'C:/h/canvas' }
+    expect(screenArgument('C:\\h\\canvas\\screens\\a\\one.tsx', entries, place)).toBe('a/one')
+    expect(screenArgument('canvas\\screens\\a\\one.tsx', entries, place)).toBe('a/one')
+    expect(screenArgument('D:/h/canvas/screens/a/one.tsx', entries, place)).toBeNull()
+    // `..` above the root of the drive keeps the drive.
+    expect(screenArgument('../../../h/canvas/screens/a/one.tsx', entries, place)).toBe('a/one')
+  })
+
+  test('takes a path in a different case of the letters, in the case of the disk', () => {
+    const place = { cwd: '/h', project: '/h/canvas', real: (path: string) => path.replace('/H/Canvas/', '/h/canvas/') }
+    expect(screenArgument('/H/Canvas/screens/a/one.tsx', entries, place)).toBe('a/one')
+  })
 })
 
 describe('checkReport', () => {
@@ -245,6 +259,13 @@ describe('checkReport', () => {
       'Notes (not findings):',
       '  screens/a/t.tsx: no link leads to this screen',
     ])
+  })
+
+  test('counts a finding of a flow.json apart from the screens', () => {
+    const flow = { kind: 'file' as const, screen: 'a', file: 'screens/a/flow.json', text: 'not valid' }
+    const screen = { kind: 'relation' as const, screen: 'a/s', file: 'screens/a/s.tsx', text: 'broken' }
+    expect(checkReport({ screens: 1, findings: [flow], notes: [] }).split('\n').at(-1)).toBe('1 finding in 1 flow.json file.')
+    expect(checkReport({ screens: 1, findings: [flow, screen], notes: [] }).split('\n').at(-1)).toBe('2 findings in 1 of 1 screen and 1 flow.json file.')
   })
 })
 
@@ -309,6 +330,9 @@ describe('forbiddenImport', () => {
     expect(forbiddenImport(file, './row.tsx')).toBe(true)
     expect(forbiddenImport(file, '../../src/editor/copy.ts')).toBe(true)
     expect(forbiddenImport(file, '../../canvas.config.ts')).toBe(true)
+    expect(forbiddenImport(file, '/src/editor/copy.ts')).toBe(true)
+    expect(forbiddenImport(file, '/tools/check.ts')).toBe(true)
+    expect(forbiddenImport(file, '/canvas.config.ts')).toBe(true)
     expect(forbiddenImport(file, 'virtual:canvas-screens')).toBe(true)
     expect(forbiddenImport(file, '../shared/rows', (path) => path === 'screens/shared/rows')).toBe(true)
   })
@@ -317,6 +341,11 @@ describe('forbiddenImport', () => {
     expect(forbiddenImport(file, './rows.ts')).toBe(false)
     expect(forbiddenImport(file, './rows')).toBe(false)
     expect(forbiddenImport(file, '../tools/data.ts')).toBe(false)
+  })
+
+  test('reads an import with a dot in its name as a path with no extension', () => {
+    expect(forbiddenImport(file, './step.view', (path) => path === 'screens/tools/step.view')).toBe(true)
+    expect(forbiddenImport(file, './step.data.ts', () => true)).toBe(false)
   })
 })
 
@@ -327,6 +356,11 @@ describe('importPath', () => {
     expect(importPath('screens/a/one.tsx', '../../../src/ds/index.tsx')).toBe('../src/ds/index.tsx')
     expect(importPath('screens\\a\\one.tsx', '..\\..\\components\\Ring.tsx')).toBe('components/Ring.tsx')
     expect(importPath('components/Ring.tsx', './Dot.tsx')).toBe('components/Dot.tsx')
+  })
+
+  test('reads a path that starts with / from the root, not from the folder of the file', () => {
+    expect(importPath('screens/a/one.tsx', '/src/editor/copy.ts')).toBe('src/editor/copy.ts')
+    expect(importPath('screens/a/one.tsx', '/canvas.config.ts')).toBe('canvas.config.ts')
   })
 })
 
@@ -354,6 +388,11 @@ describe('ownComponentFiles', () => {
     expect(ownComponentFiles('components/Ring').slice(0, 2)).toEqual(['components/Ring.tsx', 'components/Ring/index.tsx'])
     expect(ownComponentFiles('components')).toContain('components/index.ts')
   })
+
+  test('a dot in the name is not an extension', () => {
+    expect(ownComponentFiles('components/user.card').slice(0, 2)).toEqual(['components/user.card.tsx', 'components/user.card/index.tsx'])
+    expect(ownComponentFiles('components/Ring.CSS')).toEqual(['components/Ring.CSS'])
+  })
 })
 
 describe('projectReader', () => {
@@ -369,6 +408,8 @@ describe('projectReader', () => {
       expect(read('components/Folder.tsx')).toBeNull()
       expect(read('components/Missing.tsx')).toBeNull()
       expect(read('../outside.tsx')).toBeNull()
+      expect(read('components/../../outside.tsx')).toBeNull()
+      expect(read(join(root, 'outside.tsx'))).toBeNull()
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

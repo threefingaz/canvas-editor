@@ -24,6 +24,10 @@ const theme = {
 }
 
 describe('tokensFromObject', () => {
+  test('a group with no spec gives no tokens', () => {
+    expect(tokensFromObject(theme, { color: undefined })).toEqual([])
+  })
+
   test('gives the colors of a path and of its children, with the code and the variable', () => {
     const tokens = tokensFromObject(theme, {
       color: {
@@ -70,6 +74,26 @@ describe('tokensFromObject', () => {
       ['radius.small', 'radius', '4px'],
       ['shadows.1', 'shadow', '0 1px 2px #0002'],
     ])
+  })
+
+  test('takes a length in px in each case of the unit', () => {
+    const tokens = tokensFromObject({ radius: { small: '4PX' } }, { radius: { paths: ['radius.*'] } })
+    expect(tokens.map((token) => [token.id, token.value])).toEqual([['radius.small', '4PX']])
+  })
+
+  test('trims a color and a shadow, and leaves out a shadow `none` in each case', () => {
+    const loose = { color: { main: ' #1f4fd8 ' }, shadows: [' NONE ', ' 0 1px 2px #0002 '] }
+    const tokens = tokensFromObject(loose, { color: { paths: ['color'] }, shadow: { paths: ['shadows.*'] } })
+    expect(tokens.map((token) => [token.id, token.value])).toEqual([
+      ['color.main', '#1f4fd8'],
+      ['shadows.1', '0 1px 2px #0002'],
+    ])
+  })
+
+  test('an empty code gives the id as the name, which the token format takes', () => {
+    const tokens = tokensFromObject(theme, { color: { paths: ['palette.divider'], code: () => '' } })
+    expect(tokens.map((token) => [token.name, token.code])).toEqual([['palette.divider', '']])
+    expect(parseTokens({ tokens })).toEqual(tokens)
   })
 
   test('gives text styles with the function of the group, and their selector', () => {
@@ -120,6 +144,8 @@ describe('cssPartsOf', () => {
     expect(cssPartsOf('calc(var(--x) * 0.5)')).toEqual({ cssVar: '--x', factor: 0.5 })
     expect(cssPartsOf('calc(1 * var(--x))')).toEqual({ cssVar: '--x' })
     expect(cssPartsOf('8px')).toEqual({})
+    expect(cssPartsOf('var(--a, var(--b))')).toEqual({ cssVar: '--a' })
+    expect(cssPartsOf('var(--a, 1px) var(--b, 2px)')).toEqual({})
     expect(cssPartsOf(undefined)).toEqual({})
   })
 })

@@ -18,6 +18,8 @@ const messageStyle = {
 const detailStyle = {
   margin: '12px 0 0',
   whiteSpace: 'pre-wrap',
+  // A long address of a stack breaks, thus a narrow frame shows it whole.
+  overflowWrap: 'anywhere',
   fontFamily: 'ui-monospace, monospace',
   fontSize: 12,
 } as const
@@ -33,11 +35,22 @@ export function FrameMessage({ title, detail }: { title: string; detail?: string
 }
 
 type Props = { screen: string; children: ReactNode }
-type State = { error: unknown }
+// `failed` and not the error itself says that there is an error: a screen can
+// throw `null` or `undefined` too.
+type State = { failed: false } | { failed: true; error: unknown }
 
-// The short text of an error: its message, for the Issues list.
+// The short text of an error: its message, for the Issues list. It is never
+// empty: an issue needs a text.
 function errorText(error: unknown): string {
-  return error instanceof Error ? error.message || error.name : String(error)
+  let text: string
+  try {
+    text = error instanceof Error ? error.message || error.name : String(error)
+  } catch {
+    // A value with no text form: a symbol is fine, an object with no
+    // prototype (`Object.create(null)`) throws.
+    text = Object.prototype.toString.call(error)
+  }
+  return text.trim() === '' ? 'The screen failed with no message' : text
 }
 
 // Catches an error when the screen loads or renders, and shows its text in the
@@ -45,10 +58,10 @@ function errorText(error: unknown): string {
 // the frame document has the error text in `data-canvas-error`; when the
 // screen renders, the attribute goes.
 export class RenderError extends Component<Props, State> {
-  state: State = { error: null }
+  state: State = { failed: false }
 
   static getDerivedStateFromError(error: unknown): State {
-    return { error }
+    return { failed: true, error }
   }
 
   componentDidCatch(error: unknown, info: ErrorInfo) {
@@ -68,16 +81,17 @@ export class RenderError extends Component<Props, State> {
   }
 
   private markError() {
-    const { error } = this.state
+    const state = this.state
     const root = document.documentElement
-    if (error === null) root.removeAttribute(renderErrorAttribute)
-    else root.setAttribute(renderErrorAttribute, errorText(error))
+    if (!state.failed) root.removeAttribute(renderErrorAttribute)
+    else root.setAttribute(renderErrorAttribute, errorText(state.error))
   }
 
   render() {
-    const { error } = this.state
-    if (error === null) return this.props.children
-    const detail = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    const state = this.state
+    if (!state.failed) return this.props.children
+    const { error } = state
+    const detail = error instanceof Error ? error.stack || errorText(error) : errorText(error)
     return <FrameMessage title={`The screen "${this.props.screen}" failed`} detail={detail} />
   }
 }

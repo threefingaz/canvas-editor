@@ -9,7 +9,7 @@ The format is in `src/tokens/format.ts` of the tool; a token entry imports its t
 | Field | Meaning | What the tool does with it |
 |---|---|---|
 | `id`, `name` | a unique id (the group or the path in the source, then the step: `palette.primary.main`, `spacing.4`, `radius.2`, `shadows.1`, `typography.h2`), and the short name that the inspector shows (`primary.main`, `4`, `h2`) | shows the token |
-| `value` | the resolved value. A color: hex, `rgb()` or `rgba()`. A length: px (`16px`). A shadow: the CSS text of its layers. A text style: the five parts, with the sizes in px | finds the token that is **equal** to a value on the page |
+| `value` | the resolved value. A color: hex, `rgb()`, `rgba()`, `hsl()` or `hsla()`. A length: px (`16px`). A shadow: the CSS text of its layers. A text style: the five parts, with the sizes in px | finds the token that is **equal** to a value on the page |
 | `cssVar`, `factor` | the CSS variable behind the value, and a factor when the library writes `factor * var(…)` | proves that an element is **linked** to the token |
 | `selector` | for a text style: the class of the elements that use it. It can be a selector list (`.text-button, .button`) when more than one component applies the style | the proof of a link where no one variable exists |
 | `code` | how a developer writes the token in code: `'primary.main'`, `2` | the agent writes it into the screen when it applies an edit |
@@ -52,7 +52,7 @@ Then sort what you find:
 | a class that marks the use (`.text-body`) | a link with no variable | `selector` |
 | a fixed value (`16px`, `#1f4fd8`) | no link is possible | no `cssVar`; the tool shows "equal to a token" |
 
-Text styles are the hard group: a library often writes five separate declarations with fixed values and no variable. Then the `selector` is the only proof. The editor tests the selector on the element and on its parents, because a text style is inherited: when the library sets its base text style on `body`, put `body` into the selector of that style, or each text that inherits it shows as equal, not linked. If the library has a variable for a text style but its components do not use it, do not write it as `cssVar`; use the `selector`. A link needs all five parts equal (family, size, weight, line height, letter spacing).
+Text styles are the hard group: a library often writes five separate declarations with fixed values and no variable. Then the `selector` is the only proof. The editor tests the selector on the element and on its parents, because a text style is inherited: when the library sets its base text style on `body`, put `body` into the selector of that style, or each text that inherits it shows as equal, not linked. If the library has a variable for a text style but its components do not use it, the `cssVar` alone links no text: give the `selector` too (the `cssVar` then links only a text that writes that variable). A link needs all five parts equal (family, size, weight, line height, letter spacing).
 
 If the library writes fixed values everywhere, the tool still works, with less: each value shows as equal, not linked, and a local override cannot be told from a token. Tell the user; it is a property of the library, not a defect of the setup.
 

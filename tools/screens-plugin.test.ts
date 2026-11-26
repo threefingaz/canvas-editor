@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { formatTokens } from '../src/tokens/format.ts'
-import { isFlowName, readFlowFiles, readTokenList, screensUpdate, type UpdateInput } from './screens-plugin.ts'
+import { isFlowName, readFlowFiles, readTokenList, screenNames, screensUpdate, type UpdateInput } from './screens-plugin.ts'
 
 let root: string | null = null
 afterEach(() => {
@@ -30,6 +30,17 @@ describe('readFlowFiles', () => {
 
   test('gives nothing for a folder that does not exist', () => {
     expect(readFlowFiles('/nowhere', '/nowhere/screens')).toEqual([])
+  })
+
+  test('leaves out a folder named flow.json, and screenNames a folder named like a screen', () => {
+    root = mkdtempSync(join(tmpdir(), 'canvas-flow-'))
+    const folder = join(root, 'screens')
+    mkdirSync(join(folder, 'a', 'flow.json'), { recursive: true })
+    mkdirSync(join(folder, 'b.tsx'), { recursive: true })
+    writeFileSync(join(folder, 'a', 'one.tsx'), 'x')
+    writeFileSync(join(folder, 'b.tsx', 'two.tsx'), 'x')
+    expect(readFlowFiles(root, folder)).toEqual([])
+    expect(screenNames(folder).sort()).toEqual(['a/one.tsx', 'b.tsx/two.tsx'])
   })
 })
 

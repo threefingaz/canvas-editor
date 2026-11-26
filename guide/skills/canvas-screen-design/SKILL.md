@@ -130,13 +130,13 @@ Each row names a file and, after the colon, the sections of it that hold the rul
 | a form with a title and a main button | [Labels](./references/labels.md): A form is a sentence · The form of each label |
 | a list or a grid of items | [Lists](./references/lists.md): The count decides the design · Finding an item · What a row carries |
 | rows with a button or a control in each row, in a list or in a table | [Lists](./references/lists.md): Rows and their actions |
-| a list of more than 30 items, or content in pages | [Lists](./references/lists.md): How much of a long list to draw · Portions |
+| a list of more than 30 items, or content in pages | [Lists](./references/lists.md): How much of a long list to draw · Portions: pages or one scroll |
 | a list or a view that can be empty | [Lists](./references/lists.md): The empty and the used-up state<br>[Messages](./references/messages.md): Empty states |
-| a toolbar, a settings screen, a set of more than five functions | [Lists](./references/lists.md): Sets of functions |
+| a toolbar, a settings screen, a set of more than five functions | [Lists](./references/lists.md): Sets of functions: toolbars, menus, settings |
 | a table: rows with the same properties in three or more columns, also on a narrow screen | [Tables](./references/tables.md): all |
 | a main menu | [Navigation](./references/navigation.md): The main menu · A hidden menu<br>[Labels](./references/labels.md): Things by their names |
 | a "Back" control, a step indicator | [Navigation](./references/navigation.md): "Back" has two meanings · Steps |
-| sections inside sections, breadcrumbs | [Navigation](./references/navigation.md): The data has a structure · A hierarchy |
+| sections inside sections, breadcrumbs | [Navigation](./references/navigation.md): The data has a structure; the person has a task · A hierarchy |
 | more than one button on a screen | [Actions](./references/actions.md): The main action |
 | a removal, or an action that cannot be undone | [Actions](./references/actions.md): Undo and the check of the target · Dangerous actions |
 | an action whose result is not obvious, a control that is not available | [Actions](./references/actions.md): The answer to an action · Controls that are not available |

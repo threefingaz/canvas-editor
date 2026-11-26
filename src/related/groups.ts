@@ -20,7 +20,7 @@ export type ScreenGroup<S extends RelatedScreen = RelatedScreen> = { base: Relat
 
 export type Relation = 'base' | 'state' | 'option'
 
-export function relationOf(screen: RelatedScreen): Relation {
+export function relationOf(screen: Pick<RelatedScreen, 'stateOf' | 'optionOf'>): Relation {
   if (screen.stateOf !== undefined) return 'state'
   if (screen.optionOf !== undefined) return 'option'
   return 'base'

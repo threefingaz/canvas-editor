@@ -160,6 +160,18 @@ describe('createAgentHandler', () => {
     expect(starts[0].options.shell).toBe(true)
   })
 
+  test('on Windows the reason names a command with a space as it is, not in the quotes of the shell line', async () => {
+    const command = 'C:/Program Files/Agent/agent.cmd'
+    const { handle, starts } = setup((child) => child.emit('exit', 1), {
+      platform: 'win32',
+      agent: { kind: 'command', line: { command, args: [] }, preset: null },
+    })
+    const answer = JSON.parse((await call(handle, 'POST', agentAddress)).body)
+    expect(starts[0].command).toBe(`"${command}"`)
+    expect(answer.started).toBe(false)
+    expect(answer.reason).toContain(`the command "${command}" ended with the code 1`)
+  })
+
   test('a command of the user that is not found', async () => {
     const { handle } = setup((child) => {
       child.emit('error', Object.assign(new Error('spawn code ENOENT'), { code: 'ENOENT' }))

@@ -9,9 +9,9 @@
 // nothing. An error of the pack state: the script stops with the message and
 // the exit code 1.
 
-import { isRecord } from '../src/tokens/format.ts'
+import { isRecord, textStyleParts } from '../src/tokens/format.ts'
 import { posix } from 'node:path'
-import { librarySources, packLibraryFolder, tokensEntryPath, type Pack, type PackState } from './pack.ts'
+import { packLibraryFolder, sourceFolders, tokensEntryPath, type Pack, type PackState } from './pack.ts'
 
 export type TokenAction =
   | { kind: 'load'; path: string }
@@ -38,8 +38,7 @@ export function tokenAction(state: PackState, root: string, tokensFile: string):
 // None with no pack. `project` and `host` are absolute with `/`.
 export function watchedFolders(pack: Pack | null, project: string, host: string): string[] {
   if (pack === null) return []
-  const sources = librarySources(pack, project, host).folders.map((folder) => posix.join(project, folder))
-  return [posix.join(project, packLibraryFolder(pack)), ...sources]
+  return [posix.join(project, packLibraryFolder(pack)), ...sourceFolders(pack, host)]
 }
 
 // The tokens from the module of a token entry, which a dynamic import gives
@@ -55,8 +54,14 @@ export async function entryTokens(module: unknown, path: string): Promise<unknow
 // (`parseTokens` in `src/tokens/format.ts`).
 const tokenFields = new Set(['id', 'group', 'name', 'value', 'code', 'cssVar', 'factor', 'selector', 'media'])
 const mediaFields = new Set(['query', 'value'])
+const styleFields = new Set<string>(textStyleParts)
 
-// Pure: the first field of the entry that the token format does not have, as
+// The first part of a text style value that the format does not have, or
+// undefined (also for a value that is not an object).
+const extraPart = (value: unknown) => (isRecord(value) ? Object.keys(value).find((key) => !styleFields.has(key)) : undefined)
+
+// Pure: the first field of the entry that the token format does not have (of
+// a token, of a media value, or a part of a text style value), as
 // `token <n> "<id>" has the field "<name>"`, or null. The script writes the
 // tokens as the entry gives them (the sequence of the fields of the pack), thus
 // a field that `parseTokens` leaves out would go into the file unchecked.
@@ -66,10 +71,14 @@ export function unknownField(entry: readonly unknown[]): string | null {
     const label = `token ${index + 1}${typeof token.id === 'string' ? ` "${token.id}"` : ''}`
     const field = Object.keys(token).find((key) => !tokenFields.has(key))
     if (field !== undefined) return `${label} has the field "${field}", which the token format does not have`
+    const part = extraPart(token.value)
+    if (part !== undefined) return `${label} has a text style with the part "${part}", which the token format does not have`
     const media = Array.isArray(token.media) ? token.media : []
     for (const value of media) {
       const extra = isRecord(value) ? Object.keys(value).find((key) => !mediaFields.has(key)) : undefined
       if (extra !== undefined) return `${label} has a media value with the field "${extra}", which the token format does not have`
+      const inner = isRecord(value) ? extraPart(value.value) : undefined
+      if (inner !== undefined) return `${label} has a media value whose text style has the part "${inner}", which the token format does not have`
     }
   }
   return null

@@ -1,6 +1,7 @@
 import { textStyleParts, tokenCss, type TextStyle, type Token } from '../../tokens/format.ts'
 import { liveItems, sameTarget, type Item, type PreviewEdit } from '../edits/model.ts'
 import { hiddenBy, type Hidden } from '../selection/pick.ts'
+import { previewTextStyle } from '../tokens/match.ts'
 
 // The attribute that the preview writes on each DOM node of a target, with
 // the ids of its edits, separated by spaces.
@@ -33,12 +34,32 @@ const propertyName = /^-?[a-z][a-z-]*$/
 
 // A value that could end the declaration or the rule, or hide the rules after
 // it: a brace, a semicolon, a backslash, a line break, the start or the end
-// of a comment, or a quote with no end.
+// of a comment, a quoted text with no end, a bracket or a parenthesis with
+// no end (it takes the end of the rule into the value) or with no start, or
+// a `!` outside a quoted text (`8px !important`: the rule adds its own, and
+// a second one drops the declaration).
 const unsafeValue = /[{};\\\n\r\f]|\/\*|\*\//
 
 function unsafe(value: string): boolean {
   if (unsafeValue.test(value)) return true
-  return (value.split('"').length - 1) % 2 !== 0 || (value.split("'").length - 1) % 2 !== 0
+  // One pass, as the CSS reader goes: a quote of the other kind is text in a
+  // quoted text (`"O'Brien"`), and a bracket there does not count.
+  const open: string[] = []
+  let quote: string | null = null
+  for (const char of value) {
+    if (quote !== null) {
+      if (char === quote) quote = null
+    } else if (char === '"' || char === "'") {
+      quote = char
+    } else if (char === '!') {
+      return true
+    } else if (char === '(' || char === '[') {
+      open.push(char === '(' ? ')' : ']')
+    } else if ((char === ')' || char === ']') && open.pop() !== char) {
+      return true
+    }
+  }
+  return quote !== null || open.length > 0
 }
 
 const kebab: Record<keyof TextStyle, string> = {
@@ -88,8 +109,10 @@ function declarationsOf(
           ['letter-spacing', token.value.letterSpacing],
         ]
       }
+      // A style with no variable: its five parts (`textStyleMark` adds the id
+      // of the style).
       const style = token.value
-      return textStyleParts.map((part) => [kebab[part], style[part]])
+      return textStyleParts.map((part): [string, string] => [kebab[part], style[part]])
     }
     case 'remove':
       return [['display', 'none']]
@@ -98,6 +121,19 @@ function declarationsOf(
     case 'order':
       return null
   }
+}
+
+// The mark of a text style edit, written after the check of the
+// declarations: the id of a style with no variable as a CSS text, from the
+// token file, never from the request. The element keeps its class, thus the
+// inspector reads the id (`previewTextStyle`) and shows the previewed style as
+// linked. A style with a variable resets the mark, thus a node does not take
+// the mark of a previewed parent.
+function textStyleMark(edit: PreviewEdit, tokens: Map<string, Token>): [string, string] | null {
+  if (edit.change.kind !== 'textStyle' || !edit.change.after.token) return null
+  const token = tokens.get(edit.change.after.token.id)
+  if (!token) return null
+  return [previewTextStyle, token.cssVar ? 'initial' : cssString(token.id)]
 }
 
 // The selector of the nodes that a remove edit of the preview hides: one
@@ -140,13 +176,13 @@ export function previewRules(items: readonly Item[], tokens: readonly Token[]): 
     }
     const declarations = declarationsOf(edit, byId, problem)
     if (!declarations) continue
-    const bad = declarations.find(
-      ([property, value]) => !propertyName.test(property) || unsafe(value),
-    )
+    const bad = declarations.find(([property, value]) => !propertyName.test(property) || unsafe(value))
     if (bad) {
       problem(`the declaration "${bad[0]}: ${bad[1]}" is not a valid CSS declaration`)
       continue
     }
+    const mark = textStyleMark(edit, byId)
+    if (mark) declarations.push(mark)
     const body = declarations.map(([property, value]) => `${property}: ${value} !important`).join('; ')
     rules.push(`[${editAttribute}~=${cssString(edit.id)}] { ${body} }`)
   }

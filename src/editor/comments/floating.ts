@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { FrameBox } from '../canvas/layout.ts'
+import { inCrop } from '../canvas/part.ts'
 import { overlayStrips, type Point, type Rect, type Size, type Strips, type View } from '../canvas/viewport.ts'
 import { clamp } from '../clamp.ts'
 import type { Item } from '../edits/model.ts'
 import { inLiveFrame } from '../frame-window.ts'
 import { elementOf, siteOf, type Site } from '../locate/fiber.ts'
 import { hiddenIn } from '../preview/css.ts'
-import { canvasRectOf } from '../selection/geometry.ts'
+import { canvasCropOf, canvasRectOf } from '../selection/geometry.ts'
 import { nodesAt, type FrameDocument } from '../selection/pick.ts'
 import type { Selected } from '../selection/store.ts'
 import type { BubbleTarget } from './bubble.ts'
@@ -27,11 +28,13 @@ export const floatingGap = 8
 // null when there is none, and for the place of the whole screen.
 export function nodeOf(
   target: BubbleTarget,
-  document: FrameDocument | null,
+  document: (FrameDocument & { defaultView: object | null }) | null,
   selected: Pick<Selected, 'screenId' | 'loc' | 'node'> | null,
   items: readonly Item[],
 ): Element | null {
-  if (target.loc === null || !document) return null
+  // A document of a frame that loads again has no window: its nodes are not
+  // on the page.
+  if (target.loc === null || !document || document.defaultView === null) return null
   if (
     selected &&
     selected.screenId === target.screenId &&
@@ -63,7 +66,11 @@ export function targetSite(
 // the element, which the panel does not cover when it has room (`panelPlace`).
 // `elementRect` is the rectangle of the pin's element when the pins know it,
 // else null, and then the node of the panel is measured; null when neither
-// is known: the panel is then at its button in the title row.
+// is known: the panel is then at its button in the title row. In a frame
+// with a crop (an option with a part) the rectangle is the part that the
+// crop shows (`inCrop`), and an element out of the crop has no anchor. A
+// node with no size (`display: none`) has no anchor either: its rectangle is
+// at the corner of the frame.
 export type ElementAnchor = { anchor: Rect; element: Rect }
 
 export function elementAnchor(
@@ -72,7 +79,10 @@ export function elementAnchor(
   view: View,
   box: FrameBox,
 ): ElementAnchor | null {
-  const rect = elementRect ?? (node && inLiveFrame(node) ? canvasRectOf(view, box, node.getBoundingClientRect()) : null)
+  const measured = elementRect === null && node && inLiveFrame(node) ? node.getBoundingClientRect() : null
+  const sized = measured && (measured.width > 0 || measured.height > 0) ? measured : null
+  const whole = elementRect ?? (sized ? canvasRectOf(view, box, sized) : null)
+  const rect = whole && inCrop(whole, canvasCropOf(view, box))
   return rect ? { anchor: { ...pinPoint(rect, pinSize), width: pinSize, height: pinSize }, element: rect } : null
 }
 

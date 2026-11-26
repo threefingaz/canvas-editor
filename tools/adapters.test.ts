@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'vitest'
-import { adapterFiles, blockEnd, blockStart, hostBlock, rootedDescription, skillFolders, skillHead, stubOf, withBlock } from './adapters.ts'
+import { adapterFiles, blockEnd, blockStart, hostBlock, isStub, rootedDescription, skillFolders, skillHead, stubOf, withBlock } from './adapters.ts'
 import { agentsPlan, diskOf } from './init.ts'
 import { slashes } from './project.ts'
 
@@ -35,6 +35,21 @@ describe('stubOf', () => {
   test('links a guide in a sub folder of the host', () => {
     const text = stubOf({ name: 'canvas-x', description: 'D.' }, 'canvas/guide/skills/canvas-x/SKILL.md', '.github/skills/canvas-x/SKILL.md')
     expect(text).toContain('](../../../canvas/guide/skills/canvas-x/SKILL.md)')
+  })
+})
+
+describe('isStub', () => {
+  test('the text of a stub of the tool, not a skill that quotes its line', () => {
+    expect(isStub('---\nname: a\ndescription: b\n---\n\n# a\n\nThis is a stub. The skill is `x`: [x](y). Read it.\n')).toBe(true)
+    expect(isStub('---\nname: a\ndescription: b\n---\n\nThis is a stub. The skill is `x`.\n')).toBe(true)
+    expect(isStub('---\nname: a\ndescription: b\n---\n\nThis is a stub. The skill is `x`.\n\nMore.\n')).toBe(false)
+    expect(isStub('Notes: This is a stub. The skill is x.\n')).toBe(false)
+  })
+
+  test('each stub that `stubOf` writes, thus an outdated stub is found again', () => {
+    const head = { name: 'canvas-x', description: 'D.' }
+    expect(isStub(stubOf(head, 'guide/skills/canvas-x/SKILL.md', '.agents/skills/canvas-x/SKILL.md'))).toBe(true)
+    expect(isStub(stubOf(head, 'canvas/guide/skills/canvas-x/SKILL.md', '.github/skills/canvas-x/SKILL.md').replaceAll('\n', '\r\n'))).toBe(true)
   })
 })
 

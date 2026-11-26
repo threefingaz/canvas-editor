@@ -61,6 +61,16 @@ export async function agentWay(fetch: Fetch): Promise<AgentWayAnswer> {
   }
 }
 
+// The way, asked one time while the editor runs: the answer is fixed while
+// the dev server runs, and a hot update of the toolbar (a new list of
+// screens refreshes it) asks no second time.
+let askedWay: Promise<AgentWayAnswer> | null = null
+
+export function agentWayOnce(fetch: Fetch): Promise<AgentWayAnswer> {
+  askedWay ??= agentWay(fetch)
+  return askedWay
+}
+
 // Asks the dev server to start the command. It sends no content: the command
 // and the sentence are fixed on the server. It never rejects: each error is
 // an answer with a reason.

@@ -21,7 +21,7 @@ describe('isRawValue', () => {
     (text) => expect(isRawValue(text)).toBe(true),
   )
 
-  it.each(['100vh', '100%', '1fr', 'center', 'primary.main', 'Up to 20px', 'Order #1234 is ready', '', 'h2', 'row', '2', 'space-between', 'Pay 20px now'])(
+  it.each(['100vh', '100%', '1fr', 'center', 'primary.main', 'Up to 20px', 'Order #1234 is ready', 'Choose a color(s) for this tag', 'Format: rgb(r, g, b)', '', 'h2', 'row', '2', 'space-between', 'Pay 20px now'])(
     'leaves %s',
     (text) => expect(isRawValue(text)).toBe(false),
   )
@@ -145,18 +145,40 @@ export default function S() {
     expect(facts.placeholders).toEqual([{ line: 7, column: 50 }])
   })
 
+  it('takes a re-export and an `import()` of a text as imports too', () => {
+    const code = `export { Panel } from '../../src/editor/App.tsx'
+export * from 'virtual:canvas-screens'
+const later = () => import('./later.tsx')
+const computed = (name: string) => import(name)
+export default function S() {
+  return <Box />
+}`
+    const facts = screenFacts(code, 'screens/a/s.tsx', null)
+    expect(facts.imports).toEqual([
+      { line: 1, column: 1, source: '../../src/editor/App.tsx' },
+      { line: 2, column: 1, source: 'virtual:canvas-screens' },
+      { line: 3, column: 21, source: './later.tsx' },
+    ])
+  })
+
   it('reads no number of a call, and takes a number of the text style and a computed number as a mark', () => {
     const scale = new Set(['padding'])
     expect(screenFacts('const a = <Box sx={{ fontSize: theme.spacing(2) }} />', 'screens/a.tsx', null, scale).raw).toEqual([])
-    for (const sx of ['{ lineHeight: 1.2 }', '{ fontWeight: 700 }', '{ fontSize: 14 * 2 }']) {
+    for (const sx of ['{ lineHeight: 1.2 }', '{ fontWeight: 700 }', '{ fontSize: 14 * 2 }', '{ lineHeight: { xs: 1.2, md: 1.5 } }']) {
       const facts = screenFacts(`const a = <Box sx={${sx}} />`, 'screens/a.tsx', null, scale)
       expect(facts.raw).toEqual([])
       expect(facts.sets).toHaveLength(1)
     }
   })
 
+  it('reads a computed key as no name of a property', () => {
+    const facts = screenFacts('const a = <Box sx={{ [fontSize]: 14 }} />', 'screens/a.tsx', null, new Set(['padding']))
+    expect(facts.raw).toEqual([])
+    expect(facts.sets).toEqual([])
+  })
+
   it('takes a handler with an expression and a hook of React only', () => {
-    const code = 'const a = () => { user.useThing(); React.useMemo(() => 1, []); return <Switch onColor="green" onChange={go} /> }'
+    const code = 'const a = () => { user.useThing(); React[useKey](); React.useMemo(() => 1, []); return <Switch onColor="green" onChange={go} /> }'
     expect(screenFacts(code, 'screens/a.tsx', null).behavior.map((item) => item.text)).toEqual(['the hook `useMemo`', 'Switch: the handler `onChange`'])
   })
 

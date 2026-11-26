@@ -45,7 +45,7 @@ export function OptionsBox({ onSubmit, blocked, className, autoFocus, name }: Op
   }
 
   return (
-    <div className={cn('flex shrink-0 flex-col gap-1.5', className)} data-options-box={name}>
+    <div className={cn('flex shrink-0 flex-col gap-1.5 outline-none', className)} tabIndex={-1} data-options-box={name}>
       <Label htmlFor={noteId} className="sr-only">
         What the options are about
       </Label>
@@ -64,10 +64,12 @@ export function OptionsBox({ onSubmit, blocked, className, autoFocus, name }: Op
             event.preventDefault()
             send(optionCounts.initial)
           } else if (event.key === 'Escape' && note !== '') {
-            // As in the comment box: Escape leaves the text area and keeps the
-            // draft, and does not clear the selection.
+            // Escape leaves the text area and keeps the note, which the panel
+            // does not keep when it closes. The focus stays in the panel (the
+            // box), thus the keys of the selection do not act behind it, and
+            // a second Escape closes it.
             event.preventDefault()
-            event.currentTarget.blur()
+            event.currentTarget.closest<HTMLElement>('[data-options-box]')?.focus()
           }
         }}
         data-options-note=""

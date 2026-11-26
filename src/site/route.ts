@@ -6,7 +6,9 @@ import { screenIdFromHash, screenPrefix } from '../frame/screen-link.ts'
 export type Route =
   | { kind: 'index' }
   | { kind: 'screen'; screen: ScreenEntry }
-  | { kind: 'unknown'; id: string }
+  // `address`: the hash as the address has it, which the page shows: an
+  // escape that cannot be decoded stays as it was written.
+  | { kind: 'unknown'; id: string; address: string }
 
 // No hash, `#`, `#/` and a hash that is not a screen address (`#top`) give the
 // index; `#/<screen id>` gives that screen when the list has it. The site
@@ -16,7 +18,7 @@ export function routeOf(hash: string, screens: readonly ScreenEntry[]): Route {
   const id = screenIdFromHash(hash)
   if (id === null) return { kind: 'index' }
   const screen = screens.find((entry) => entry.id === id)
-  return screen ? { kind: 'screen', screen } : { kind: 'unknown', id }
+  return screen ? { kind: 'screen', screen } : { kind: 'unknown', id, address: hash }
 }
 
 // The hash of an address: the text from the first `#`, also a lone `#`, which

@@ -9,6 +9,8 @@
 // does nothing. A file that is not valid is an error of the flow, and the row
 // then has the sequence by name.
 
+import { relationOf } from '../src/related/groups.ts'
+
 // The file name of the sequence in the folder of a flow.
 export const flowFileName = 'flow.json'
 
@@ -98,7 +100,7 @@ function rootOf<S extends OrderedScreen>(screen: S, byId: ReadonlyMap<string, S>
     if (!base || base === current || base.flow !== screen.flow) return current
     current = base
   }
-  return current.stateOf === undefined && current.optionOf === undefined ? current : screen
+  return relationOf(current) === 'base' ? current : screen
 }
 
 // The list by flow, then by the sequence of the base screens of each flow

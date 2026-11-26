@@ -179,10 +179,17 @@ export function Frame({
       : null
   // Stops the watch of the current frame document.
   const stop = useRef<(() => void) | null>(null)
+  // True after a load of the iframe gave a document with its window.
+  const loaded = useRef(false)
   // The current frame document; a reload gives a new one.
   const [frameDocument, setFrameDocument] = useState<Document | null>(null)
-  usePreview(screen.id, screen.error ? null : frameDocument)
-  useIssues(screen, screen.error ? null : frameDocument, screenIds)
+  // A screen file with an error has no iframe and no document. After the
+  // error the last document stays until the new iframe loads; it has no
+  // window, and each reader of a frame checks the window.
+  const failed = Boolean(screen.error)
+  const liveDocument = failed ? null : frameDocument
+  usePreview(screen.id, liveDocument)
+  useIssues(screen, liveDocument, screenIds)
 
   // The watch of the frame lives longer than one render; it calls the latest
   // `onHeight`.
@@ -195,7 +202,13 @@ export function Frame({
   const framePoint = (event: MouseEvent<HTMLDivElement>) =>
     toFramePoint({ x: event.clientX, y: event.clientY }, event.currentTarget.getBoundingClientRect(), scale)
 
-  useEffect(() => () => stop.current?.(), [])
+  // A screen file with an error has no iframe: the watch of its last document
+  // stops.
+  useEffect(() => {
+    if (!failed) return
+    stop.current?.()
+    stop.current = null
+  }, [failed])
 
   const attach = (iframe: HTMLIFrameElement) => {
     stop.current?.()
@@ -204,6 +217,7 @@ export function Frame({
     // The observers of the frame window: the nodes are in that document.
     const view = frameWindowOf(document)
     if (!document || !view) return
+    loaded.current = true
 
     // The measure writes only the iframe in the editor document, never the
     // frame document, thus it starts no mutation record. A result that is
@@ -215,6 +229,9 @@ export function Frame({
     let pending = 0
     const measure = () => {
       pending = 0
+      // The iframe loads a new document (it gets its own watch), or this one
+      // lost its window.
+      if (iframe.contentDocument !== document || !frameWindowOf(document)) return
       // The parts that scroll inside a root as tall as the viewport; the
       // body can be that part itself (`partsSelector`). The measure calls
       // this only for a document that does not scroll by itself.
@@ -238,9 +255,15 @@ export function Frame({
     resize.observe(document.documentElement)
     const mutations = new view.MutationObserver(schedule)
     mutations.observe(document, { childList: true, subtree: true, attributes: true, characterData: true })
+    // An image or a font that loads later makes a part that scrolls inside a
+    // root as tall as the viewport taller, and the root keeps its height.
+    document.addEventListener('load', schedule, true)
+    document.fonts?.addEventListener('loadingdone', schedule)
     stop.current = () => {
       resize.disconnect()
       mutations.disconnect()
+      document.removeEventListener('load', schedule, true)
+      document.fonts?.removeEventListener('loadingdone', schedule)
       if (pending !== 0) cancelAnimationFrame(pending)
       pending = 0
     }
@@ -249,6 +272,24 @@ export function Frame({
     setFrameDocument(document)
     onLoad(screen.id, document)
   }
+
+  // The iframe, and true after its first load. A hot update of this module
+  // runs the effects again with the iframe in place: the cleanup stops the
+  // watch, and the iframe loads nothing new, thus the effect starts the
+  // watch of its document again. The first mount waits for the load.
+  const iframeRef = useRef<HTMLIFrameElement>(null)
+  const latestAttach = useRef(attach)
+  useLayoutEffect(() => {
+    latestAttach.current = attach
+  })
+  useEffect(() => {
+    const iframe = iframeRef.current
+    if (iframe && loaded.current && stop.current === null) latestAttach.current(iframe)
+    return () => {
+      stop.current?.()
+      stop.current = null
+    }
+  }, [])
 
   return (
     <Placed
@@ -261,7 +302,7 @@ export function Frame({
       optionCount={optionCount}
       keep={keep}
       kept={kept}
-      pinsSource={pinsSourceOf(screen, frameDocument)}
+      pinsSource={pinsSourceOf(screen, liveDocument)}
       operating={operating}
       onTitle={(event) => onTitle(screen.id, event)}
       onTitleFit={() => onTitleFit(screen.id)}
@@ -271,6 +312,7 @@ export function Frame({
           role="alert"
           className="size-full overflow-auto border border-[color:var(--destructive)] bg-[color:var(--background)] p-6 text-sm"
           data-frame-error=""
+          data-canvas-scroll=""
         >
           <strong className="text-[color:var(--destructive)]">The screen file cannot be read</strong>
           <pre className="mt-3 font-mono text-xs whitespace-pre-wrap">{screen.error}</pre>
@@ -281,12 +323,13 @@ export function Frame({
               least height. */}
           <MeasureRects
             screenId={screen.id}
-            document={frameDocument}
+            document={liveDocument}
             enabled={!operating}
             links={screen.links}
             part={partLoc(screen)}
           />
           <iframe
+            ref={iframeRef}
             className="block w-full border-0 bg-white"
             style={{ height: defaultFrameHeight }}
             onLoad={(event) => attach(event.currentTarget)}

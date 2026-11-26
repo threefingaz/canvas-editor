@@ -18,6 +18,19 @@ describe('parseColor', () => {
     for (const form of forms) expect(parseColor(form)).toEqual({ r: 31, g: 79, b: 216, a: 1 })
   })
 
+  test('hsl and hsla give the rgb value that the page computes', () => {
+    expect(parseColor('hsl(0, 100%, 50%)')).toEqual({ r: 255, g: 0, b: 0, a: 1 })
+    expect(parseColor('hsl(120 100% 25%)')).toEqual({ r: 0, g: 128, b: 0, a: 1 })
+    expect(parseColor('hsla(240, 100%, 50%, 0.5)')).toEqual({ r: 0, g: 0, b: 255, a: 0.5 })
+    expect(parseColor('hsl(0.5turn 100% 50% / 50%)')).toEqual({ r: 0, g: 255, b: 255, a: 0.5 })
+    expect(parseColor('hsl(210 50 40)')).toEqual({ r: 51, g: 102, b: 153, a: 1 })
+    expect(parseColor('hsl(210, 50%)')).toBeNull()
+  })
+
+  test('a name of a property of each object is no color', () => {
+    for (const name of ['constructor', '__proto__', 'toString']) expect(parseColor(name)).toBeNull()
+  })
+
   test('a short hex is read as the long form', () => {
     expect(parseColor('#fff')).toEqual({ r: 255, g: 255, b: 255, a: 1 })
     expect(parseColor('#0008')).toEqual({ r: 0, g: 0, b: 0, a: 0.533 })
@@ -40,7 +53,7 @@ describe('parseColor', () => {
   })
 
   test('a value that cannot be read gives null', () => {
-    const texts = ['', 'red-ish', '#12', '#12345', 'rgb(1, 2)', 'var(--x)', 'currentcolor', 'hsl(0 0% 0%)', 'oklch(0.5 0.1 200)']
+    const texts = ['', 'red-ish', '#12', '#12345', 'rgb(1, 2)', 'var(--x)', 'currentcolor', 'hsl(0 0%)', 'oklch(0.5 0.1 200)']
     for (const text of texts) expect(parseColor(text)).toBeNull()
   })
 })
@@ -78,6 +91,7 @@ describe('parseLength', () => {
     expect(parseLength('16px')).toBe(16)
     expect(parseLength('-0.96px')).toBe(-0.96)
     expect(parseLength(' 0.5px ')).toBe(0.5)
+    expect(parseLength('1e+2px')).toBe(100)
   })
 
   test('0 and 0px are equal', () => {

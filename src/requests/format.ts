@@ -262,7 +262,7 @@ function parseTokenRef(raw: unknown, outer: Fail): TokenRef {
   const value = record(raw, 'token', outer)
   const fail = within(outer, 'token')
   const { code } = value
-  if (typeof code !== 'string' && typeof code !== 'number') fail('has no code (text or number)')
+  if (typeof code !== 'string' && (typeof code !== 'number' || !Number.isFinite(code))) fail('has no code (text or number)')
   return { id: text(value.id, 'id', fail), name: text(value.name, 'name', fail), code: code as string | number }
 }
 
@@ -416,7 +416,13 @@ function parseHead(json: unknown, list: 'edits' | 'issues', name: string) {
 export function parseRequest(json: unknown): RequestFile {
   const { items, ...head } = parseHead(json, 'edits', 'request file')
   const seen = new Set<string>()
-  return { ...head, edits: items.map((raw, index) => parseEdit(raw, index, seen)) }
+  const edits = items.map((raw, index) => parseEdit(raw, index, seen))
+  // A screen has at most one request to keep an option (`KeepChange`).
+  const second = edits.filter((edit) => edit.change.kind === 'keep')[1]
+  if (second !== undefined) {
+    throw new Error(`request file: edit ${edits.indexOf(second) + 1} "${second.id}" is a second keep edit; a screen has at most one`)
+  }
+  return { ...head, edits }
 }
 
 // The text of a checked file: an indent of two spaces, and a line break at

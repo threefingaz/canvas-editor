@@ -73,19 +73,31 @@ export const noCommand = 'canvas.config.ts sets no command for the agent: Copy f
 // quotes (in the sentence, and in the path of the command): the end of the quotes, a variable, a second command, a redirect.
 const unsafe = /["%&|<>^`$!\r\n]/
 
+// A word of a shell line of Windows: in double quotes when it is empty or has
+// a character that ends a word there (a space, a tab, and `,` `;` `=`, which
+// a `.cmd` script reads as gaps between its arguments) or that the shell reads
+// as a group (`(`, `)`). A backslash at the end is doubled inside the quotes,
+// thus it does not hide the closing quote from the program.
+function shellWord(word: string, quote = false): string {
+  if (!quote && word !== '' && !/[\s,;=()]/.test(word)) return word
+  return `"${word.replace(/\\+$/, (slashes) => slashes + slashes)}"`
+}
+
 // The command with the sentence as its last argument. On Windows the command
 // of a code editor is a `.cmd` script, which only a shell can start; the shell
-// gets one line, thus the sentence is in double quotes there, and a sentence
-// with a character that the shell reads in a different way is refused, not
-// changed. On the other platforms no shell runs, and the sentence is one
-// argument as it is.
+// gets one line, thus the sentence is in double quotes there, and a sentence,
+// a command or an argument with a character that the shell reads in a
+// different way is refused, not changed. On the other platforms no shell
+// runs, and each argument is one argument as it is.
 export function agentCommand(agent: AgentLine, sentence: string, platform: string): AgentCommand {
   if (platform !== 'win32') return { command: agent.command, args: [...agent.args, sentence], shell: false }
-  const found = unsafe.exec(sentence) ?? unsafe.exec(agent.command)
-  if (found) throw new Error(`the command line has the character ${JSON.stringify(found[0])}, which is not safe in a shell line`)
-  // A path with a space is one word of the shell line only in quotes.
-  const command = agent.command.includes(' ') ? `"${agent.command}"` : agent.command
-  return { command, args: [...agent.args, `"${sentence}"`], shell: true }
+  for (const word of [sentence, agent.command, ...agent.args]) {
+    const found = unsafe.exec(word)
+    if (found) throw new Error(`the command line has the character ${JSON.stringify(found[0])}, which is not safe in a shell line`)
+  }
+  // A path or an argument with a space is one word of the shell line only in
+  // quotes; the sentence is always in quotes.
+  return { command: shellWord(agent.command), args: [...agent.args.map((arg) => shellWord(arg)), shellWord(sentence, true)], shell: true }
 }
 
 // The name of the command line of VS Code, the command of the preset
@@ -133,8 +145,9 @@ export function agentCommands(
 ): string[] {
   if (agent.command !== codeCommand) return [agent.command]
   const terminal = codeOfTerminal(env.VSCODE_GIT_ASKPASS_MAIN, platform)
-  const found = [terminal, ...codePlaces(env, platform)].filter((path): path is string => path !== null && exists(path))
-  return [...new Set([...found.slice(0, terminal !== null && found[0] === terminal ? 1 : 0), agent.command, ...found])]
+  const first = terminal !== null && exists(terminal) ? [terminal] : []
+  const places = codePlaces(env, platform).filter(exists)
+  return [...new Set([...first, agent.command, ...places])]
 }
 
 // How a start ended: the process runs (or ended with the code 0), the system
@@ -162,6 +175,19 @@ export function startResult(event: StartEvent, command: string): StartResult {
         ? `the command "${command}" was stopped`
         : `the command "${command}" ended with the code ${event.code}`,
   }
+}
+
+// The failure to report when no place of the command started, of the
+// failures of each place in the sequence of the tries: the first place that
+// was there and did not start (it ended with an error), else the command of
+// the setting, the name that the user knows, else the first place. Null for
+// no failure.
+export function startFailure(failures: readonly { command: string; reason: string }[], command: string): string | null {
+  const found =
+    failures.find((failure) => !failure.reason.endsWith('was not found')) ??
+    failures.find((failure) => failure.command === command) ??
+    failures[0]
+  return found?.reason ?? null
 }
 
 // The reason for the user when no place of the command started. It names

@@ -87,9 +87,16 @@ function unchanged(edit: Edit): boolean {
 // not change. It gives the same list when nothing changes.
 //
 // - A style edit takes its properties out of the earlier style edits on the
-//   same target. An earlier edit with no properties left goes out. The new edit
-//   keeps the `before` of the first earlier edit that had one of its
-//   properties: the value in the code, not the previewed value.
+//   same target. An earlier edit with no properties left goes out. Each
+//   property of the new edit keeps the `before` of the earlier edit that had
+//   it: the value in the code, not the previewed value; a property with no
+//   earlier edit keeps the `before` of the new edit, which the page shows from
+//   the code. When these differ (a row of four sides over an earlier edit of
+//   one side), the new edit is one edit for each `before`, with the ids
+//   `<id>`, `<id>-2`, …. It also keeps the `media` of that earlier edit: the
+//   page shows the preview, which has no media rule. A style edit of the same
+//   properties with the same `after` as the earlier edits of them (one, or
+//   the parts of one that was split), with no reply, gives the same list.
 // - A text, text style or order edit replaces the earlier edit of its kind on
 //   the same target and keeps its `before`. When it has the same `after` as
 //   the earlier edit, the list stays the same: a control that reports one
@@ -116,18 +123,67 @@ export function addEdit(list: Item[], edit: Edit): Item[] {
 
   if (change.kind === 'style') {
     const taken = new Set(change.properties)
-    let first: EditValue | undefined
+    // A control that reports one change two times: the earlier edits of these
+    // properties (one, or the parts `<id>`, `<id>-2`, … of one edit that was
+    // split by its `before`) have no reply, no other property, the same
+    // `after`, and all the properties together.
+    const overlapping = list.filter((item) => {
+      const earlier = item.edit.change
+      return (
+        earlier.kind === 'style' &&
+        !item.stale &&
+        sameTarget(item.edit.target, edit.target) &&
+        earlier.properties.some((property) => taken.has(property))
+      )
+    })
+    const covered = new Set(overlapping.flatMap((item) => (item.edit.change.kind === 'style' ? item.edit.change.properties : [])))
+    const same =
+      overlapping.length > 0 &&
+      covered.size === taken.size &&
+      overlapping.every((item) => {
+        const earlier = item.edit.change
+        return (
+          earlier.kind === 'style' &&
+          !item.edit.reply &&
+          earlier.properties.every((property) => taken.has(property)) &&
+          sameValue(earlier.after, change.after)
+        )
+      })
+    if (same) return list
+    // The value in the code of each property that an earlier edit has, with
+    // the condition of its media rule: the page now shows the preview of the
+    // earlier edit, which has no media rule.
+    const code = new Map<string, { before: EditValue; media: string | undefined }>()
     next = list.flatMap((item) => {
       const earlier = item.edit.change
       if (earlier.kind !== 'style' || item.stale || !sameTarget(item.edit.target, edit.target)) return [item]
       const left = earlier.properties.filter((property) => !taken.has(property))
       if (left.length === earlier.properties.length) return [item]
-      first ??= earlier.before
+      for (const property of earlier.properties) {
+        if (taken.has(property) && !code.has(property)) code.set(property, { before: earlier.before, media: earlier.media })
+      }
       if (left.length === 0) return []
       return [{ ...item, edit: { ...item.edit, change: { ...earlier, properties: left } } }]
     })
-    if (first === undefined) next = list
-    else added = { ...edit, change: { ...change, before: first } }
+    if (code.size === 0) next = list
+    else {
+      const parts: { before: EditValue; media: string | undefined; properties: string[] }[] = []
+      for (const property of change.properties) {
+        const { before, media } = code.get(property) ?? { before: change.before, media: change.media }
+        const part = parts.find((entry) => sameValue(entry.before, before) && entry.media === media)
+        if (part) part.properties.push(property)
+        else parts.push({ before, media, properties: [property] })
+      }
+      const { media: _, ...rest } = change
+      const split = parts.map(
+        (part, index): Edit => ({
+          ...edit,
+          id: index === 0 ? edit.id : `${edit.id}-${index + 1}`,
+          change: { ...rest, properties: part.properties, before: part.before, ...(part.media === undefined ? {} : { media: part.media }) },
+        }),
+      )
+      return [...next, ...split.filter((part) => !unchanged(part)).map((part) => ({ edit: part }))]
+    }
   } else {
     const index = list.findIndex(
       (item) => !item.stale && item.edit.change.kind === change.kind && sameTarget(item.edit.target, edit.target),

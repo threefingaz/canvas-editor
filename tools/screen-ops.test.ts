@@ -1,12 +1,16 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, test } from 'vitest'
 import { parseIssues, parseRequest } from '../src/requests/format.ts'
 import {
+  ApplyError,
   applyPlan,
   diskReader,
   idLiterals,
+  innerRelative,
+  movedImports,
+  moveThrough,
   parseManifest,
   planDelete,
   planRename,
@@ -14,6 +18,7 @@ import {
   planRestore,
   planTitle,
   rewriteIds,
+  StrandedMove,
   trashItems,
   type Plan,
   type Reader,
@@ -135,6 +140,11 @@ describe('rewriteIds', () => {
   test('gives no literal for a file that the parser cannot read', () => {
     expect(idLiterals('export const meta = {', 'screens/a/x.tsx')).toEqual([])
   })
+
+  test('gives the links of a file with no meta', () => {
+    const code = 'export default function X() {\n  return <a href="#/a/one">Go</a>\n}\n'
+    expect(rewrite(code)).toBe('export default function X() {\n  return <a href="#/a/uno">Go</a>\n}\n')
+  })
 })
 
 describe('planReorder', () => {
@@ -181,6 +191,14 @@ describe('planTitle', () => {
     const files = { ...project(), 'screens/other/end.tsx': screen(`{ title: "End", width: 390 }`) }
     const text = after(files, planTitle(memory(files), 'other/end', 'The "end"'))['screens/other/end.tsx']
     expect(readScreenMeta(text, 'screens/other/end.tsx').title).toBe('The "end"')
+  })
+
+  test('a backslash and a line break round-trip through the literal', () => {
+    const files = project()
+    for (const title of ['A\\B', 'Two\nlines', 'Back\r\\n']) {
+      const text = after(files, planTitle(memory(files), 'onboarding/welcome', title))['screens/onboarding/welcome.tsx']
+      expect(readScreenMeta(text, 'screens/onboarding/welcome.tsx').title).toBe(title)
+    }
   })
 
   test('refuses an empty title and a screen whose file has an error', () => {
@@ -233,6 +251,45 @@ describe('planRename', () => {
     expect(JSON.parse(result['screens/onboarding/flow.json'])).toEqual({ order: ['welcome'] })
     expect(JSON.parse(result['screens/other/flow.json'])).toEqual({ order: ['start', 'team'] })
     expect(JSON.parse(result['.canvas/requests/other/team.json']).edits[1].change.option).toBe('other/team-option-1')
+  })
+
+  test('a move to a flow of a different depth changes the relative imports of each moved file', () => {
+    const imports = `import { Ring } from '../../components/Ring.tsx'\nimport { rows } from './data.ts'\nexport { other } from "./other.ts"\n`
+    const files = {
+      ...project(),
+      'screens/onboarding/workspace.tsx': imports + project()['screens/onboarding/workspace.tsx'],
+      'screens/onboarding/workspace-email-error.tsx': imports + project()['screens/onboarding/workspace-email-error.tsx'],
+    }
+    const plan = planRename(memory(files), 'onboarding/workspace', { flow: 'a/b', name: 'team' })
+    const result = after(files, plan)
+    for (const path of ['screens/a/b/team.tsx', 'screens/a/b/team-email-error.tsx']) {
+      expect(result[path]).toContain(`from '../../../components/Ring.tsx'`)
+      expect(result[path]).toContain(`from '../../onboarding/data.ts'`)
+      expect(result[path]).toContain(`from "../../onboarding/other.ts"`)
+    }
+    // A move in the same folder keeps the imports.
+    const renamed = after(files, planRename(memory(files), 'onboarding/workspace', { flow: 'onboarding', name: 'team' }))
+    expect(renamed['screens/onboarding/team.tsx']).toBe(files['screens/onboarding/workspace.tsx'])
+  })
+
+  test('a relative import of a file whose name starts with a dot, and an `import()`, name the same file after a move', () => {
+    const source = `import rows from '../shared/.data.ts'\nconst load = () => import('./.cache.ts')\n`
+    const moved = movedImports(source, 'screens/a/x.tsx', 'screens/shared/x.tsx', new Map())
+    expect(moved).toBe(`import rows from './.data.ts'\nconst load = () => import('../a/.cache.ts')\n`)
+  })
+
+  test('an import of a file far above the project keeps each `..` after a move, from each current folder', () => {
+    const source = `import { Button } from '../../../../shared/ui/index.ts'\n`
+    const cwd = process.cwd()
+    try {
+      process.chdir('/')
+      const moved = movedImports(source, 'screens/a/x.tsx', 'screens/b/c/x.tsx', new Map())
+      expect(moved).toBe(`import { Button } from '../../../../../shared/ui/index.ts'\n`)
+    } finally {
+      process.chdir(cwd)
+    }
+    expect(innerRelative('screens/b', '../../shared')).toBe('../../../../shared')
+    expect(innerRelative('screens/b', 'screens/a/x.ts')).toBe('../a/x.ts')
   })
 
   test('changes a `keep` of a moved option in the request file of a base that stays', () => {
@@ -300,12 +357,23 @@ describe('planRename', () => {
     ])
   })
 
+  test('refuses a request or issues file at the new id also when the screen has none', () => {
+    const files: Record<string, string> = { ...project(), '.canvas/requests/onboarding/team.json': '{}', '.canvas/issues/onboarding/team.json': '{}' }
+    delete files['.canvas/requests/onboarding/workspace.json']
+    delete files['.canvas/issues/onboarding/workspace.json']
+    expect(planRename(memory(files), 'onboarding/workspace', { flow: 'onboarding', name: 'team' }).refusals).toEqual([
+      'the file .canvas/requests/onboarding/team.json exists, left from a screen that is no longer there: move it out of .canvas first',
+      'the file .canvas/issues/onboarding/team.json exists, left from a screen that is no longer there: move it out of .canvas first',
+    ])
+  })
+
   test('a change of only the case of the name works on a file system that ignores the case', () => {
     const files = project()
     // A disk that ignores the case: a read of `Welcome.tsx` gives `welcome.tsx`.
     const reader: Reader = {
       read: (path) => Object.entries(files).find(([key]) => key.toLowerCase() === path.toLowerCase())?.[1] ?? null,
       list: memory(files).list,
+      same: (a, b) => a.toLowerCase() === b.toLowerCase(),
     }
     const plan = planRename(reader, 'onboarding/workspace', { flow: 'onboarding', name: 'Workspace' })
     expect(plan.refusals).toEqual([])
@@ -315,6 +383,51 @@ describe('planRename', () => {
       to: '.canvas/requests/onboarding/Workspace.json',
     })
     expect(plan.reads.map((read) => read.path)).not.toContain('screens/onboarding/Workspace.tsx')
+  })
+
+  // A disk that ignores the case: a read of `Welcome.tsx` gives `welcome.tsx`.
+  const folding = (files: Record<string, string>): Reader => ({
+    read: (path) => Object.entries(files).find(([key]) => key.toLowerCase() === path.toLowerCase())?.[1] ?? null,
+    list: memory(files).list,
+    same: (a, b) => a.toLowerCase() === b.toLowerCase(),
+  })
+
+  test('a request file in a folder of a different case moves with its screen, on a file system that ignores the case', () => {
+    const files: Record<string, string> = { ...project() }
+    files['.canvas/requests/Onboarding/workspace.json'] = files['.canvas/requests/onboarding/workspace.json']
+    delete files['.canvas/requests/onboarding/workspace.json']
+    const plan = planRename(folding(files), 'onboarding/workspace', { flow: 'onboarding', name: 'team' })
+    expect(plan.refusals).toEqual([])
+    expect(plan.moves).toContainEqual({ from: '.canvas/requests/onboarding/workspace.json', to: '.canvas/requests/onboarding/team.json' })
+    const write = plan.writes.find((item) => item.path === '.canvas/requests/onboarding/team.json')!
+    expect(JSON.parse(write.text).screen).toBe('onboarding/team')
+    expect(plan.writes.map((item) => item.path)).not.toContain('.canvas/requests/Onboarding/workspace.json')
+  })
+
+  test('a file at the new name in a different case is left over when it is not the file of the screen, on a file system that ignores the case', () => {
+    const files: Record<string, string> = { ...project() }
+    delete files['.canvas/requests/onboarding/workspace.json']
+    const gone = JSON.parse(project()['.canvas/requests/onboarding/workspace.json'])
+    files['.canvas/requests/onboarding/Workspace.json'] = json({ ...gone, screen: 'onboarding/Workspace' })
+    const to = { flow: 'onboarding', name: 'Workspace' }
+    expect(planRename(folding(files), 'onboarding/workspace', to).refusals).toEqual([
+      'the file .canvas/requests/onboarding/Workspace.json exists, left from a screen that is no longer there: move it out of .canvas first',
+    ])
+    files['.canvas/requests/onboarding/Workspace.json'] = '{'
+    expect(planRename(folding(files), 'onboarding/workspace', to).refusals[0]).toContain('is not valid')
+    // The file of the screen itself in the new case moves to its new name.
+    files['.canvas/requests/onboarding/Workspace.json'] = project()['.canvas/requests/onboarding/workspace.json']
+    const plan = planRename(folding(files), 'onboarding/workspace', to)
+    expect(plan.refusals).toEqual([])
+    expect(plan.moves).toContainEqual({ from: '.canvas/requests/onboarding/workspace.json', to: '.canvas/requests/onboarding/Workspace.json' })
+  })
+
+  test('a change of only the case refuses a different file at the new path, on a file system that keeps the case apart', () => {
+    const files = { ...project(), '.canvas/requests/onboarding/Workspace.json': '{}' }
+    const plan = planRename(memory(files), 'onboarding/workspace', { flow: 'onboarding', name: 'Workspace' })
+    expect(plan.refusals).toEqual([
+      'the file .canvas/requests/onboarding/Workspace.json exists, left from a screen that is no longer there: move it out of .canvas first',
+    ])
   })
 
   test('reads and writes only the request files that the rename changes', () => {
@@ -411,6 +524,30 @@ describe('planRestore', () => {
     expect(after(files, plan)['screens/onboarding/flow.json']).toBeUndefined()
   })
 
+  test('restores a screen whose name the rename would refuse', () => {
+    const files = { ...project(), 'screens/other/step.2.tsx': screen(`{ title: 'Step 2', width: 390 }`) }
+    const gone = after(files, planDelete(memory(files), 'other/step.2', time))
+    expect(gone['screens/other/step.2.tsx']).toBeUndefined()
+    const name = '20261123-101500-other-step.2'
+    const plan = planRestore(memory(gone), name)
+    expect(plan.refusals).toEqual([])
+    expect(after(gone, plan)['screens/other/step.2.tsx']).toBe(files['screens/other/step.2.tsx'])
+  })
+
+  test('refuses a flow or an id that differs only in its case from one that exists', () => {
+    const files = deleted(['welcome'])
+    files['screens/onboarding/Workspace.tsx'] = files['screens/onboarding/welcome.tsx']
+    expect(planRestore(memory(files), folderName).refusals).toEqual(["a screen with the id 'onboarding/Workspace' exists"])
+    const moved = deleted(['welcome'])
+    for (const name of ['welcome.tsx', 'flow.json']) {
+      moved[`screens/Onboarding/${name}`] = moved[`screens/onboarding/${name}`]
+      delete moved[`screens/onboarding/${name}`]
+    }
+    expect(planRestore(memory(moved), folderName).refusals).toEqual([
+      "the flow 'Onboarding' exists; a flow name that differs only in its case is the same folder on some file systems",
+    ])
+  })
+
   test('a file of the manifest that the trash no longer has is a refusal', () => {
     const files = deleted(['welcome'])
     delete files[`${trash}/screens/onboarding/workspace-option-1.tsx`]
@@ -424,6 +561,28 @@ describe('parseManifest', () => {
   test('refuses a path out of the project', () => {
     expect(() => parseManifest(json({ screen: 'a', files: ['../x'], flowOrder: null, time: 't' }))).toThrow('files')
     expect(() => parseManifest(json({ screen: 'a', files: ['/x'], flowOrder: null, time: 't' }))).toThrow('files')
+    expect(() => parseManifest(json({ screen: 'a', files: ['C:x'], flowOrder: null, time: 't' }))).toThrow('files')
+    expect(() => parseManifest(json({ screen: 'a', files: ['a\\..\\b'], flowOrder: null, time: 't' }))).toThrow('files')
+  })
+
+  test('refuses a manifest of a different form', () => {
+    expect(() => parseManifest('null')).toThrow('not an object')
+    expect(() => parseManifest('[]')).toThrow('screen')
+    expect(() => parseManifest(json({ screen: 'a', files: [], flowOrder: [1], time: 't' }))).toThrow('flowOrder')
+    expect(() => parseManifest(json({ screen: 'a', files: [], flowOrder: 'a', time: 't' }))).toThrow('flowOrder')
+    expect(() => parseManifest(json({ screen: 'a', files: [], flowOrder: null }))).toThrow('time')
+    expect(parseManifest(json({ screen: 'a', files: ['screens/a.tsx'], flowOrder: ['a'], time: 't' }))).toEqual({
+      screen: 'a',
+      files: ['screens/a.tsx'],
+      flowOrder: ['a'],
+      time: 't',
+    })
+  })
+
+  test('planRestore refuses a name that is not one folder of the trash', () => {
+    for (const name of ['', '.', '..', 'a/b', 'a\\b', '..\\x']) {
+      expect(planRestore(memory(project()), name).refusals, name).toEqual([`'${name}' is not a folder of the trash`])
+    }
   })
 })
 
@@ -450,6 +609,12 @@ describe('on a temporary folder', () => {
     }
     return result
   }
+
+  test('the disk reader leaves out a link to nothing', () => {
+    folder({ 'screens/a/b.tsx': 'b' })
+    symlinkSync(join(root, 'missing.tsx'), join(root, 'screens/a/gone.tsx'))
+    expect(diskReader(root).list('screens')).toEqual(['screens/a/b.tsx'])
+  })
 
   test('a delete and a restore give the project back, and the trash folder goes', () => {
     const files = project()
@@ -490,6 +655,22 @@ describe('on a temporary folder', () => {
     expect(planRestore(diskReader(root), '20261123-101500-onboarding-workspace').refusals).toEqual([
       '.canvas/trash/20261123-101500-onboarding-workspace/manifest.json is not valid: package.json is not a screen, request or issues file',
     ])
+    writeFileSync(path, JSON.stringify({ ...manifest, files: [...manifest.files, 'screens/onboarding\\x.tsx'] }))
+    expect(planRestore(diskReader(root), '20261123-101500-onboarding-workspace').refusals).toEqual([
+      '.canvas/trash/20261123-101500-onboarding-workspace/manifest.json is not valid: screens/onboarding\\x.tsx is not a screen, request or issues file',
+    ])
+    writeFileSync(path, JSON.stringify({ ...manifest, files: [...manifest.files, manifest.files[0]] }))
+    expect(planRestore(diskReader(root), '20261123-101500-onboarding-workspace').refusals).toEqual([
+      `.canvas/trash/20261123-101500-onboarding-workspace/manifest.json is not valid: it names ${manifest.files[0]} twice`,
+    ])
+    writeFileSync(path, JSON.stringify({ ...manifest, files: [...manifest.files, manifest.files[0].replace('workspace', 'Workspace')] }))
+    expect(planRestore(diskReader(root), '20261123-101500-onboarding-workspace').refusals[0]).toContain('twice')
+    for (const empty of ['screens/.tsx', 'screens/onboarding/.tsx', '.canvas/requests/.json']) {
+      writeFileSync(path, JSON.stringify({ ...manifest, files: [...manifest.files, empty] }))
+      expect(planRestore(diskReader(root), '20261123-101500-onboarding-workspace').refusals).toEqual([
+        `.canvas/trash/20261123-101500-onboarding-workspace/manifest.json is not valid: ${empty} is not a screen, request or issues file`,
+      ])
+    }
   })
 
   test('a rename on the disk', () => {
@@ -537,8 +718,32 @@ describe('on a temporary folder', () => {
       removes: [],
       refusals: [],
     }
-    expect(() => applyPlan(root, plan)).toThrow()
+    expect(() => applyPlan(root, plan)).toThrow(expect.objectContaining({ restored: true }))
     expect(tree()).toEqual({ 'a.txt': 'a', 'c.txt': 'c' })
+    // The folder that the move made goes too.
+    expect(readdirSync(root).sort()).toEqual(['.canvas', 'a.txt', 'c.txt', 'd'])
+  })
+
+  test('a step that cannot be put back gives an error that says so', () => {
+    folder({ 'a.txt': 'a' })
+    // The write makes a folder at the old path of the moved file; the remove
+    // fails; the way back of the move then finds a folder at its path.
+    const plan: Plan = {
+      ...emptyPlan,
+      moves: [{ from: 'a.txt', to: 'sub/a.txt' }],
+      writes: [{ path: 'a.txt/inner.txt', text: 'x' }],
+      removes: ['missing.txt'],
+    }
+    let error: unknown
+    try {
+      applyPlan(root, plan)
+    } catch (thrown) {
+      error = thrown
+    }
+    expect(error).toBeInstanceOf(ApplyError)
+    expect((error as ApplyError).restored).toBe(false)
+    expect((error as ApplyError).message).toContain('1 step could not be put back')
+    expect((error as ApplyError).cause).toBeInstanceOf(Error)
   })
 
   const emptyPlan: Plan = {
@@ -613,5 +818,45 @@ describe('trashItems', () => {
 
   test('an empty list with no trash', () => {
     expect(trashItems(memory({}))).toEqual([])
+  })
+})
+
+describe('moveThrough', () => {
+  // A fake rename over a map of paths, which fails for the steps of `fails`.
+  const disk = (fails: readonly string[]) => {
+    const files = new Map([['a', 'text']])
+    const rename = (from: string, to: string) => {
+      if (fails.includes(`${from}>${to}`)) throw new Error(`cannot move ${from}`)
+      files.set(to, files.get(from)!)
+      files.delete(from)
+    }
+    return { files, rename }
+  }
+
+  test('moves the file through the temporary name', () => {
+    const { files, rename } = disk([])
+    moveThrough('a', 'tmp', 'A', rename)
+    expect([...files.keys()]).toEqual(['A'])
+  })
+
+  test('a second step that fails puts the file back and throws its error', () => {
+    const { files, rename } = disk(['tmp>A'])
+    expect(() => moveThrough('a', 'tmp', 'A', rename)).toThrow('cannot move tmp')
+    expect([...files.keys()]).toEqual(['a'])
+  })
+
+  test('a file that cannot go back gives a StrandedMove with its place', () => {
+    const { files, rename } = disk(['tmp>A', 'tmp>a'])
+    let error: unknown
+    try {
+      moveThrough('a', 'tmp', 'A', rename)
+    } catch (thrown) {
+      error = thrown
+    }
+    expect(error).toBeInstanceOf(StrandedMove)
+    expect((error as StrandedMove).temp).toBe('tmp')
+    expect((error as StrandedMove).message).toBe('the file a is at tmp')
+    expect(((error as StrandedMove).cause as Error).message).toBe('cannot move tmp')
+    expect([...files.keys()]).toEqual(['tmp'])
   })
 })

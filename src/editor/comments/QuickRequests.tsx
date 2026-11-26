@@ -1,6 +1,6 @@
 import { CheckIcon } from '@phosphor-icons/react'
 import { useRef, useState } from 'react'
-import { donePresets, type Preset } from './presets.ts'
+import { donePresets, opensList, type Preset } from './presets.ts'
 
 // The quick requests of the bubble: comments with a fixed text, above the
 // box of a new comment. A click on one adds its comment at once (`onAdd`,
@@ -33,7 +33,8 @@ export function QuickRequests({ presets, links = [], texts, onAdd }: QuickReques
   const done = donePresets(presets, texts)
   const linked = donePresets(links, texts)
   // The screen that the keyboard chose in the list of links, and whether the
-  // last change of the list came from the pointer.
+  // next change of the list is a choice in its open popup: a press of the
+  // pointer, or a key that opens the popup (`opensList`).
   const [choice, setChoice] = useState('')
   const byPointer = useRef(false)
   const addLink = (key: string) => {
@@ -74,17 +75,17 @@ export function QuickRequests({ presets, links = [], texts, onAdd }: QuickReques
         })}
       </div>
       {links.length > 0 && (
-        // A choice with the pointer adds the comment at once, and the list
-        // shows its first line again. With the keyboard a closed list changes
-        // its value at each arrow key, thus the choice only shows, and Enter
-        // adds it.
+        // A choice in the open popup (opened with the pointer, Space, F4 or
+        // Alt with an arrow) adds the comment at once, and the list shows its
+        // first line again. With the keyboard a closed list changes its value
+        // at each arrow key, thus the choice only shows, and Enter adds it.
         <select
           className="h-[22px] w-full shrink-0 cursor-pointer rounded-md border border-[color:var(--editor-line)] bg-transparent px-1.5 text-xs text-inherit focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-[color:var(--ring)]"
           aria-label="Link to a screen. With the keyboard, choose a screen and press Enter."
           value={choice}
           onPointerDown={() => (byPointer.current = true)}
           onKeyDown={(event) => {
-            byPointer.current = false
+            byPointer.current = opensList(event.key, event.altKey)
             if (event.key !== 'Enter' || choice === '') return
             event.preventDefault()
             addLink(choice)

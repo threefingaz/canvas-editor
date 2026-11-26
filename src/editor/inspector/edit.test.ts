@@ -365,6 +365,28 @@ describe('styleEdit', () => {
     expect(styleEdit(fill, scrim, target, 390, 'e3')?.change).toMatchObject({ after: { value: 'rgba(0, 0, 0, 0.5)' } })
   })
 
+  test('a linked value has the value of its token in the form of after: a change back to it gives the same value', () => {
+    const scrim: Token = { ...secondary, id: 'palette.scrim', name: 'scrim', value: 'rgba(0, 0, 0, 0.5)' }
+    const veil: Token = { ...secondary, id: 'palette.veil', name: 'veil', value: 'rgba(0, 0, 0, 0.3)' }
+    const row = (token: Token, value: string): InspectorRow => ({
+      label: 'Fill',
+      value,
+      group: 'color',
+      state: { state: 'linked', token },
+      swatch: token.value as string,
+      missing: false,
+      properties: ['background-color'],
+      tokens: [scrim, veil],
+    })
+    const there = styleEdit(row(scrim, '#000000 50%'), veil, target, 390, 'e1')
+    expect(there?.change).toMatchObject({ before: { value: 'rgba(0, 0, 0, 0.5)' }, after: { value: 'rgba(0, 0, 0, 0.3)' } })
+    const back = styleEdit(row(veil, '#000000 30%'), scrim, target, 390, 'e2')
+    expect(back?.change.kind === 'style' && back.change.after.value).toBe(there?.change.kind === 'style' && there.change.before.value)
+    const shadow: Token = { ...spacing(1), id: 'shadows.1', group: 'shadow', value: '0 1px 2px rgba(0,0,0,0.2)' }
+    const shadowRow: InspectorRow = { ...paddingRow({ state: 'linked', token: shadow }, 'rgba(0, 0, 0, 0.2) 0px 1px 2px 0px'), group: 'shadow', tokens: [shadow] }
+    expect(styleEdit(shadowRow, shadow, target, 390, 'e3')?.change).toMatchObject({ before: { value: shadow.value }, after: { value: shadow.value } })
+  })
+
   test('a new id when none is given', () => {
     const edit = styleEdit(paddingRow({ state: 'linked', token: spacing(2) }), spacing(4), target, 390)
     expect(edit?.id).toMatch(/^[0-9a-f]{12}$/)
@@ -399,6 +421,12 @@ describe('textStyleEdit', () => {
         after: { value: '14px / 24.5px · 500', token: { id: 'typography.button', name: 'button', code: 'button' } },
       },
     })
+  })
+
+  test('a linked text style takes the text of its token, not the rounding of the page', () => {
+    const row = textStyleRow({ state: 'linked', token: body1 }, '16px / 23.999999px · 400')
+    const change = textStyleEdit(row, body1, target, 390, 'e1')?.change
+    expect(change).toMatchObject({ before: { value: '16px / 24px · 400' }, after: { value: '16px / 24px · 400' } })
   })
 
   test('a text style with no link is observed', () => {

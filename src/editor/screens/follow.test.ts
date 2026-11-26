@@ -7,7 +7,7 @@ import { createEditsStore } from '../edits/store.ts'
 import { createIssuesStore } from '../issues/store.ts'
 import type { EditorSync, SaveState } from '../requests/sync.ts'
 import type { ActionResult } from './client.ts'
-import { carriedEdits, followAction, idChanges, movedScreens, runAction, saveBlock, type RunDeps } from './follow.ts'
+import { carriedEdits, followAction, heldScreens, idChanges, movedScreens, runAction, saveBlock, type RunDeps } from './follow.ts'
 
 const list = [
   { id: 'onboarding/welcome', flow: 'onboarding' },
@@ -49,6 +49,17 @@ describe('movedScreens', () => {
   })
 })
 
+describe('heldScreens', () => {
+  test('a rename of an option holds its base too, whose keep of the option changes', () => {
+    const rename: ScreenAction = { action: 'rename', screen: 'onboarding/workspace-option-1', flow: 'onboarding', name: 'two' }
+    expect(heldScreens(list, rename)).toEqual(['onboarding/workspace-option-1', 'onboarding/workspace'])
+    expect(heldScreens(list, { action: 'delete', screen: 'onboarding/workspace-option-1' })).toEqual(['onboarding/workspace-option-1'])
+    expect(heldScreens(list, { action: 'rename', screen: 'onboarding/workspace', flow: 'onboarding', name: 'team' })).toEqual(
+      movedScreens(list, { action: 'rename', screen: 'onboarding/workspace', flow: 'onboarding', name: 'team' }),
+    )
+  })
+})
+
 describe('saveBlock', () => {
   test('names the first screen that is not saved', () => {
     const states: Record<string, SaveState> = { a: 'saved', b: 'pending', c: 'failed' }
@@ -67,6 +78,8 @@ function setup(saveState: (id: string) => SaveState = () => 'saved') {
   const reports: [string, string | null][] = []
   const replaced: [readonly string[], readonly string[]][] = []
   const bases: (ReadonlyMap<string, readonly Edit[]> | undefined)[] = []
+  // Each call of `hold` and each release, in their order.
+  const holds: string[] = []
   const sync: EditorSync = {
     requests: {
       setScreens: () => {},
@@ -76,11 +89,22 @@ function setup(saveState: (id: string) => SaveState = () => 'saved') {
         bases.push(base)
       },
       saveState,
-      hold: () => () => {},
+      hold: (ids) => {
+        holds.push(`hold ${ids.join(',')}`)
+        return () => holds.push(`release ${ids.join(',')}`)
+      },
     },
-    issues: { setScreens: () => {}, stop: () => {}, replaceScreens: (drop, load) => replaced.push([drop, load]) },
+    issues: {
+      setScreens: () => {},
+      stop: () => {},
+      replaceScreens: (drop, load) => replaced.push([drop, load]),
+      hold: (ids) => {
+        holds.push(`hold issues ${ids.join(',')}`)
+        return () => holds.push(`release issues ${ids.join(',')}`)
+      },
+    },
   }
-  return { edits, issues, drafts, reports, replaced, bases, sync, report: (key: string, error: string | null) => reports.push([key, error]) }
+  return { edits, issues, drafts, reports, replaced, bases, holds, sync, report: (key: string, error: string | null) => reports.push([key, error]) }
 }
 
 describe('followAction', () => {
@@ -138,10 +162,16 @@ describe('carriedEdits', () => {
           ]
         : []
     const carried = carriedEdits(
-      [
-        { from: 'a/b', to: 'a/c' },
-        { from: 'a/b-option-1', to: 'a/c-option-1' },
-      ],
+      {
+        screens: [
+          { from: 'a/b', to: 'a/c' },
+          { from: 'a/b-option-1', to: 'a/c-option-1' },
+        ],
+        moves: [
+          { from: 'screens/a/b.tsx', to: 'screens/a/c.tsx' },
+          { from: 'screens/a/b-option-1.tsx', to: 'screens/a/c-option-1.tsx' },
+        ],
+      },
       before,
       now,
     )
@@ -159,14 +189,22 @@ describe('carriedEdits', () => {
   test('a changed and a discarded item are carried; edits that did not change are not', () => {
     const before = new Map([['a/b', [placed('e1', 'screens/a/b.tsx'), comment('e2')]]])
     const changed = { ...comment('e2'), change: { kind: 'comment' as const, text: 'Add the empty state' } }
-    const carried = carriedEdits([{ from: 'a/b', to: 'a/c' }], before, () => [changed])
+    const plan = { screens: [{ from: 'a/b', to: 'a/c' }], moves: [{ from: 'screens/a/b.tsx', to: 'screens/a/c.tsx' }] }
+    const carried = carriedEdits(plan, before, () => [changed])
     expect(carried.get('a/c')).toEqual({ base: [placed('e1', 'screens/a/c.tsx'), comment('e2')], edits: [changed] })
-    const same = carriedEdits([{ from: 'a/b', to: 'a/c' }], before, () => before.get('a/b')!)
+    const same = carriedEdits(plan, before, () => before.get('a/b')!)
     expect(same).toEqual(new Map())
   })
 
+  test('a target in a file that the plan did not move stays: an own component with the name of the screen', () => {
+    const before = new Map([['card', [placed('e1', 'components/card.tsx')]]])
+    const plan = { screens: [{ from: 'card', to: 'tile' }], moves: [{ from: 'screens/card.tsx', to: 'screens/tile.tsx' }] }
+    const carried = carriedEdits(plan, before, () => [placed('e1', 'components/card.tsx'), placed('e2', 'screens/card.tsx')])
+    expect(carried.get('tile')?.edits).toEqual([placed('e1', 'components/card.tsx'), placed('e2', 'screens/tile.tsx')])
+  })
+
   test('a delete carries nothing', () => {
-    expect(carriedEdits([{ from: 'a/b', to: null }], new Map(), () => [comment('e1')])).toEqual(new Map())
+    expect(carriedEdits({ screens: [{ from: 'a/b', to: null }], moves: [] }, new Map(), () => [comment('e1')])).toEqual(new Map())
   })
 })
 
@@ -273,5 +311,58 @@ describe('runAction', () => {
     // A move in the row moves no request file: it runs.
     await runAction({ action: 'reorder', screen: 'onboarding/workspace', to: 0 }, all)
     expect(run).toHaveBeenCalledTimes(1)
+  })
+
+  const moved = 'onboarding/workspace,onboarding/workspace-error,onboarding/workspace-option-1,onboarding/workspace-error-option-1'
+
+  test('holds the moved screens while the call runs, and releases them after each result', async () => {
+    const results: ActionResult[] = [
+      { status: 'applied', plan: { action: 'delete', screen: 'onboarding/workspace', screens: [], linkedBy: [], moves: [], writes: [], removes: [] } },
+      { status: 'refused', refusals: ['no'] },
+      { status: 'error', error: 'The dev server answered 500' },
+    ]
+    for (const result of results) {
+      const { deps, all } = runDeps(result)
+      const run = vi.fn(async () => {
+        expect(deps.holds).toEqual([`hold ${moved}`, `hold issues ${moved}`])
+        return result
+      })
+      await runAction(action, { ...all, client: { run } })
+      expect(run).toHaveBeenCalledTimes(1)
+      expect(deps.holds).toEqual([`hold ${moved}`, `hold issues ${moved}`, `release ${moved}`, `release issues ${moved}`])
+    }
+  })
+
+  test('an error leaves the edits as they are', async () => {
+    const { deps, all } = runDeps({ status: 'error', error: 'The dev server answered 500' })
+    deps.edits.apply('onboarding/workspace', comment('e1'))
+    expect(await runAction(action, all)).toEqual({ status: 'error', error: 'The dev server answered 500' })
+    expect(deps.edits.get('onboarding/workspace').map((item) => item.edit.id)).toEqual(['e1'])
+    expect(deps.replaced).toEqual([])
+  })
+
+  test('a client that throws still releases the hold', async () => {
+    const { deps, all } = runDeps({ status: 'refused', refusals: [] })
+    const run = vi.fn(async (): Promise<ActionResult> => {
+      throw new Error('offline')
+    })
+    await expect(runAction(action, { ...all, client: { run } })).rejects.toThrow('offline')
+    expect(deps.holds).toEqual([`hold ${moved}`, `hold issues ${moved}`, `release ${moved}`, `release issues ${moved}`])
+  })
+
+  test('a pending save of the base blocks the rename of its option', async () => {
+    const rename: ScreenAction = { action: 'rename', screen: 'onboarding/workspace-option-1', flow: 'onboarding', name: 'two' }
+    const { run, all } = runDeps({ status: 'refused', refusals: [] }, (id) => (id === 'onboarding/workspace' ? 'pending' : 'saved'))
+    expect(await runAction(rename, all)).toEqual({
+      status: 'refused',
+      refusals: ['The changes of onboarding/workspace are not saved yet. Try again in a moment.'],
+    })
+    expect(run).not.toHaveBeenCalled()
+  })
+
+  test('an action that moves no screen holds nothing', async () => {
+    const { deps, all } = runDeps({ status: 'refused', refusals: [] })
+    await runAction({ action: 'title', screen: 'onboarding/workspace', title: 'Team' }, all)
+    expect(deps.holds).toEqual([])
   })
 })

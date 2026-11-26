@@ -7,6 +7,7 @@
 // rule from its constructor name, and the tests give plain objects with a
 // constructor of that name.
 
+import { joinQuery } from '../../tokens/from-css.ts'
 import { splitTop } from './normalize.ts'
 
 // The members of a `CSSStyleDeclaration` that the reading uses.
@@ -14,6 +15,10 @@ import { splitTop } from './normalize.ts'
 export type DeclarationsLike = {
   getPropertyValue: (name: string) => string
   getPropertyPriority: (name: string) => string
+  // The longhands in the sequence of the declarations (a `CSSStyleDeclaration`
+  // has them); with none, the sequence is not known.
+  length?: number
+  item?: (index: number) => string
 }
 
 // The members of a `CSSRule` (and of its subclasses) that the reading uses.
@@ -47,7 +52,7 @@ const kindsByName: Record<string, RuleKind> = {
 
 export function ruleKind(rule: RuleLike): RuleKind {
   const name = (rule as { constructor?: { name?: string } }).constructor?.name
-  return (name && kindsByName[name]) || 'other'
+  return name !== undefined && Object.hasOwn(kindsByName, name) ? kindsByName[name] : 'other'
 }
 
 // A style rule and the condition of the media rules (and the `@import`
@@ -72,11 +77,17 @@ export function nestedSelector(parent: string, child: string): string {
 // `@scope`) and the sheets of `@import` rules for which `applies` is true,
 // and into the nested rules of a style rule, after the declarations of the
 // rule itself.
-export function walkRules(rules: ArrayLike<RuleLike>, applies: (rule: RuleLike) => boolean): RuleEntry[] {
+// `outer` are the conditions around the list: the media of the stylesheet
+// itself (`<link media="…">`, `<style media="…">`).
+export function walkRules(
+  rules: ArrayLike<RuleLike>,
+  applies: (rule: RuleLike) => boolean,
+  outer: readonly string[] = [],
+): RuleEntry[] {
   const result: RuleEntry[] = []
   const push = (rule: StyleRuleLike, conditions: readonly string[]) => {
     const entry: RuleEntry = { rule }
-    if (conditions.length > 0) entry.media = conditions.join(' and ')
+    if (conditions.length > 0) entry.media = conditions.reduce(joinMedia)
     result.push(entry)
   }
   // `parent`: the absolute selector of the style rule that holds the list,
@@ -95,18 +106,38 @@ export function walkRules(rules: ArrayLike<RuleLike>, applies: (rule: RuleLike) 
         if (parent !== null && rule.style) push({ selectorText: parent, style: rule.style }, conditions)
         continue
       }
+      // `all` holds everywhere, as no condition.
       const media = (kind === 'media' || kind === 'import') && rule.media?.mediaText.trim()
-      const inner = media ? [...conditions, media] : conditions
+      const inner = media && media.toLowerCase() !== 'all' ? [...conditions, media] : conditions
       if (kind === 'import') {
-        const sheet = rule.styleSheet?.cssRules
+        const sheet = importedRules(rule)
         if (sheet && applies(rule)) walk(sheet, inner, null)
       } else if (kind !== 'other') {
         if (rule.cssRules && applies(rule)) walk(rule.cssRules, inner, parent)
       }
     }
   }
-  walk(rules, [], null)
+  walk(rules, outer, null)
   return result
+}
+
+// The condition of a media rule inside a media rule: each query of the outer
+// list with each query of the inner one (`screen, print` around
+// `(width < 768px)` is `screen and (width < 768px), print and (width < 768px)`).
+function joinMedia(outer: string, inner: string): string {
+  return splitTop(outer, /,/)
+    .flatMap((first) => splitTop(inner, /,/).map((second) => joinQuery(first, second)))
+    .join(', ')
+}
+
+// The rules of the stylesheet of an `@import` rule, or null. A stylesheet
+// from a different origin throws on the read of its rules: it is skipped.
+function importedRules(rule: RuleLike): ArrayLike<RuleLike> | null {
+  try {
+    return rule.styleSheet?.cssRules ?? null
+  } catch {
+    return null
+  }
 }
 
 // The sides in the order of the CSS shorthands (`padding: 1px 2px 3px 4px`).
@@ -201,7 +232,7 @@ export function shorthandsOf(property: string): string[] {
       `border-${logical}-${part}`,
     ]
   }
-  return simpleShorthands[property] ?? []
+  return Object.hasOwn(simpleShorthands, property) ? simpleShorthands[property] : []
 }
 
 // Each variable in a text, once, in the sequence of the text.
@@ -228,25 +259,41 @@ function closeOf(text: string, open: number): number {
   return text.length
 }
 
-const number = String.raw`(-?\d*\.?\d+)`
+// A number of CSS as a word of its own: not a part of a length (`2px`) or of
+// a name, with an exponent (`10e-1`).
+const number = String.raw`(?<![\w.])(-?\d*\.?\d+(?:e[+-]?\d+)?)(?![\w.%])`
 
 // The factor of each use of `cssVar` in a text: `calc(2 * var(--x))` and
 // `calc(var(--x) * 2)` give 2, `calc(var(--x) / 2)` gives 0.5, a plain
-// `var(--x)` gives 1.
+// `var(--x)` gives 1, a number on each side gives their product
+// (`calc(-1 * var(--x) * 2)` gives -2), and a use after a minus is negative
+// (`calc(0px - var(--x))` gives -1). A use divided by 0 has no factor, and
+// neither has a use that is not a length times a number: a number divided by
+// it (`calc(2 / var(--x))`) or a length times it (`calc(var(--x) * 2px)`).
 export function factorsOf(text: string, cssVar: string): number[] {
   const factors: number[] = []
   const use = new RegExp(`var\\(\\s*${escapeRegExp(cssVar)}(?=[\\s,)])`, 'g')
+  const times = new RegExp(`^\\s*\\*\\s*${number}`, 'i')
+  const divided = new RegExp(`^\\s*\\/\\s*${number}`, 'i')
+  const timesBefore = new RegExp(`${number}\\s*\\*\\s*$`, 'i')
   for (const match of text.matchAll(use)) {
     const start = match.index
     const end = closeOf(text, start + 3)
-    const before = new RegExp(`${number}\\s*\\*\\s*$`).exec(text.slice(0, start))
+    const head = text.slice(0, start)
     const after = text.slice(end)
-    const times = new RegExp(`^\\s*\\*\\s*${number}`).exec(after)
-    const divided = new RegExp(`^\\s*\\/\\s*${number}`).exec(after)
-    if (before) factors.push(Number(before[1]))
-    else if (times) factors.push(Number(times[1]))
-    else if (divided) factors.push(1 / Number(divided[1]))
-    else factors.push(1)
+    const before = timesBefore.exec(head)
+    // An operator next to the use with no plain number on its other side.
+    if (!before && /[*/]\s*$/.test(head)) continue
+    const right = times.exec(after)
+    const under = divided.exec(after)
+    if ((!right && /^\s*\*/.test(after)) || (!under && /^\s*\//.test(after))) continue
+    if (under && Number(under[1]) === 0) continue
+    // A minus as an operator of calc has a space on each side.
+    const rest = before ? head.slice(0, before.index) : head
+    const sign = /\s-\s+$/.test(rest) ? -1 : 1
+    const left = before ? Number(before[1]) : 1
+    const factor = right ? Number(right[1]) : under ? 1 / Number(under[1]) : 1
+    factors.push(sign * left * factor)
   }
   return factors
 }
@@ -340,6 +387,17 @@ function nameEnd(text: string, start: number): number {
   return index
 }
 
+// The index of the quote that ends the quoted text that starts at `start`, with
+// each character after a backslash skipped (`"a\"b"`); -1 when it has no end.
+function quoteEnd(text: string, start: number): number {
+  const quote = text[start]
+  for (let index = start + 1; index < text.length; index += 1) {
+    if (text[index] === '\\') index += 1
+    else if (text[index] === quote) return index
+  }
+  return -1
+}
+
 // The index after the bracket or the parenthesis that closes the one at
 // `open`, with quoted texts skipped; -1 when it is not closed.
 function closeAt(text: string, open: number): number {
@@ -350,7 +408,7 @@ function closeAt(text: string, open: number): number {
     if (char === '\\') {
       index += 1
     } else if (char === '"' || char === "'") {
-      const end = text.indexOf(char, index + 1)
+      const end = quoteEnd(text, index)
       if (end < 0) return -1
       index = end
     } else if (char === text[open]) {
@@ -493,7 +551,7 @@ export function selectorParts(selector: string): string[] {
     if (char === '\\') {
       index += 2
     } else if (char === '"' || char === "'") {
-      const end = selector.indexOf(char, index + 1)
+      const end = quoteEnd(selector, index)
       index = end < 0 ? selector.length : end + 1
     } else if (char === '(' || char === '[') {
       const end = closeAt(selector, index)
@@ -542,25 +600,55 @@ export type ValueSource = { inline: boolean; media?: string }
 // its source.
 export type DeclaredValue = { texts: string[]; source: ValueSource }
 
+// True for a property of a logical side or corner (`padding-inline`,
+// `border-start-start-radius`).
+const isLogical = (property: string) => /-(inline|block|start|end)(-|$)/.test(property)
+
+// The place of a longhand in the sequence of the declarations, or null when
+// the sequence is not known or does not have it.
+function declarationIndex(style: DeclarationsLike, property: string): number | null {
+  if (typeof style.length !== 'number' || typeof style.item !== 'function') return null
+  for (let index = 0; index < style.length; index++) if (style.item(index) === property) return index
+  return null
+}
+
 // The text and the priority of a property in one source: the text of the
 // property, or, when it is empty, the text of a property that can set it. A
 // longhand of a shorthand with `var()` reads as an empty text, thus the
 // shorthand is read, and of a shorthand by side only the part of the side
 // (`shorthandPart`). Of two shorthands, the more specific one is read
 // (`padding-inline` before `padding`).
+//
+// A physical side or corner (`padding-left`) and its logical one
+// (`padding-inline-start`) are two longhands of one value: of the two, the
+// declaration with `!important`, else the later one in the source, wins
+// (`padding: 0; padding-inline: var(--space-4)` gives the second). With no
+// known sequence, the own text of the property, then the logical one.
 function candidateOf(property: string, source: StyleSource): DeclarationSource {
   const { style, kind, specificity: strength, media, position } = source
   const base = { kind, specificity: strength, position, ...(media ? { media } : {}) }
-  const own = style.getPropertyValue(property).trim()
-  if (own) return { ...base, text: own, important: style.getPropertyPriority(property) === 'important' }
-  for (const other of [...shorthandsOf(property)].reverse()) {
-    const text = style.getPropertyValue(other).trim()
-    if (text) {
-      const important = style.getPropertyPriority(other) === 'important'
-      return { ...base, text: shorthandPart(property, other, text), important }
+  const important = (name: string) => style.getPropertyPriority(name) === 'important'
+  const read = (names: readonly string[]) => {
+    for (const other of [...names].reverse()) {
+      const text = style.getPropertyValue(other).trim()
+      if (text) return { text: shorthandPart(property, other, text), important: important(other) }
     }
+    return null
   }
-  return { ...base, text: '', important: false }
+  const others = shorthandsOf(property)
+  const own = style.getPropertyValue(property).trim()
+  const physical = own ? { text: own, important: important(property) } : read(others.filter((other) => !isLogical(other)))
+  const logicalNames = others.filter(isLogical)
+  const logical = read(logicalNames)
+  const pick = (() => {
+    if (physical === null || logical === null) return physical ?? logical
+    if (physical.important !== logical.important) return physical.important ? physical : logical
+    const at = declarationIndex(style, property)
+    const logicalAt = logicalNames.length === 0 ? null : declarationIndex(style, logicalNames[logicalNames.length - 1])
+    if (at === null || logicalAt === null) return own ? physical : logical
+    return at > logicalAt ? physical : logical
+  })()
+  return { ...base, ...(pick ?? { text: '', important: false }) }
 }
 
 // The declaration of a property that wins among the sources of an element

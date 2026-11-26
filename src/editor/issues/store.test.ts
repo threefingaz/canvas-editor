@@ -37,6 +37,17 @@ describe('createIssuesStore', () => {
     expect(Object.keys(store.screens())).toEqual(['one', 'two'])
   })
 
+  test('a screen id that is the name of a property of each object has no issues until it gets some', () => {
+    const store = createIssuesStore()
+    expect(store.get('constructor')).toBeUndefined()
+    const listener = vi.fn()
+    store.subscribe(listener)
+    store.drop('toString')
+    expect(listener).not.toHaveBeenCalled()
+    store.set('constructor', [gap])
+    expect(store.get('constructor')).toEqual([gap])
+  })
+
   test('a new list calls the subscribers and gives a new map of screens', () => {
     const store = createIssuesStore()
     const listener = vi.fn()

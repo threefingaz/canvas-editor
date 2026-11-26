@@ -14,7 +14,7 @@ Read this file first. Then read only the file of your job, as the table below sa
 | `components/<Name>.tsx` | The own components of the project: parts that the library does not have and that the user asked for. A screen can import them, and the canvas marks each as not from the library. [guide/screen-files.md](guide/screen-files.md) says when you write one. |
 | `packs/<name>/` | The library pack: all that is specific to the component library. `packs/<name>/AGENTS.md` names its packages, its breakpoints and how an edit is written with it, and links its library skill. |
 | `.canvas/requests/` | The request files that the editor writes, one for each screen with open edits. |
-| `.canvas/issues/` | The Issues list of each screen, written by the editor while it is open. Read it; do not change it. |
+| `.canvas/issues/` | The Issues list of each screen, written by the editor while it is open. Read it; do not change it. A `keep` deletes the file of each option that it deletes. |
 | `tokens.json` | The tokens of the library, written by `canvas tokens`. Do not change it by hand. |
 | `canvas.config.ts` | The screen widths of the project and `agent`, the way of "Send to the agent". |
 | `guide/` | The guide: the rules of a screen file, the guide of the requests, and the skills. |
@@ -45,7 +45,7 @@ These three things hold also when the user asks for a different thing:
 
 1. **The form of a screen file:** one file for one screen, with `meta`; the parts of the library, and what is not from the library only where the user asked for it (an own component in `components/`, a screen brought as it is); no state, no handlers, and no import from the tool. [guide/screen-files.md](guide/screen-files.md) has the rules.
 2. **No change of the library:** not of its pack in `packs/`, and not of `tokens.json`. When a task needs one, say so in your reply. The one exception is the setup of the library itself (`canvas-library-setup`: its two levels, and an update of the library), and the provider step of `canvas-screen` ("Before the tokens are set up").
-3. **No change outside `screens/` and `components/` for a request**, except the request files in `.canvas/requests/`, as [guide/requests.md](guide/requests.md) says. What a command of the tool writes (`dist/` of `canvas build`) is not your change.
+3. **No change outside `screens/` and `components/` for a request**, except the request files in `.canvas/requests/` and the issues files of the options that a `keep` deletes, as [guide/requests.md](guide/requests.md) says. What a command of the tool writes (`dist/` of `canvas build`) is not your change.
 
 ## Commands
 

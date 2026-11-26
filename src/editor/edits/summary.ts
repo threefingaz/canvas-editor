@@ -1,5 +1,6 @@
 import type { Edit, EditValue, Reply } from '../../requests/format.ts'
 import { corners, sides } from '../tokens/declarations.ts'
+import { counted } from '../../words.ts'
 
 // One line of text for an edit, for the Changes list:
 // `Padding: 20px → spacing.2`, `Text: "Welcome" → "Hello"`, `Removed`,
@@ -71,8 +72,11 @@ export const replyText: Record<Reply['status'], string> = {
 // The most characters of a text in a summary.
 export const summaryTextLimit = 24
 
+// The text up to the limit, by characters: a pair of UTF-16 units (an emoji)
+// is not cut in two.
 function cut(text: string): string {
-  return text.length > summaryTextLimit ? `${text.slice(0, summaryTextLimit)}…` : text
+  const characters = [...text]
+  return characters.length > summaryTextLimit ? `${characters.slice(0, summaryTextLimit).join('')}…` : text
 }
 
 export function summaryOf(edit: Edit): string {
@@ -95,7 +99,8 @@ export function summaryOf(edit: Edit): string {
     // The count, and the start of the note when it has one.
     case 'options': {
       const note = change.note.replace(/\s+/g, ' ').trim()
-      return note === '' ? `${change.count} options` : `${change.count} options: ${cut(note)}`
+      const count = counted(change.count, 'option')
+      return note === '' ? count : `${count}: ${cut(note)}`
     }
     case 'keep':
       return `Keep option: ${change.option}`

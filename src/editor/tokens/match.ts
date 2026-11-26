@@ -40,10 +40,37 @@ type TextStylePart = keyof TextStyle
 // The declared side of a text style: the winning texts of its five parts (a
 // part that only `font` sets reads the text of `font`), with the variables
 // that they follow, and a test of the element against the selector of a
-// style.
+// style. `previewed`: the id of the text style that the preview of an edit
+// gives the element (`previewTextStyle`): a style with no variable is
+// previewed by its five parts, and the element keeps its class.
 export type TextDeclared = {
   texts: readonly string[]
   matches: (selector: string) => boolean
+  previewed?: string | null
+}
+
+// The custom property that the preview of a text style with no variable sets
+// on its nodes, with the id of the style as a CSS text (`preview/css.ts`).
+export const previewTextStyle = '--canvas-preview-text-style'
+
+// The character of a hex escape: zero, a surrogate and a code point above
+// the last one give U+FFFD, as the CSS reader does.
+function codePointText(code: number): string {
+  if (code === 0 || code > 0x10ffff || (code >= 0xd800 && code <= 0xdfff)) return '\ufffd'
+  return String.fromCodePoint(code)
+}
+
+// The id of a style in the value of `previewTextStyle`: a CSS text
+// in double quotes, with a backslash before a quote or a backslash, and a
+// control character as its hex code and a space; null for an empty value.
+export function previewedStyle(value: string): string | null {
+  const text = value.trim()
+  if (text.length < 2 || !text.startsWith('"') || !text.endsWith('"')) return null
+  return text
+    .slice(1, -1)
+    .replace(/\\(?:([0-9a-fA-F]{1,6}) ?|(.))/g, (_, hex: string | undefined, char: string) =>
+      hex === undefined ? char : codePointText(parseInt(hex, 16)),
+    )
 }
 
 // How one kind of value is read, compared and measured.
@@ -100,7 +127,9 @@ function declares(token: Token, declared: readonly string[], sign: 1 | -1): bool
 //
 // A negative spacing is compared by its size, and links the token whose
 // variable it has with the negative factor: `m: -2` writes
-// `calc(-2 * var(--lib-spacing))`.
+// `calc(-2 * var(--lib-spacing))`. A library with a negative token of its own
+// (`--space-n2: -8px`) has that value as it is: the token matches it, unless
+// the declared text links a positive token with the negative factor.
 export function matchValue(
   group: ValueGroup,
   computed: string,
@@ -111,9 +140,6 @@ export function matchValue(
   const kind = kinds[group]
   const parsed = kind.parse(computed)
   if (parsed === null || kind.empty(parsed)) return null
-  const sign = group === 'spacing' && (parsed as number) < 0 ? -1 : 1
-  const value = sign === -1 ? -(parsed as number) : parsed
-  const negative = sign === -1 ? { negative: true as const } : {}
 
   const candidates: { token: Token; value: unknown }[] = []
   for (const token of tokens) {
@@ -121,6 +147,11 @@ export function matchValue(
     const tokenValue = kind.parse(token.value)
     if (tokenValue !== null) candidates.push({ token, value: tokenValue })
   }
+
+  const ownNegative = candidates.some((candidate) => kind.same(candidate.value, parsed))
+  const sign = group === 'spacing' && (parsed as number) < 0 && !ownNegative ? -1 : 1
+  const value = sign === -1 ? -(parsed as number) : parsed
+  const negative = sign === -1 ? { negative: true as const } : {}
 
   const same = candidates.filter((candidate) => kind.same(candidate.value, value))
   // The token of the text nearest to the element wins: in
@@ -130,6 +161,15 @@ export function matchValue(
     .map((text) => same.find((candidate) => declares(candidate.token, [text], sign)))
     .find((candidate) => candidate !== undefined)
   if (linked) return { state: 'linked', token: linked.token, ...negative }
+  // With a negative token of the same value, the variable of a positive
+  // token with the negative factor still links that token.
+  if (ownNegative && group === 'spacing' && (parsed as number) < 0) {
+    const size = -(parsed as number)
+    const flipped = declared
+      .map((text) => candidates.find((candidate) => kind.same(candidate.value, size) && declares(candidate.token, [text], -1)))
+      .find((candidate) => candidate !== undefined)
+    if (flipped) return { state: 'linked', token: flipped.token, negative: true }
+  }
   if (same.length > 0) return { state: 'equal', token: same[0].token, ...negative }
 
   let nearest: Token | null = null
@@ -155,7 +195,8 @@ function sizeDistance(computed: TextStyle, style: TextStyle) {
 }
 
 // The state of the text style of an element. Linked: the declared texts have
-// the variable of a style, or the element matches the selector of a style;
+// the variable of a style, the element matches the selector of a style, or
+// the preview of an edit gives the element the style;
 // and all five computed parts are equal to the style. Equal: all five parts
 // are equal to a style with no such evidence. None: the nearest style is the
 // one with the fewest different parts, then the nearest font size.
@@ -166,10 +207,12 @@ export function matchTextStyle(computed: TextStyle, declared: TextDeclared, toke
   const ranked = styles.map((token) => ({ token, different: differentParts(computed, token.value) }))
 
   const same = ranked.filter((entry) => entry.different.length === 0)
-  const linked = same.find(({ token }) => {
-    const byVariable = token.cssVar !== undefined && declared.texts.some((text) => variablesIn(text).includes(token.cssVar!))
-    return byVariable || (token.selector !== undefined && declared.matches(token.selector))
-  })
+  // The previewed style wins, then a variable, then a selector: the element
+  // keeps its class while the preview gives it a different style.
+  const linked =
+    same.find(({ token }) => declared.previewed === token.id) ??
+    same.find(({ token }) => token.cssVar !== undefined && declared.texts.some((text) => variablesIn(text).includes(token.cssVar!))) ??
+    same.find(({ token }) => token.selector !== undefined && declared.matches(token.selector))
   if (linked) return { state: 'linked', token: linked.token }
   if (same.length > 0) return { state: 'equal', token: same[0].token }
 

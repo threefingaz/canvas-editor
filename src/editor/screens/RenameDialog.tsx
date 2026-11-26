@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import type { ScreenAction } from '../../requests/api.ts'
 import { Button, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, Input, Label } from '../ui'
 import { flowsOf, renamePreview, titleProblem, type ActionScreen, type RenamePreview } from './screen-actions.ts'
@@ -35,6 +35,9 @@ function initialValue(mode: RenameMode, screen: ActionScreen): string {
 export function RenameDialog({ mode, screen, list, run, onClose }: RenameDialogProps) {
   const [value, setValue] = useState(() => initialValue(mode, screen))
   const [busy, setBusy] = useState(false)
+  // True from a submit until the answer: a second submit before the next
+  // render starts no second action.
+  const running = useRef(false)
   const [refusals, setRefusals] = useState<string[]>([])
   const fieldId = useId()
   const flowsId = useId()
@@ -48,10 +51,16 @@ export function RenameDialog({ mode, screen, list, run, onClose }: RenameDialogP
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
-    if (problem !== null || busy) return
+    if (problem !== null || running.current) return
+    running.current = true
     setBusy(true)
-    const reasons = await run(action)
-    setBusy(false)
+    let reasons: string[]
+    try {
+      reasons = await run(action)
+    } finally {
+      running.current = false
+      setBusy(false)
+    }
     if (reasons.length === 0) onClose()
     else setRefusals(reasons)
   }
@@ -142,8 +151,9 @@ export function Refusals({ reasons }: { reasons: readonly string[] }) {
     <div className="grid gap-1 text-xs text-[color:var(--destructive)]" role="alert" data-screen-dialog-refusals="">
       <span>Nothing changed:</span>
       <ul className="m-0 grid list-disc gap-0.5 pl-4">
-        {reasons.map((reason) => (
-          <li key={reason}>{reason}</li>
+        {/* Two screens can give the same reason: the index keeps each key apart. */}
+        {reasons.map((reason, index) => (
+          <li key={`${index} ${reason}`}>{reason}</li>
         ))}
       </ul>
     </div>

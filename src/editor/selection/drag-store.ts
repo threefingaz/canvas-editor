@@ -1,4 +1,4 @@
-import type { Rect } from '../canvas/viewport.ts'
+import { sameRect, type Rect } from '../canvas/viewport.ts'
 import { dragAfter, idleDrag, type Drag, type DragEvent } from './move-drag.ts'
 
 // The store of the drag of the selected element (`move-drag.ts`): the state
@@ -43,11 +43,6 @@ export function createDragStore(): DragStore {
       return () => listeners.delete(listener)
     },
   }
-}
-
-function sameRect(a: Rect | null, b: Rect | null): boolean {
-  if (a === null || b === null) return a === b
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
 }
 
 // The drag of the editor.

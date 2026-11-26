@@ -25,6 +25,11 @@ export function TokenControl({ row, onPick }: Props) {
   return null
 }
 
+// The key of the step control of a row: the active token and the tokens.
+function stepKey(row: InspectorRow): string {
+  return JSON.stringify([activeToken(row)?.id ?? null, row.tokens.map((token) => token.id)])
+}
+
 // The steps go from the first to the last token of the row, one whole number
 // for each token (the continuous slider with a step of 1: its keys move one
 // token). A value with no token stands at its nearest step. A value with no
@@ -34,17 +39,20 @@ export function TokenControl({ row, onPick }: Props) {
 // control names the token of the value, thus the label next to the slider
 // names only a different step, while the thumb is moved to it; its place
 // stays, thus the slider keeps its width.
+//
+// A new active token or a new list of tokens (a new token file, a frame that
+// loads again) puts the thumb at its new step. The control stays mounted: a
+// new mount at each step would take the focus from the slider, and the next
+// arrow key would then go to the canvas.
 function StepControl({ row, onPick }: Props) {
   const active = activeToken(row)
   const found = row.tokens.findIndex((token) => token.id === active?.id)
   const start = found === -1 ? null : found
   const [index, setIndex] = useState<number | null>(start)
-  // The row stays mounted after an edit (an undo, the agent's change of the
-  // file), thus the thumb goes to the step of a new token of the value here,
-  // during the render, and keeps its focus.
-  const [shownStart, setShownStart] = useState(start)
-  if (shownStart !== start) {
-    setShownStart(start)
+  const key = stepKey(row)
+  const [shown, setShown] = useState(key)
+  if (shown !== key) {
+    setShown(key)
     setIndex(start)
   }
   const step = (value: number | readonly number[]) => (typeof value === 'number' ? value : (value[0] ?? 0))
