@@ -14,10 +14,10 @@ An interface is the rules of the game and their physical form. The rules are the
 Write down these three things, each in one or two lines, and give them to the user at the start of your reply.
 
 1. **The task**, in the words of the person, with real values: "find episode 138 of 169", not "browse the episodes".
-2. **The situation**: where the person is, what is in their hands, what they did just before, what they do next. The `width` of the screen tells a part of it: a narrow screen is a phone in one hand, with a thumb.
+2. **The situation**: where the person is, what is in their hands, what they did just before, what they do next; how often they do this task (one time, or many times each day), and how many things they handle at once. The `width` of the screen tells a part of it: a narrow screen is a phone in one hand, with a thumb.
 3. **The scenario**: each action and each response, as a list. One screen of a flow is one step of this list.
 
-If the request does not give the task, state the task that you assumed.
+This skill is a base that holds for each product; it does not know this one. Take the task and the situation from the request, then from what the project says about its product (its documents, a page of the application near this screen; `canvas-screen`, "What the project knows"), and assume only what they do not say. State each thing that you assumed.
 
 ## 2. Remove before you draw
 
